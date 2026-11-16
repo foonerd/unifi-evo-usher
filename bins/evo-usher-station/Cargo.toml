@@ -1,0 +1,14 @@
+[package]
+name = "evo-usher-station"
+description = "A station of unifi-evo-usher: where a guest is handed a voucher, on a screen or on a label."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+evo-usher-about = { path = "../../crates/about" }
+
+[lints]
+workspace = true

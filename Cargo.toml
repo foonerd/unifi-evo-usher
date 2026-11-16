@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/about",
+    "bins/evo-usher-core",
+    "bins/evo-usher-station",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+repository = "https://github.com/foonerd/unifi-evo-usher"
+
+# One set of lints for every crate; CI denies warnings.
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+unused_qualifications = "warn"
+
+# What ships carries no symbols: the programs name their own commit and
+# target, and a release names its build in build.json.
+[profile.release]
+strip = true

@@ -1,0 +1,4 @@
+# 80-column formatting, as in evo-core, and Unix line endings whatever the
+# contributor's platform. Everything else is rustfmt's stable default.
+max_width = 80
+newline_style = "Unix"

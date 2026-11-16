@@ -1,0 +1,83 @@
+name: ci
+
+# Every push: the workshop pass, then every architecture built on a machine
+# of its own (nothing is emulated) with its proof, then the packages and
+# the image made from what was built. What was built and what was packed
+# are kept with the run.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: format, lints, tests, docs
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: The toolchain rust-toolchain.toml names
+        run: scripts/toolchain.sh
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: check
+          cache-bin: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: scripts/check.sh
+
+  build:
+    name: ${{ matrix.arch }}
+    needs: check
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@v7
+      - name: The toolchain rust-toolchain.toml names
+        run: scripts/toolchain.sh
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-${{ matrix.arch }}
+          cache-bin: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: scripts/build.sh ${{ matrix.arch }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: unifi-evo-usher-${{ matrix.arch }}
+          path: out/${{ matrix.arch }}
+          if-no-files-found: error
+
+  package:
+    name: packages and the image
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: unifi-evo-usher-*
+          path: artifacts
+      # The artifact store keeps no file modes; the programs are made
+      # runnable again, and package.sh holds each against its digest.
+      - name: What the builds made, where the scripts look for it
+        run: |
+          mkdir -p out
+          for arch in amd64 arm64; do mv "artifacts/unifi-evo-usher-$arch" "out/$arch"; done
+          chmod 755 out/*/bin/*
+          ls -la out/*/bin
+      - run: scripts/package.sh
+      - run: scripts/image.sh --check
+      - uses: actions/upload-artifact@v7
+        with:
+          name: unifi-evo-usher-packages
+          path: dist
+          if-no-files-found: error
