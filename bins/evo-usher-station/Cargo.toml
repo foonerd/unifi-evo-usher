@@ -9,6 +9,8 @@ repository.workspace = true
 
 [dependencies]
 evo-usher-about = { path = "../../crates/about" }
+evo-usher-printer = { path = "../../crates/printer" }
+evo-usher-render = { path = "../../crates/render" }
 
 [lints]
 workspace = true

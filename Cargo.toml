@@ -2,12 +2,14 @@
 resolver = "2"
 members = [
     "crates/about",
+    "crates/printer",
+    "crates/render",
     "bins/evo-usher-core",
     "bins/evo-usher-station",
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 publish = false

@@ -3,10 +3,14 @@
 # every architecture:
 #
 #   dist/unifi-evo-usher-<version>-<arch>.tar.gz   both programs, build.json,
-#                                                  README.md, CHANGELOG.md
-#                                                  and LICENSE
+#                                                  README.md, CHANGELOG.md,
+#                                                  LICENSE and OFL-Inter.txt
 #   dist/<program>_<version>_<arch>.deb            one program, installed
 #                                                  under /opt/evo/bin
+#
+# The station carries the typeface Inter, so the licence Inter comes under
+# goes wherever the station goes: into the archive, and into the station's
+# package beside its copyright.
 #
 # Every file is checked against the digest build.json recorded for it, so a
 # build that came through a workflow's artifact store is the build that was
@@ -21,6 +25,9 @@ set -euo pipefail
 ROOT=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 . scripts/targets.sh
+
+# The licence of the typeface the station carries.
+FONT_LICENCE=crates/render/assets/fonts/OFL.txt
 
 from="out"
 arches=""
@@ -67,6 +74,7 @@ for arch in $arches; do
     install -m 755 "$from/$arch/bin/$program" "$stage/$top/bin/$program"
   done
   install -m 644 "$from/$arch/build.json" README.md CHANGELOG.md LICENSE "$stage/$top/"
+  install -m 644 "$FONT_LICENCE" "$stage/$top/OFL-Inter.txt"
   tar -C "$stage" --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$epoch" -czf "dist/$top.tar.gz" "$top"
   echo "[OK] dist/$top.tar.gz: $(stat -c %s "dist/$top.tar.gz") bytes"
 
@@ -74,6 +82,9 @@ for arch in $arches; do
     root="$stage/deb-$arch-$program"
     install -D -m 755 "$from/$arch/bin/$program" "$root/opt/evo/bin/$program"
     install -D -m 644 LICENSE "$root/usr/share/doc/$program/copyright"
+    if [[ "$program" == evo-usher-station ]]; then
+      install -D -m 644 "$FONT_LICENCE" "$root/usr/share/doc/$program/OFL-Inter.txt"
+    fi
     mkdir -p "$root/DEBIAN"
     size=$(du -sk --exclude=DEBIAN "$root" | cut -f1)
     {

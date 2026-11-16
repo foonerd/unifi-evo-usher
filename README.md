@@ -6,7 +6,55 @@ What it is built to be: a core that holds the UniFi key, mints the vouchers on t
 
 ## Status
 
-0.1.0 carries the build and the release path, and nothing a guest can use: two static programs, `evo-usher-core` and `evo-usher-station`, each of which answers `--version` with its name, its version, the commit it was built from and the target it was built for, and refuses everything else. Nothing is issued, shown or printed yet.
+0.2.0 draws the voucher label and knows the printers it goes to. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else. Nothing is minted on a controller yet, and nothing a guest can use is handed out.
+
+## Printers
+
+The station draws the label itself, dot by dot, and sends it to the printer in the printer's own language. No driver, spooler or vendor software stands between the two.
+
+```text
+evo-usher-station printer models
+evo-usher-station printer status --usb /dev/usb/lp0
+evo-usher-station printer test --usb /dev/usb/lp0
+evo-usher-station printer test --tcp 192.0.2.7 --model QL-720NW --media 62
+```
+
+`printer models` lists every model the station knows, with the evidence that it prints on it. `printer status` asks a printer how it is and says what it answers: the model, the media, its state, and the status as it came, byte for byte. `printer test` prints a specimen voucher label on what the printer has loaded: every part of a voucher label in its place, and nothing on it that lets anyone in.
+
+A printer is reached over its USB printer device, which the kernel's `usblp` driver puts at `/dev/usb/lp0` and up, or over a TCP port, 9100 unless another is named.
+
+- Over USB a printer names itself and its media. It is not sent a label while it reports trouble, and a label counts as printed when the printer says so.
+- Over TCP a printer that answers is treated the same. One that does not is told what it is, with `--model` and `--media`, and is sent the label on trust: the station then says the label was sent, not that it was printed.
+
+A model the printer names itself as, in a code no reference has, is reported and not guessed; `--model` says what it is to be treated as.
+
+### The evidence
+
+Every model is listed with how far the evidence goes that the station prints on it, and no model is given a step it has not taken.
+
+| Evidence | What it means |
+| --- | --- |
+| proven | Printed on the printer itself with this program. |
+| to reference | The station sends, byte for byte, what a program confirmed on the model sends. |
+| to specification | Written from the maker's command reference and held to it by tests; not yet compared with a print. |
+
+| Models | Evidence | Written from |
+| --- | --- | --- |
+| QL-800, QL-810W, QL-820NWB | to reference | Brother Raster Command Reference QL-800/810W/820NWB, version 1.01 |
+| QL-820NWBc | to specification | The same reference, which does not name the model: it is listed with the QL-820NWB's particulars and no model code of its own |
+| QL-600, QL-710W, QL-720NW | to specification | Brother Raster Command Reference QL-600/QL-710W/QL-720NW, version 1.02 |
+| QL-500, QL-550, QL-560, QL-570, QL-580N, QL-650TD, QL-700, QL-1050, QL-1060N | to specification | Brother QL Series Command Reference, version 6.0 |
+| QL-1100, QL-1110NWB, QL-1115NWB | to specification | Brother Raster Command Reference QL-1100/1110NWB/1115NWB, version 1.00 |
+
+No model is proven yet. The reference the QL-800 series is held to is the `brother_ql` crate, version 3.0.6; `crates/printer/tests/fixtures/README.md` says how its jobs were recorded. It is not a dependency.
+
+### Media
+
+Continuous tape of 12, 29, 38, 50, 54 and 62 mm, and of 102 and 103 mm on the wide models; labels of a fixed length from 17 x 54 mm to 103 x 164 mm. `--media` takes the names the station lists when it is given one it does not know.
+
+A printer says what it has loaded, with one exception: it does not say whether a 62 mm roll is black, or red and black. A red and black roll is named, `--media 62-red`, on the models that print it.
+
+The specimen needs 36 x 13.2 mm of printable paper; a long network name, or a passphrase, makes the symbol and with it the label larger. On tape of 50 mm and wider it is read across the tape and takes 27 mm of it; on narrower tape it is laid along the tape. 12 mm tape, the smallest labels and round labels are refused, by name.
 
 ## Getting it
 
@@ -14,7 +62,7 @@ A release is tagged `v<version>` and is published as a pre-release until it has 
 
 | File | What |
 | --- | --- |
-| `unifi-evo-usher-<version>-<arch>.tar.gz` | Both programs under `bin/`, with `build.json` (the version, the commit, the target, the compiler, and the digest and size of each program), `README.md`, `CHANGELOG.md` and `LICENSE`. |
+| `unifi-evo-usher-<version>-<arch>.tar.gz` | Both programs under `bin/`, with `build.json` (the version, the commit, the target, the compiler, and the digest and size of each program), `README.md`, `CHANGELOG.md`, `LICENSE` and `OFL-Inter.txt`. |
 | `evo-usher-core_<version>_<arch>.deb` | The core, installed as `/opt/evo/bin/evo-usher-core`. |
 | `evo-usher-station_<version>_<arch>.deb` | The station, installed as `/opt/evo/bin/evo-usher-station`. |
 
@@ -53,3 +101,5 @@ UniFi is a trademark of Ubiquiti Inc. unifi-evo-usher is an independent project:
 ## Licence
 
 MIT; see `LICENSE`.
+
+The station carries the typeface Inter, copyright the Inter Project Authors, under the SIL Open Font License 1.1: `crates/render/assets/fonts/OFL.txt` in this repository, `OFL-Inter.txt` in an archive and in the station's package.

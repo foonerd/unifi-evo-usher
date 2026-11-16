@@ -2,9 +2,10 @@
 //!
 //! Every program answers `--version` (or `-V`) with one line: its name,
 //! its version, the commit it was built from and the target it was built
-//! for. This release carries nothing else to run, so every other
-//! invocation is refused: the usage on standard error and a non-zero
-//! exit, never a program that sits and does nothing.
+//! for. A program that has commands of its own names them in its usage.
+//! Whatever a program does not understand it refuses: the usage on
+//! standard error and a non-zero exit, never a program that sits and does
+//! nothing.
 
 use std::process::ExitCode;
 
@@ -35,9 +36,35 @@ pub fn identity(program: &str) -> String {
     format!("{program} {VERSION} (commit {COMMIT}, {TARGET})")
 }
 
-/// The answer of `program` to its arguments, the program's own name left
-/// out of them.
+/// The usage of `program`: `--version`, and under it each of
+/// `commands`, the commands the program has of its own.
+pub fn usage(program: &str, commands: &[&str]) -> String {
+    let mut usage = format!("usage: {program} --version");
+    for command in commands {
+        usage.push_str(&format!("\n       {program} {command}"));
+    }
+    usage
+}
+
+/// What `program` says when it refuses an invocation for `reason`: the
+/// reason, and the usage with `commands` in it.
+pub fn refusal(program: &str, commands: &[&str], reason: &str) -> String {
+    format!("{program}: {reason}\n{}", usage(program, commands))
+}
+
+/// The answer of `program`, which has no commands of its own, to its
+/// arguments, the program's own name left out of them.
 pub fn answer<I>(program: &str, arguments: I) -> Answer
+where
+    I: IntoIterator<Item = String>,
+{
+    answer_with(program, &[], arguments)
+}
+
+/// The answer of `program` to arguments that are none of its own
+/// `commands`: its identity if it is asked for, or the refusal, with the
+/// commands in the usage.
+pub fn answer_with<I>(program: &str, commands: &[&str], arguments: I) -> Answer
 where
     I: IntoIterator<Item = String>,
 {
@@ -46,21 +73,19 @@ where
         [only] if only == "--version" || only == "-V" => {
             Answer::Identity(identity(program))
         }
-        [] => Answer::Refused(format!(
-            "{program}: nothing was asked\nusage: {program} --version"
-        )),
-        [first, ..] => Answer::Refused(format!(
-            "{program}: '{first}' is not understood\n\
-             usage: {program} --version"
+        [] => Answer::Refused(refusal(program, commands, "nothing was asked")),
+        [first, ..] => Answer::Refused(refusal(
+            program,
+            commands,
+            &format!("'{first}' is not understood"),
         )),
     }
 }
 
-/// Answers the invocation `program` was started with: the identity on
-/// standard output and success, or the refusal on standard error and
-/// [`REFUSED`].
-pub fn run(program: &str) -> ExitCode {
-    match answer(program, std::env::args().skip(1)) {
+/// Says `answer`: the identity on standard output and success, or the
+/// refusal on standard error and [`REFUSED`].
+pub fn say(answer: Answer) -> ExitCode {
+    match answer {
         Answer::Identity(line) => {
             println!("{line}");
             ExitCode::SUCCESS
@@ -70,6 +95,12 @@ pub fn run(program: &str) -> ExitCode {
             ExitCode::from(REFUSED)
         }
     }
+}
+
+/// Answers the invocation `program`, which has no commands of its own,
+/// was started with.
+pub fn run(program: &str) -> ExitCode {
+    say(answer(program, std::env::args().skip(1)))
 }
 
 #[cfg(test)]
@@ -127,6 +158,47 @@ mod tests {
         match asked(&["--serve"]) {
             Answer::Refused(reason) => {
                 assert!(reason.contains("'--serve' is not understood"));
+            }
+            other => panic!("answered {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_program_with_commands_names_them_in_its_usage() {
+        let commands = ["printer models", "printer status --usb DEVICE"];
+        assert_eq!(
+            usage("evo-usher-station", &commands),
+            "usage: evo-usher-station --version\n       \
+             evo-usher-station printer models\n       \
+             evo-usher-station printer status --usb DEVICE"
+        );
+        assert_eq!(
+            usage("evo-usher-core", &[]),
+            "usage: evo-usher-core --version"
+        );
+        assert_eq!(
+            refusal("evo-usher-core", &[], "no"),
+            "evo-usher-core: no\nusage: evo-usher-core --version"
+        );
+        let asked = |arguments: &[&str]| {
+            answer_with(
+                "evo-usher-station",
+                &commands,
+                arguments.iter().map(|a| a.to_string()),
+            )
+        };
+        assert_eq!(
+            asked(&["-V"]),
+            Answer::Identity(identity("evo-usher-station"))
+        );
+        match asked(&["print"]) {
+            Answer::Refused(reason) => {
+                assert!(reason.starts_with(
+                    "evo-usher-station: 'print' is not understood\n"
+                ));
+                assert!(
+                    reason.ends_with(&usage("evo-usher-station", &commands))
+                );
             }
             other => panic!("answered {other:?}"),
         }
