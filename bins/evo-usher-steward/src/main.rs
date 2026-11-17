@@ -9,6 +9,7 @@ use clap::Parser as _;
 use evo::admission::AdmissionEngine;
 use evo::config::StewardConfig;
 use evo::AdmissionSetup;
+use evo_usher_controller_unifi::ControllerPlugin;
 use evo_usher_stock::StockPlugin;
 
 #[tokio::main]
@@ -21,6 +22,15 @@ async fn main() -> anyhow::Result<()> {
 fn admission() -> AdmissionSetup {
     Box::new(|engine: &mut AdmissionEngine, _config: &StewardConfig| {
         Box::pin(async move {
+            engine
+                .admit_singleton_respondent(
+                    ControllerPlugin::new(),
+                    evo_usher_controller_unifi::manifest(),
+                )
+                .await
+                .map_err(|e| {
+                    anyhow::anyhow!("admitting the controller: {e}")
+                })?;
             engine
                 .admit_singleton_respondent(
                     StockPlugin::new(),

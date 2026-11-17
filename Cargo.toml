@@ -7,11 +7,12 @@ members = [
     "bins/evo-usher-core",
     "bins/evo-usher-station",
     "bins/evo-usher-steward",
+    "plugins/org.evoframework.usher.controller.unifi",
     "plugins/org.evoframework.usher.stock",
 ]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 license = "MIT"
 publish = false
@@ -22,6 +23,7 @@ repository = "https://github.com/foonerd/unifi-evo-usher"
 [workspace.dependencies]
 evo = { git = "https://github.com/foonerd/evo-core.git", tag = "v0.1.13.0" }
 evo-plugin-sdk = { git = "https://github.com/foonerd/evo-core.git", tag = "v0.1.13.0" }
+evo-plugin-test = { git = "https://github.com/foonerd/evo-core.git", tag = "v0.1.13.0" }
 
 # One set of lints for every crate; CI denies warnings.
 [workspace.lints.rust]

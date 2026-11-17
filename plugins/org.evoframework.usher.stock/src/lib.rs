@@ -184,7 +184,10 @@ mod tests {
     #[tokio::test]
     async fn the_plugin_is_what_its_manifest_says() {
         let manifest = manifest();
-        let described = StockPlugin::new().describe().await;
+        let plugin = StockPlugin::new();
+        evo_plugin_test::assert_manifest_matches_describe(&manifest, &plugin)
+            .await;
+        let described = plugin.describe().await;
         assert_eq!(manifest.plugin.name, NAME);
         assert_eq!(described.identity.name, NAME);
         assert_eq!(

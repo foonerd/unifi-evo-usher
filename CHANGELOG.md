@@ -2,6 +2,14 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## [0.3.1] - 2026-11-17
+
+- The controller plugin, `org.evoframework.usher.controller.unifi`, on the shelf `access.controller`: it sets the UniFi Network controller to mint on, says the controller's version and its sites, mints vouchers on terms, lists them and revokes them. It is written from Ubiquiti's published description of the UniFi Network API, version 11.0.97
+- A controller is spoken to over HTTPS only, and is believed on a certificate the public authorities vouch for or on one certificate held to its fingerprint; `probe` says what a controller presents and sends it nothing. A controller is set only once it has answered, and one that is not believed is sent nothing
+- The key is kept in a file only its owner may read, apart from the rest of what the plugin keeps
+- The plugin is held to a simulated controller written from the same description. It has not yet been run against a controller
+- `evo-usher-steward` admits the controller plugin beside the stock; its tests take a voucher from the controller into the stock and out to a guest, through the steward, and across a restart
+
 ## [0.3.0] - 2026-11-17
 
 - unifi-evo-usher is a distribution of the [evo framework](https://github.com/foonerd/evo-core): a catalogue and a set of plugins on the evo steward, pinned to evo-core 0.1.13

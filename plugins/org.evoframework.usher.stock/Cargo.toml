@@ -15,6 +15,7 @@ serde_json = "1"
 tracing = "0.1"
 
 [dev-dependencies]
+evo-plugin-test = { workspace = true }
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt"] }
 

@@ -1,0 +1,44 @@
+[plugin]
+name = "org.evoframework.usher.controller.unifi"
+# The crate's version, which is the workspace's. The steward refuses a
+# plugin that says another version than its manifest; a test holds the two
+# together.
+version = "0.3.1"
+contract = 1
+
+[target]
+shelf = "access.controller"
+shape = 1
+
+[kind]
+instance = "singleton"
+interaction = "respondent"
+
+[transport]
+type = "in-process"
+exec = "<compiled-in>"
+
+[trust]
+class = "platform"
+
+[prerequisites]
+evo_min_version = "0.1.12"
+os_family = "linux"
+# Speaks to the controller over HTTPS.
+outbound_network = true
+# Reads and writes its own state and credentials directories only.
+filesystem_scopes = []
+
+[resources]
+max_memory_mb = 32
+max_cpu_percent = 5
+
+[lifecycle]
+hot_reload = "restart"
+autostart = true
+restart_on_crash = true
+restart_budget = 5
+
+[capabilities.respondent]
+request_types = ["probe", "set", "info", "sites", "mint", "list", "revoke"]
+response_budget_ms = 30000

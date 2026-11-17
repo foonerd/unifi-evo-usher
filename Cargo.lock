@@ -1297,6 +1297,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "evo-plugin-test"
+version = "0.1.13"
+source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+dependencies = [
+ "evo-plugin-sdk",
+]
+
+[[package]]
 name = "evo-primitives"
 version = "0.1.13"
 source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
@@ -1473,25 +1481,47 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-about"
-version = "0.3.0"
+version = "0.3.1"
+
+[[package]]
+name = "evo-usher-controller-unifi"
+version = "0.3.1"
+dependencies = [
+ "evo-plugin-sdk",
+ "evo-plugin-test",
+ "evo-usher-controller-unifi",
+ "hex",
+ "rcgen 0.13.2",
+ "reqwest 0.12.28",
+ "rustls",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "webpki-roots 1.0.9",
+]
 
 [[package]]
 name = "evo-usher-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "evo-usher-about",
 ]
 
 [[package]]
 name = "evo-usher-printer"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "rustix 1.1.4",
 ]
 
 [[package]]
 name = "evo-usher-render"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "ab_glyph",
  "qrcode",
@@ -1500,7 +1530,7 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-station"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "evo-usher-about",
  "evo-usher-printer",
@@ -1509,12 +1539,13 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-steward"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
  "clap",
  "evo",
+ "evo-usher-controller-unifi",
  "evo-usher-stock",
  "serde_json",
  "tempfile",
@@ -1523,9 +1554,10 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-stock"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "evo-plugin-sdk",
+ "evo-plugin-test",
  "semver",
  "serde",
  "serde_json",
