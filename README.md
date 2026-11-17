@@ -6,7 +6,31 @@ What it is built to be: a core that holds the UniFi key, mints the vouchers on t
 
 ## Status
 
-0.2.0 draws the voucher label and knows the printers it goes to. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else. Nothing is minted on a controller yet, and nothing a guest can use is handed out.
+0.3.0 stands on the evo steward. `evo-usher-steward` is the steward with the usher's catalogue and its first plugin, the stock of vouchers ready to hand out; it is built and tested, and not yet in the archive, the packages or the image. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else. Nothing is minted on a controller yet, and nothing a guest can use is handed out.
+
+## On evo
+
+unifi-evo-usher is a distribution of the [evo framework](https://github.com/foonerd/evo-core): a catalogue and a set of plugins on the evo steward. The steward is evo's, unchanged, pinned to evo-core 0.1.13; what is here is what makes it an usher.
+
+The catalogue, `catalogue/usher.toml`, declares what an usher is concerned with:
+
+| Rack | Shelf | What it is for |
+| --- | --- | --- |
+| `access` | `controller` | Turn a request for guest access into access the network grants: mint, list and revoke vouchers on the network's controller. |
+| `networks` | `directory` | Know the guest networks and VLANs a voucher can open. |
+| `stock` | `reserve` | Keep vouchers ready, so that one is handed out at once and without the controller. |
+| `issue` | `counter` | Hand a voucher to a guest and record who, where and when. |
+| `printing` | `labels` | Put a voucher on paper. |
+
+It also declares the subjects the usher speaks of (controller, guest network, voucher type, voucher, point of issue, printer, place, person) and the relations between them. No rack, shelf or relation is named after a vendor or a plugin.
+
+Plugins stock the shelves. One does so far:
+
+| Plugin | Shelf | What it does |
+| --- | --- | --- |
+| `org.evoframework.usher.stock` | `stock.reserve` | Takes vouchers in by type, hands each out once, oldest first, and says how many it holds. What it holds is kept through a restart. |
+
+`evo-usher-steward` is the steward with these plugins compiled in. It is started as the evo steward is, with a configuration that names the catalogue, and is asked over the steward's client socket; `bins/evo-usher-steward/tests/steward.rs` starts it, uses the stock through it, stops it and starts it again.
 
 ## Printers
 

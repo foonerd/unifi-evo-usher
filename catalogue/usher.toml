@@ -1,0 +1,219 @@
+# The usher's catalogue: the concerns of a device that hands out guest
+# Wi-Fi vouchers. Racks and shelves name concerns, never a vendor or a
+# plugin; subjects and relations are the vocabulary every plugin and every
+# consumer shares.
+
+schema_version = 1
+
+[[racks]]
+name = "access"
+family = "domain"
+kinds = ["transformer"]
+charter = "Turn a request for guest access into access the network grants."
+
+[[racks.shelves]]
+name = "controller"
+shape = 1
+description = "Mints, lists and revokes vouchers on the network's controller, and authorises a device."
+
+[[racks]]
+name = "networks"
+family = "domain"
+kinds = ["registrar"]
+charter = "Know the guest networks and VLANs a voucher can open."
+
+[[racks.shelves]]
+name = "directory"
+shape = 1
+description = "The guest networks the controller offers."
+
+[[racks]]
+name = "stock"
+family = "domain"
+kinds = ["registrar"]
+charter = "Keep vouchers ready, so that one is handed out at once and without the controller."
+
+[[racks.shelves]]
+name = "reserve"
+shape = 1
+description = "The vouchers minted and not yet handed out."
+
+[[racks]]
+name = "issue"
+family = "domain"
+kinds = ["producer"]
+charter = "Hand a voucher to a guest and record who, where and when."
+
+[[racks.shelves]]
+name = "counter"
+shape = 1
+description = "Takes a voucher from the reserve for a guest and records the issue."
+
+[[racks]]
+name = "printing"
+family = "domain"
+kinds = ["presenter"]
+charter = "Put a voucher on paper."
+
+[[racks.shelves]]
+name = "labels"
+shape = 1
+description = "Draws a voucher as a label and sees it through a label printer."
+
+[[subjects]]
+name = "controller"
+description = "A network controller that mints vouchers."
+
+[[subjects]]
+name = "guest_network"
+description = "A guest Wi-Fi network, with its name, its passphrase or none, and its VLAN."
+
+[[subjects]]
+name = "voucher_type"
+description = "The terms a voucher is minted on: how long, how many devices, what limits."
+
+[[subjects]]
+name = "voucher"
+description = "One voucher: a code a guest types, or scans, to be let in."
+
+[[subjects]]
+name = "point_of_issue"
+description = "A place where a voucher is handed out: a unit or a satellite."
+
+[[subjects]]
+name = "printer"
+description = "A printer a voucher can be printed on."
+
+[[subjects]]
+name = "place"
+description = "Where something stands: a building, a floor, a desk."
+
+[[subjects]]
+name = "person"
+description = "Someone who hands out vouchers."
+
+[[relation]]
+predicate = "of_type"
+description = "Voucher is minted on the terms of a voucher type."
+source_type = "voucher"
+target_type = "voucher_type"
+source_cardinality = "at_most_one"
+target_cardinality = "many"
+inverse = "type_of"
+
+[[relation]]
+predicate = "type_of"
+description = "Voucher type is the terms of vouchers."
+source_type = "voucher_type"
+target_type = "voucher"
+source_cardinality = "many"
+target_cardinality = "at_most_one"
+inverse = "of_type"
+
+[[relation]]
+predicate = "minted_on"
+description = "Voucher was minted on a controller."
+source_type = "voucher"
+target_type = "controller"
+source_cardinality = "at_most_one"
+target_cardinality = "many"
+inverse = "mints"
+
+[[relation]]
+predicate = "mints"
+description = "Controller minted vouchers."
+source_type = "controller"
+target_type = "voucher"
+source_cardinality = "many"
+target_cardinality = "at_most_one"
+inverse = "minted_on"
+
+[[relation]]
+predicate = "opens"
+description = "Voucher lets a guest onto a guest network."
+source_type = "voucher"
+target_type = "guest_network"
+source_cardinality = "many"
+target_cardinality = "many"
+inverse = "opened_by"
+
+[[relation]]
+predicate = "opened_by"
+description = "Guest network is opened by vouchers."
+source_type = "guest_network"
+target_type = "voucher"
+source_cardinality = "many"
+target_cardinality = "many"
+inverse = "opens"
+
+[[relation]]
+predicate = "issued_at"
+description = "Voucher was handed out at a point of issue."
+source_type = "voucher"
+target_type = "point_of_issue"
+source_cardinality = "at_most_one"
+target_cardinality = "many"
+inverse = "issued"
+
+[[relation]]
+predicate = "issued"
+description = "Point of issue handed out vouchers."
+source_type = "point_of_issue"
+target_type = "voucher"
+source_cardinality = "many"
+target_cardinality = "at_most_one"
+inverse = "issued_at"
+
+[[relation]]
+predicate = "issued_by"
+description = "Voucher was handed out by a person."
+source_type = "voucher"
+target_type = "person"
+source_cardinality = "at_most_one"
+target_cardinality = "many"
+inverse = "issuer_of"
+
+[[relation]]
+predicate = "issuer_of"
+description = "Person handed out vouchers."
+source_type = "person"
+target_type = "voucher"
+source_cardinality = "many"
+target_cardinality = "at_most_one"
+inverse = "issued_by"
+
+[[relation]]
+predicate = "prints_on"
+description = "Point of issue prints on a printer."
+source_type = "point_of_issue"
+target_type = "printer"
+source_cardinality = "many"
+target_cardinality = "many"
+inverse = "prints_for"
+
+[[relation]]
+predicate = "prints_for"
+description = "Printer prints for points of issue."
+source_type = "printer"
+target_type = "point_of_issue"
+source_cardinality = "many"
+target_cardinality = "many"
+inverse = "prints_on"
+
+[[relation]]
+predicate = "located_at"
+description = "Point of issue stands at a place."
+source_type = "point_of_issue"
+target_type = "place"
+source_cardinality = "at_most_one"
+target_cardinality = "many"
+inverse = "location_of"
+
+[[relation]]
+predicate = "location_of"
+description = "Place is where points of issue stand."
+source_type = "place"
+target_type = "point_of_issue"
+source_cardinality = "many"
+target_cardinality = "at_most_one"
+inverse = "located_at"

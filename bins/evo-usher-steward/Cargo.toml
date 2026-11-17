@@ -1,0 +1,23 @@
+[package]
+name = "evo-usher-steward"
+description = "The usher's steward: the evo steward composed with the usher's plugin set."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+evo = { workspace = true }
+evo-usher-stock = { path = "../../plugins/org.evoframework.usher.stock" }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+
+[dev-dependencies]
+base64 = "0.22"
+serde_json = "1"
+tempfile = "3"
+
+[lints]
+workspace = true

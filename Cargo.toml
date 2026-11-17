@@ -6,20 +6,33 @@ members = [
     "crates/render",
     "bins/evo-usher-core",
     "bins/evo-usher-station",
+    "bins/evo-usher-steward",
+    "plugins/org.evoframework.usher.stock",
 ]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "MIT"
 publish = false
 repository = "https://github.com/foonerd/unifi-evo-usher"
+
+# The evo framework, pinned to one release: the steward the usher is
+# composed on, and the SDK its plugins are written against.
+[workspace.dependencies]
+evo = { git = "https://github.com/foonerd/evo-core.git", tag = "v0.1.13.0" }
+evo-plugin-sdk = { git = "https://github.com/foonerd/evo-core.git", tag = "v0.1.13.0" }
 
 # One set of lints for every crate; CI denies warnings.
 [workspace.lints.rust]
 unsafe_code = "forbid"
 missing_docs = "warn"
 unused_qualifications = "warn"
+
+# The SDK's traits return `impl Future + Send`, which a plugin has to write
+# out; the rewrite this lint proposes does not satisfy them.
+[workspace.lints.clippy]
+manual_async_fn = "allow"
 
 # What ships carries no symbols: the programs name their own commit and
 # target, and a release names its build in build.json.

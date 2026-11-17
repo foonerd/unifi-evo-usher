@@ -1,0 +1,43 @@
+[plugin]
+name = "org.evoframework.usher.stock"
+# The crate's version, which is the workspace's. The steward refuses a
+# plugin that says another version than its manifest; a test holds the two
+# together.
+version = "0.3.0"
+contract = 1
+
+[target]
+shelf = "stock.reserve"
+shape = 1
+
+[kind]
+instance = "singleton"
+interaction = "respondent"
+
+[transport]
+type = "in-process"
+exec = "<compiled-in>"
+
+[trust]
+class = "platform"
+
+[prerequisites]
+evo_min_version = "0.1.12"
+os_family = "any"
+outbound_network = false
+# Reads and writes its own state directory only.
+filesystem_scopes = []
+
+[resources]
+max_memory_mb = 16
+max_cpu_percent = 1
+
+[lifecycle]
+hot_reload = "restart"
+autostart = true
+restart_on_crash = true
+restart_budget = 5
+
+[capabilities.respondent]
+request_types = ["put", "take", "count"]
+response_budget_ms = 1000
