@@ -26,6 +26,9 @@ const UNDER: &str = "/proxy/network/integration";
 const KEY: &str = "simulated-key";
 /// The one site it has.
 const SITE: &str = "88f7af54-98f8-306a-a1c7-c9349722b1f6";
+/// The site's own network, and its network for guests.
+const NETWORK_OWN: &str = "5a3c1d10-7b1e-4c55-9d0a-000000000001";
+const NETWORK_GUEST: &str = "5a3c1d10-7b1e-4c55-9d0a-0000000003e8";
 
 #[derive(Debug, Default)]
 struct State {
@@ -223,6 +226,129 @@ fn asked_for(query: &str, name: &str) -> Option<u64> {
         .and_then(|(_, value)| value.parse().ok())
 }
 
+/// The networks of the one site: its own, and one for guests.
+fn networks() -> Vec<Value> {
+    let network = |id: &str, name: &str, vlan: u32, default: bool| {
+        json!({
+            "id": id,
+            "name": name,
+            "vlanId": vlan,
+            "default": default,
+            "enabled": true,
+            "management": "GATEWAY",
+            "metadata": { "origin": "USER_DEFINED" },
+        })
+    };
+    vec![
+        network(NETWORK_OWN, "Default", 1, true),
+        network(NETWORK_GUEST, "Guest", 1000, false),
+    ]
+}
+
+/// The wireless networks of the one site. Two stand behind the hotspot
+/// portal, one open on the guest network and one with a passphrase on the
+/// site's own, switched off; the others take no voucher.
+fn broadcasts() -> Vec<Value> {
+    let broadcast = |id: u8,
+                     name: &str,
+                     kind: &str,
+                     enabled: bool,
+                     network: Value,
+                     security: &str,
+                     hotspot: Option<&str>| {
+        let mut broadcast = json!({
+            "type": kind,
+            "id": format!("0b5e1f00-0000-4000-8000-0000000000{id:02x}"),
+            "name": name,
+            "enabled": enabled,
+            "metadata": { "origin": "USER_DEFINED" },
+            "network": network,
+            "securityConfiguration": { "type": security },
+        });
+        if kind == "STANDARD" {
+            broadcast["broadcastingFrequenciesGHz"] = json!([2.4, 5]);
+        }
+        if let Some(hotspot) = hotspot {
+            broadcast["hotspotConfiguration"] = json!({ "type": hotspot });
+        }
+        broadcast
+    };
+    let own = json!({ "type": "NATIVE" });
+    let guest = json!({ "type": "SPECIFIC", "networkId": NETWORK_GUEST });
+    vec![
+        broadcast(
+            1,
+            "Staff",
+            "STANDARD",
+            true,
+            own.clone(),
+            "WPA2_WPA3_PERSONAL",
+            None,
+        ),
+        broadcast(
+            2,
+            "Guests",
+            "STANDARD",
+            true,
+            guest.clone(),
+            "OPEN",
+            Some("CAPTIVE_PORTAL"),
+        ),
+        broadcast(
+            3,
+            "Sensors",
+            "IOT_OPTIMIZED",
+            true,
+            own.clone(),
+            "WPA2_PERSONAL",
+            None,
+        ),
+        broadcast(
+            4,
+            "Visitors",
+            "STANDARD",
+            false,
+            own.clone(),
+            "WPA2_PERSONAL",
+            Some("CAPTIVE_PORTAL"),
+        ),
+        broadcast(
+            5,
+            "Roaming",
+            "STANDARD",
+            true,
+            guest,
+            "WPA3_ENTERPRISE",
+            Some("PASSPOINT"),
+        ),
+    ]
+}
+
+/// One page of a listing that takes at most 200 at a time.
+fn page_of(all: &[Value], query: &str) -> (u16, Value) {
+    let offset = asked_for(query, "offset").unwrap_or(0) as usize;
+    let limit = asked_for(query, "limit").unwrap_or(25);
+    if limit > 200 {
+        return bad("limit must be within 0..=200");
+    }
+    let page: Vec<Value> = all
+        .iter()
+        .skip(offset)
+        .take(limit as usize)
+        .cloned()
+        .collect();
+    (
+        200,
+        json!({
+            "offset": offset,
+            "limit": limit,
+            "count": page.len(),
+            "totalCount": all.len(),
+            "data": page,
+        }),
+    )
+}
+
 /// Answer one request: the status and the body.
 fn answer(
     state: &mut State,
@@ -270,6 +396,16 @@ fn answer(
         {
             not_found()
         }
+        ("GET", ["v1", "sites", site, "wifi", "broadcasts"])
+        | ("GET", ["v1", "sites", site, "networks"])
+            if *site != SITE =>
+        {
+            not_found()
+        }
+        ("GET", ["v1", "sites", _, "wifi", "broadcasts"]) => {
+            page_of(&broadcasts(), query)
+        }
+        ("GET", ["v1", "sites", _, "networks"]) => page_of(&networks(), query),
         ("POST", ["v1", "sites", _, "hotspot", "vouchers"]) => {
             match serde_json::from_slice::<Value>(body) {
                 Ok(body) => match mint(state, &body) {

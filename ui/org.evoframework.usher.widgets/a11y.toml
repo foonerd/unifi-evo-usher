@@ -1,0 +1,38 @@
+# What each widget kind of the pack promises a reader who does not see
+# the screen, or does not use a pointer.
+
+["usher.controller"]
+kind_id = "usher.controller"
+aria_role = "region"
+aria_label_source = "inner_text"
+contrast = "aaa"
+keyboard = { focusable = true, interactions = [] }
+screen_reader = { announces = ["usher.controller.changed"] }
+motion = { animates = false, honours_prefers_reduced_motion = true }
+
+["usher.networks"]
+kind_id = "usher.networks"
+aria_role = "region"
+aria_label_source = "inner_text"
+contrast = "aaa"
+keyboard = { focusable = true, interactions = [] }
+screen_reader = { announces = ["usher.networks.changed"] }
+motion = { animates = false, honours_prefers_reduced_motion = true }
+
+["usher.reserve"]
+kind_id = "usher.reserve"
+aria_role = "region"
+aria_label_source = "inner_text"
+contrast = "aaa"
+keyboard = { focusable = true, interactions = [] }
+screen_reader = { announces = ["usher.reserve.changed"] }
+motion = { animates = false, honours_prefers_reduced_motion = true }
+
+["usher.vouchers"]
+kind_id = "usher.vouchers"
+aria_role = "region"
+aria_label_source = "inner_text"
+contrast = "aaa"
+keyboard = { focusable = true, interactions = [] }
+screen_reader = { announces = ["usher.vouchers.changed"] }
+motion = { animates = false, honours_prefers_reduced_motion = true }

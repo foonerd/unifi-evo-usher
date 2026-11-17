@@ -1,0 +1,84 @@
+# Schema for the `networks.directory` shelf at shape version 1.
+#
+# The request types and payloads a plugin stocking `networks.directory`
+# at shape 1 answers. Payloads are JSON objects, in and out.
+
+schema_version = 1
+rack = "networks"
+shelf = "directory"
+shape = 1
+
+description = """
+The guest networks the controller offers: its wireless networks, site by
+site, and the one among them that vouchers are for. That choice is the
+usher's own: it is the network a voucher names to the guest it is handed
+to. It binds nothing on the controller. Where the controller keeps
+vouchers by site, as a UniFi Network controller does, a voucher is let
+in on every wireless network of its site that stands behind the
+controller's portal, and the controller holds it to none of them.
+"""
+
+[[requests]]
+request_type = "networks"
+description = """
+The wireless networks. Payload `{ site: string }`, the site optional;
+with none, every site of the controller is answered for. Returns `{
+sites: [{ id: string, name: string, networks: [{ id: string, name:
+string, enabled: bool, network: string | null, vlan: integer | null,
+security: string | null, portal: bool | null }] }], chosen: { site:
+string, network: string, name: string } | null }`. `name` is the
+wireless network's name as a guest's device shows it; `network` and
+`vlan` are the network it puts a guest on; `security` is how it is
+joined, `open`, `passphrase` or `enterprise`; `portal` is whether the
+controller asks for a voucher on it. Each of these four is null where
+the controller does not say. `chosen` is the wireless network vouchers
+are for, where one was chosen.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "choose"
+description = """
+Make a wireless network the one vouchers are for. Payload `{ site:
+string, network: string }`, the network by its `id`; with no `network`
+the choice is taken away. The network is kept with the name it has when
+it is chosen. Returns `{ chosen: { site, network, name } | null }`.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[acceptance]]
+name = "a-network-is-listed-on-its-name-alone"
+detail = """
+A wireless network the controller says no more of than an identifier and
+a name is listed, with null where the controller says nothing.
+"""
+
+[[acceptance]]
+name = "a-site-asked-for-is-the-one-answered"
+detail = """
+`networks` with a `site` returns that site alone, and is refused as
+permanent for a site the controller does not have.
+"""
+
+[[acceptance]]
+name = "only-what-the-controller-has-is-chosen"
+detail = """
+`choose` with a network the site does not have is refused as permanent,
+and what was chosen before stays.
+"""
+
+[[acceptance]]
+name = "the-choice-is-kept"
+detail = """
+After `choose` and a restart of the plugin, `networks` returns the same
+`chosen`. After `choose` with no network it returns `chosen: null`.
+"""
+
+[[acceptance]]
+name = "nothing-is-known-of-no-controller"
+detail = """
+With no controller set, `networks` and `choose` are refused as
+permanent.
+"""

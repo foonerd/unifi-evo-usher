@@ -22,6 +22,8 @@ pub const KBPS: std::ops::RangeInclusive<u64> = 2..=100_000;
 
 /// The most vouchers one page of a listing carries.
 const PAGE: u32 = 1000;
+/// The most of anything else one page of a listing carries.
+const SHORT_PAGE: u32 = 200;
 /// The most pages a listing is followed for.
 const PAGES: usize = 100;
 
@@ -52,6 +54,29 @@ pub struct Site {
     pub name: String,
     /// The name the controller's older interfaces know the site by.
     pub reference: String,
+}
+
+/// A wireless network of a site, with what the controller says of it.
+/// Only its identifier and its name are counted on; the rest is told
+/// where the controller tells it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct GuestNetwork {
+    /// The wireless network's identifier on the controller.
+    pub id: String,
+    /// Its name, as a guest's device shows it.
+    pub name: String,
+    /// Whether it is switched on.
+    pub enabled: bool,
+    /// The network it puts a guest on, by name.
+    pub network: Option<String>,
+    /// That network's VLAN.
+    pub vlan: Option<u32>,
+    /// How it is joined: `open`, with a `passphrase`, or as an
+    /// `enterprise` network.
+    pub security: Option<&'static str>,
+    /// Whether the controller puts its hotspot portal, where a voucher is
+    /// asked for, in front of it.
+    pub portal: Option<bool>,
 }
 
 /// The terms vouchers are minted on.
@@ -131,13 +156,13 @@ pub struct Voucher {
     /// The note it was minted with.
     pub note: String,
     /// How long it gives access, in minutes, from its first guest.
-    pub minutes: u64,
+    pub minutes: Option<u64>,
     /// When it was minted.
-    pub created: String,
+    pub created: Option<String>,
     /// How many guests may use it; any number where absent.
     pub guests: Option<u64>,
     /// How many guests have used it.
-    pub guests_used: u64,
+    pub guests_used: Option<u64>,
     /// When its first guest was let in, where one has been.
     pub activated: Option<String>,
     /// When it runs out, where it has been used.
@@ -162,7 +187,8 @@ struct Info {
 #[serde(rename_all = "camelCase")]
 struct Page<T> {
     data: Vec<T>,
-    total_count: u64,
+    #[serde(default)]
+    total_count: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -171,6 +197,55 @@ struct SiteOverview {
     id: String,
     internal_reference: String,
     name: String,
+}
+
+/// A wireless network, as the listing has it. Its identifier and its
+/// name are counted on; everything else is taken as it comes and read
+/// for what is there.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Broadcast {
+    id: String,
+    name: String,
+    #[serde(default = "yes")]
+    enabled: bool,
+    #[serde(default)]
+    network: Option<serde_json::Value>,
+    #[serde(default)]
+    security_configuration: Option<serde_json::Value>,
+    #[serde(default)]
+    hotspot_configuration: Option<serde_json::Value>,
+}
+
+fn yes() -> bool {
+    true
+}
+
+/// The `type` a part of an answer states, where it states one.
+fn kind_of(part: Option<&serde_json::Value>) -> Option<&str> {
+    part?.get("type")?.as_str()
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NetworkOverview {
+    id: String,
+    name: String,
+    #[serde(default)]
+    vlan_id: Option<u32>,
+    #[serde(default)]
+    default: bool,
+}
+
+/// How a wireless network is joined, from the API's name for its
+/// security.
+fn security(kind: Option<&str>) -> Option<&'static str> {
+    match kind? {
+        "OPEN" => Some("open"),
+        personal if personal.ends_with("_PERSONAL") => Some("passphrase"),
+        enterprise if enterprise.ends_with("_ENTERPRISE") => Some("enterprise"),
+        _ => None,
+    }
 }
 
 #[derive(Serialize)]
@@ -206,23 +281,28 @@ struct Created {
     vouchers: Vec<Details>,
 }
 
+/// A voucher, as the controller has it. Its identifier and its code are
+/// counted on; the rest is taken where the controller sends it.
 #[derive(Deserialize)]
 struct Details {
     id: String,
+    #[serde(deserialize_with = "code")]
     code: String,
-    name: String,
-    #[serde(rename = "timeLimitMinutes")]
-    minutes: u64,
-    #[serde(rename = "createdAt")]
-    created: String,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(rename = "timeLimitMinutes", default)]
+    minutes: Option<u64>,
+    #[serde(rename = "createdAt", default)]
+    created: Option<String>,
     #[serde(rename = "authorizedGuestLimit", default)]
     guests: Option<u64>,
-    #[serde(rename = "authorizedGuestCount")]
-    guests_used: u64,
+    #[serde(rename = "authorizedGuestCount", default)]
+    guests_used: Option<u64>,
     #[serde(rename = "activatedAt", default)]
     activated: Option<String>,
     #[serde(rename = "expiresAt", default)]
     expires: Option<String>,
+    #[serde(default, deserialize_with = "truth")]
     expired: bool,
     #[serde(rename = "dataUsageLimitMBytes", default)]
     megabytes: Option<u64>,
@@ -232,12 +312,38 @@ struct Details {
     up_kbps: Option<u64>,
 }
 
+/// A voucher's code. The description calls it a text and shows a number;
+/// either is taken, and a number is written out to its ten digits, so
+/// that a code that begins with noughts keeps them.
+fn code<'de, D: serde::Deserializer<'de>>(from: D) -> Result<String, D::Error> {
+    use serde::de::Error as _;
+    match serde_json::Value::deserialize(from)? {
+        serde_json::Value::String(text) => Ok(text),
+        serde_json::Value::Number(number) => number
+            .as_u64()
+            .map(|digits| format!("{digits:010}"))
+            .ok_or_else(|| D::Error::custom("a code is a whole number")),
+        _ => Err(D::Error::custom("a code is a text or a number")),
+    }
+}
+
+/// Yes or no, said as such or as one or nought.
+fn truth<'de, D: serde::Deserializer<'de>>(from: D) -> Result<bool, D::Error> {
+    use serde::de::Error as _;
+    match serde_json::Value::deserialize(from)? {
+        serde_json::Value::Bool(said) => Ok(said),
+        serde_json::Value::Null => Ok(false),
+        serde_json::Value::Number(number) => Ok(number.as_u64() != Some(0)),
+        _ => Err(D::Error::custom("yes or no")),
+    }
+}
+
 impl From<Details> for Voucher {
     fn from(d: Details) -> Self {
         Self {
             id: d.id,
             code: d.code,
-            note: d.name,
+            note: d.name.unwrap_or_default(),
             minutes: d.minutes,
             created: d.created,
             guests: d.guests,
@@ -266,6 +372,109 @@ struct Said {
     code: Option<String>,
     #[serde(default)]
     message: Option<String>,
+}
+
+/// A site's wireless networks as the usher tells them, from the
+/// controller's listings.
+fn wireless_of(
+    broadcasts: Vec<Broadcast>,
+    networks: &[NetworkOverview],
+) -> Vec<GuestNetwork> {
+    broadcasts
+        .into_iter()
+        .map(|broadcast| {
+            // A wireless network is on the network it names, or on the
+            // site's own where it names none.
+            let named = broadcast
+                .network
+                .as_ref()
+                .and_then(|named| named.get("networkId"))
+                .and_then(|id| id.as_str());
+            let on = match named {
+                Some(id) => networks.iter().find(|n| n.id == id),
+                None => networks.iter().find(|n| n.default),
+            };
+            // Behind the portal where the controller says so; not, where
+            // it names no hotspot or one of another kind; not known,
+            // where it names a hotspot and not its kind.
+            let hotspot = broadcast
+                .hotspot_configuration
+                .as_ref()
+                .filter(|hotspot| !hotspot.is_null());
+            let portal = match hotspot {
+                None => Some(false),
+                Some(hotspot) => {
+                    kind_of(Some(hotspot)).map(|kind| kind == "CAPTIVE_PORTAL")
+                }
+            };
+            GuestNetwork {
+                id: broadcast.id,
+                name: broadcast.name,
+                enabled: broadcast.enabled,
+                network: on.map(|n| n.name.clone()),
+                vlan: on.and_then(|n| n.vlan_id),
+                security: security(kind_of(
+                    broadcast.security_configuration.as_ref(),
+                )),
+                portal,
+            }
+        })
+        .collect()
+}
+
+/// What stands at a place in an answer, by name and never by value: an
+/// answer can carry what is for no message and no log.
+fn names_at(place: &serde_json::Value) -> String {
+    match place {
+        serde_json::Value::Object(fields) if fields.is_empty() => {
+            "nothing".to_string()
+        }
+        serde_json::Value::Object(fields) => {
+            fields.keys().cloned().collect::<Vec<_>>().join(", ")
+        }
+        serde_json::Value::Array(items) => format!("a list of {}", items.len()),
+        serde_json::Value::Null => "null".to_string(),
+        serde_json::Value::Bool(_) => "a truth value".to_string(),
+        serde_json::Value::Number(_) => "a number".to_string(),
+        serde_json::Value::String(_) => "a text".to_string(),
+    }
+}
+
+/// Read a controller's answer as what its API describes. Where it is
+/// something else, the refusal says where in the answer, what was
+/// expected there, and the names that stand there.
+fn described<T: DeserializeOwned>(body: &[u8]) -> Result<T, Refusal> {
+    let differs = |how: String| {
+        tracing::warn!(
+            how = %how,
+            "the controller's answer is not what its API describes"
+        );
+        Refusal::AsAsked(format!(
+            "the controller's answer is not what its API describes: {how}"
+        ))
+    };
+    let answer: serde_json::Value = serde_json::from_slice(body)
+        .map_err(|e| differs(format!("it is not JSON ({e})")))?;
+    serde_path_to_error::deserialize(&answer).map_err(|e| {
+        let mut place = Some(&answer);
+        for segment in e.path().iter() {
+            place = match (place, segment) {
+                (Some(at), serde_path_to_error::Segment::Seq { index }) => {
+                    at.get(index)
+                }
+                (Some(at), serde_path_to_error::Segment::Map { key }) => {
+                    at.get(key.as_str())
+                }
+                _ => None,
+            };
+        }
+        let there = place.map(names_at).unwrap_or_else(|| "unknown".into());
+        differs(format!(
+            "at {}: {}; what stands there: {there}",
+            e.path(),
+            e.inner()
+        ))
+    })
 }
 
 /// An identifier as it goes into a path: the hexadecimal digits and
@@ -338,12 +547,7 @@ impl Line {
         let status = response.status();
         let body = response.bytes().await.map_err(unreached)?;
         if status.is_success() {
-            return serde_json::from_slice(&body).map_err(|e| {
-                Refusal::AsAsked(format!(
-                    "the controller's answer is not what its API \
-                     describes: {e}"
-                ))
-            });
+            return described(&body);
         }
         let said: Option<Said> = serde_json::from_slice(&body).ok();
         let words = said
@@ -420,6 +624,40 @@ impl Line {
         Ok(created.vouchers.into_iter().map(Voucher::from).collect())
     }
 
+    /// A listing of the API, followed page by page to its end.
+    async fn all<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        page: u32,
+        filter: Option<&str>,
+    ) -> Result<Vec<T>, Refusal> {
+        let mut listed = Vec::new();
+        for _ in 0..PAGES {
+            let mut query = vec![
+                ("offset", listed.len().to_string()),
+                ("limit", page.to_string()),
+            ];
+            if let Some(filter) = filter {
+                query.push(("filter", filter.to_string()));
+            }
+            let mut page_said: Page<T> = self
+                .answer(self.client.get(self.at(path)).query(&query))
+                .await?;
+            let came = page_said.data.len();
+            listed.append(&mut page_said.data);
+            // To the end the controller counts to; where it does not
+            // count, to the first page that is not full.
+            let ended = match page_said.total_count {
+                Some(total) => listed.len() as u64 >= total,
+                None => (came as u64) < u64::from(page),
+            };
+            if came == 0 || ended {
+                break;
+            }
+        }
+        Ok(listed)
+    }
+
     /// The vouchers of a site, all of them or those a filter in the
     /// controller's own filter language lets through.
     pub async fn list(
@@ -428,33 +666,33 @@ impl Line {
         filter: Option<&str>,
     ) -> Result<Vec<Voucher>, Refusal> {
         let site = in_a_path("site", site)?;
-        let mut vouchers = Vec::new();
-        for _ in 0..PAGES {
-            let mut query = vec![
-                ("offset", vouchers.len().to_string()),
-                ("limit", PAGE.to_string()),
-            ];
-            if let Some(filter) = filter {
-                query.push(("filter", filter.to_string()));
-            }
-            let page: Page<Details> = self
-                .answer(
-                    self.client
-                        .get(
-                            self.at(&format!(
-                                "/v1/sites/{site}/hotspot/vouchers"
-                            )),
-                        )
-                        .query(&query),
-                )
-                .await?;
-            let came = page.data.len();
-            vouchers.extend(page.data.into_iter().map(Voucher::from));
-            if came == 0 || vouchers.len() as u64 >= page.total_count {
-                break;
-            }
-        }
-        Ok(vouchers)
+        let details: Vec<Details> = self
+            .all(&format!("/v1/sites/{site}/hotspot/vouchers"), PAGE, filter)
+            .await?;
+        Ok(details.into_iter().map(Voucher::from).collect())
+    }
+
+    /// The wireless networks of a site, each with the network it puts a
+    /// guest on where the controller says.
+    pub async fn wireless_networks(
+        &self,
+        site: &str,
+    ) -> Result<Vec<GuestNetwork>, Refusal> {
+        let site = in_a_path("site", site)?;
+        let broadcasts: Vec<Broadcast> = self
+            .all(
+                &format!("/v1/sites/{site}/wifi/broadcasts"),
+                SHORT_PAGE,
+                None,
+            )
+            .await?;
+        // The networks only add to what is said of a wireless network;
+        // without them it is still listed.
+        let networks: Vec<NetworkOverview> = self
+            .all(&format!("/v1/sites/{site}/networks"), SHORT_PAGE, None)
+            .await
+            .unwrap_or_default();
+        Ok(wireless_of(broadcasts, &networks))
     }
 
     /// Take a voucher back: it lets nobody in from then on. Says how many
@@ -541,6 +779,146 @@ mod tests {
                 "rxRateLimitKbps": 2000,
             })
         );
+    }
+
+    #[test]
+    fn an_answer_that_differs_says_where_and_names_what_stands_there() {
+        let body = br#"{"totalCount": 2, "data": [
+            {"id": "a", "internalReference": "one", "name": "One"},
+            {"id": "b", "internalReference": "secret-reference"}
+        ]}"#;
+        let differs = described::<Page<SiteOverview>>(body).err().unwrap();
+        let Refusal::AsAsked(why) = differs else {
+            panic!("{differs:?}")
+        };
+        assert_eq!(
+            why,
+            "the controller's answer is not what its API describes: at \
+             data[1]: missing field `name`; what stands there: id, \
+             internalReference"
+        );
+        assert!(!why.contains("secret-reference"), "names, never values");
+
+        let Refusal::AsAsked(why) =
+            described::<Page<SiteOverview>>(b"<html>").err().unwrap()
+        else {
+            panic!()
+        };
+        assert!(why.contains("it is not JSON"), "{why}");
+    }
+
+    fn broadcasts(listed: serde_json::Value) -> Vec<Broadcast> {
+        serde_json::from_value(listed).unwrap()
+    }
+
+    fn the_networks() -> Vec<NetworkOverview> {
+        serde_json::from_value(serde_json::json!([
+            {"id": "own", "name": "Default", "vlanId": 1, "default": true},
+            {"id": "guest", "name": "Guest", "vlanId": 1000, "default": false},
+        ]))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_wireless_network_is_read_for_what_is_there() {
+        // As the description has it, and as a controller may send it:
+        // without the `type` of a part, without the part, with nothing
+        // but an identifier and a name.
+        let listed = broadcasts(serde_json::json!([
+            {"id": "1", "name": "Described", "enabled": true,
+             "network": {"type": "SPECIFIC", "networkId": "guest"},
+             "securityConfiguration": {"type": "OPEN"},
+             "hotspotConfiguration": {"type": "CAPTIVE_PORTAL"}},
+            {"id": "2", "name": "Untyped", "enabled": true,
+             "network": {"networkId": "guest"},
+             "securityConfiguration": {},
+             "hotspotConfiguration": {"enabled": true}},
+            {"id": "3", "name": "Bare"},
+            {"id": "4", "name": "Private", "enabled": false,
+             "network": {"type": "NATIVE"},
+             "securityConfiguration": {"type": "WPA2_WPA3_PERSONAL"},
+             "hotspotConfiguration": null},
+            {"id": "5", "name": "Roaming", "enabled": true,
+             "network": {"networkId": "gone"},
+             "securityConfiguration": {"type": "WPA3_ENTERPRISE"},
+             "hotspotConfiguration": {"type": "PASSPOINT"}},
+        ]));
+        let seen: Vec<_> = wireless_of(listed, &the_networks())
+            .into_iter()
+            .map(|w| {
+                (w.name, w.enabled, w.network, w.vlan, w.security, w.portal)
+            })
+            .collect();
+        let guest = Some("Guest".to_string());
+        let own = Some("Default".to_string());
+        assert_eq!(
+            seen,
+            [
+                (
+                    "Described".to_string(),
+                    true,
+                    guest.clone(),
+                    Some(1000),
+                    Some("open"),
+                    Some(true)
+                ),
+                ("Untyped".to_string(), true, guest, Some(1000), None, None),
+                (
+                    "Bare".to_string(),
+                    true,
+                    own.clone(),
+                    Some(1),
+                    None,
+                    Some(false)
+                ),
+                (
+                    "Private".to_string(),
+                    false,
+                    own,
+                    Some(1),
+                    Some("passphrase"),
+                    Some(false)
+                ),
+                (
+                    "Roaming".to_string(),
+                    true,
+                    None,
+                    None,
+                    Some("enterprise"),
+                    Some(false)
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_voucher_is_read_on_its_identifier_and_its_code() {
+        // As the description has it; with the code as a number, as the
+        // description's own example has it; and with nothing more than
+        // the two.
+        let listed: Vec<Details> = serde_json::from_value(serde_json::json!([
+            {"id": "a", "code": "4861409510", "name": "House Guests",
+             "createdAt": "2026-01-19T23:45:00Z", "timeLimitMinutes": 1440,
+             "authorizedGuestLimit": 1, "authorizedGuestCount": 0,
+             "expired": false, "dataUsageLimitMBytes": 6000,
+             "rxRateLimitKbps": 7200, "txRateLimitKbps": 1200},
+            {"id": "b", "code": 306611, "expired": 1},
+            {"id": "c", "code": "28011-03002"},
+        ]))
+        .unwrap();
+        let vouchers: Vec<Voucher> =
+            listed.into_iter().map(Voucher::from).collect();
+        assert_eq!(vouchers[0].code, "4861409510");
+        assert_eq!(vouchers[0].note, "House Guests");
+        assert_eq!(vouchers[0].minutes, Some(1440));
+        assert_eq!(vouchers[0].down_kbps, Some(7200));
+        assert!(!vouchers[0].expired);
+        assert_eq!(vouchers[1].code, "0000306611", "its noughts are kept");
+        assert!(vouchers[1].expired);
+        assert_eq!(vouchers[1].note, "");
+        assert_eq!(vouchers[1].created, None);
+        assert_eq!(vouchers[2].code, "28011-03002");
+        assert!(!vouchers[2].expired);
     }
 
     #[test]

@@ -3,12 +3,22 @@ name = "org.evoframework.usher.controller.unifi"
 # The crate's version, which is the workspace's. The steward refuses a
 # plugin that says another version than its manifest; a test holds the two
 # together.
-version = "0.3.2"
+version = "0.3.3"
 contract = 1
 
-[target]
+# Two shelves from the one line to the controller: minting on it, and
+# knowing the guest networks a voucher opens on it.
+[[stockings]]
 shelf = "access.controller"
 shape = 1
+role = "respondent"
+request_types = ["probe", "set", "info", "sites", "mint", "list", "revoke"]
+
+[[stockings]]
+shelf = "networks.directory"
+shape = 1
+role = "respondent"
+request_types = ["networks", "choose"]
 
 [kind]
 instance = "singleton"
@@ -40,5 +50,36 @@ restart_on_crash = true
 restart_budget = 5
 
 [capabilities.respondent]
-request_types = ["probe", "set", "info", "sites", "mint", "list", "revoke"]
+request_types = ["probe", "set", "info", "sites", "mint", "list", "revoke", "networks", "choose"]
 response_budget_ms = 30000
+
+# Who may ask. Every request here sets, reads or spends what lets guests on
+# to the network, so each asks for the network_admin capability: a caller
+# the steward trusts only for being on the same network is refused.
+[capabilities.respondent.verb_capabilities]
+probe = { kind = "write", scope = "network_admin" }
+set = { kind = "write", scope = "network_admin" }
+info = { kind = "read", scope = "network_admin" }
+sites = { kind = "read", scope = "network_admin" }
+mint = { kind = "write", scope = "network_admin" }
+list = { kind = "read", scope = "network_admin" }
+revoke = { kind = "write", scope = "network_admin" }
+networks = { kind = "read", scope = "network_admin" }
+choose = { kind = "write", scope = "network_admin" }
+
+# On the screen: the controller and its vouchers on the UI shelf of the
+# one catalogue shelf, the choice of network on that of the other.
+[[ui.stocks]]
+ui_shelf = "access.controller"
+widget = "usher.controller"
+size = "full"
+
+[[ui.stocks]]
+ui_shelf = "access.controller"
+widget = "usher.vouchers"
+size = "full"
+
+[[ui.stocks]]
+ui_shelf = "networks.directory"
+widget = "usher.networks"
+size = "full"

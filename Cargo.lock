@@ -1481,11 +1481,11 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-about"
-version = "0.3.2"
+version = "0.3.3"
 
 [[package]]
 name = "evo-usher-controller-unifi"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "evo-plugin-sdk",
  "evo-plugin-test",
@@ -1497,6 +1497,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "serde_path_to_error",
  "sha2",
  "tempfile",
  "tokio",
@@ -1508,21 +1509,21 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-core"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "evo-usher-about",
 ]
 
 [[package]]
 name = "evo-usher-printer"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "rustix 1.1.4",
 ]
 
 [[package]]
 name = "evo-usher-render"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "ab_glyph",
  "qrcode",
@@ -1531,7 +1532,7 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-station"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "evo-usher-about",
  "evo-usher-printer",
@@ -1540,22 +1541,29 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-steward"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
  "clap",
  "evo",
+ "evo-plugin-sdk",
  "evo-usher-controller-unifi",
  "evo-usher-stock",
+ "reqwest 0.12.28",
+ "rustls",
+ "rustls-pemfile",
  "serde_json",
  "tempfile",
  "tokio",
+ "toml",
+ "tracing",
+ "tungstenite 0.24.0",
 ]
 
 [[package]]
 name = "evo-usher-stock"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "evo-plugin-sdk",
  "evo-plugin-test",
@@ -3611,7 +3619,9 @@ checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
 dependencies = [
  "base64 0.22.1",
  "bytes",
+ "futures-channel",
  "futures-core",
+ "futures-util",
  "http",
  "http-body",
  "http-body-util",

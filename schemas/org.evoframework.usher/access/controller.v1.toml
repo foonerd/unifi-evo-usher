@@ -63,8 +63,10 @@ payload_out = "json"
 request_type = "info"
 description = """
 The controller that is set. Returns `{ set: false }` where none is, and
-otherwise `{ set: true, base: string, held: bool, version: string }`,
-the version being asked of the controller there and then.
+otherwise `{ set: true, base: string, held: bool, version: string |
+null, trouble: string | null }`, the version being asked of the
+controller there and then. A controller that does not answer is still
+the one that is set: `version` is then null and `trouble` says why.
 """
 payload_in = "json"
 payload_out = "json"
@@ -142,6 +144,14 @@ name = "what-is-set-is-kept"
 detail = """
 After `set` and a restart of the plugin, `info` returns the same base
 and `sites` answers.
+"""
+
+[[acceptance]]
+name = "a-silent-controller-is-still-set"
+detail = """
+With a controller set that does not answer, `info` returns `set: true`
+with its base, a null `version` and a `trouble` in words; it is not
+refused.
 """
 
 [[acceptance]]

@@ -22,6 +22,19 @@ struct Kept {
     fingerprint: Option<String>,
 }
 
+/// The wireless network vouchers are for: the one a voucher names to the
+/// guest it is handed to. It is the usher's own choice among the
+/// controller's wireless networks; the controller keeps no such thing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct Chosen {
+    /// The controller the choice was made on.
+    base: String,
+    site: String,
+    network: String,
+    /// The wireless network's name when it was chosen.
+    name: String,
+}
+
 /// The controller that is set, and the line to it.
 #[derive(Debug)]
 struct Set {
@@ -58,6 +71,22 @@ struct Listing {
     site: String,
     #[serde(default)]
     filter: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Networks {
+    #[serde(default)]
+    site: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Choosing {
+    site: String,
+    /// The wireless network's identifier; none takes the choice away.
+    #[serde(default)]
+    network: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -171,6 +200,18 @@ impl Controller {
         self.credentials.join("api-key")
     }
 
+    fn chosen_path(&self) -> PathBuf {
+        self.state.join("network.json")
+    }
+
+    /// The wireless network vouchers are for, where one was chosen on
+    /// the controller that is set.
+    fn chosen(&self, base: &str) -> Option<Chosen> {
+        let kept = kept_at(&self.chosen_path()).ok()??;
+        let chosen: Chosen = serde_json::from_slice(&kept).ok()?;
+        (chosen.base == base).then_some(chosen)
+    }
+
     fn set(&self) -> Option<Arc<Set>> {
         self.set.lock().expect("the controller's lock").clone()
     }
@@ -241,12 +282,24 @@ impl Controller {
             }
             "info" => match self.set() {
                 None => Ok(json!({ "set": false })),
-                Some(set) => Ok(json!({
-                    "set": true,
-                    "base": set.kept.base,
-                    "held": set.kept.fingerprint.is_some(),
-                    "version": set.line.version().await?,
-                })),
+                Some(set) => {
+                    // A controller that is set stays set while it does
+                    // not answer; the answer says that it does not, and
+                    // why.
+                    let (version, trouble) = match set.line.version().await {
+                        Ok(version) => (Some(version), None),
+                        Err(Refusal::ForNow(why) | Refusal::AsAsked(why)) => {
+                            (None, Some(why))
+                        }
+                    };
+                    Ok(json!({
+                        "set": true,
+                        "base": set.kept.base,
+                        "held": set.kept.fingerprint.is_some(),
+                        "version": version,
+                        "trouble": trouble,
+                    }))
+                }
             },
             "sites" => {
                 let sites = self.line()?.line.sites().await?;
@@ -275,6 +328,76 @@ impl Controller {
                     .revoke(&revoking.site, &revoking.id)
                     .await?;
                 Ok(json!({ "revoked": revoked }))
+            }
+            "networks" => {
+                let networks: Networks = asked(payload)?;
+                let line = self.line()?;
+                let mut sites = line.line.sites().await?;
+                if let Some(asked) = &networks.site {
+                    sites.retain(|site| site.id == *asked);
+                    if sites.is_empty() {
+                        return Err(Refusal::AsAsked(
+                            "the controller has no such site".to_string(),
+                        ));
+                    }
+                }
+                let mut answer = Vec::new();
+                for site in sites {
+                    let networks =
+                        line.line.wireless_networks(&site.id).await?;
+                    answer.push(json!({
+                        "id": site.id,
+                        "name": site.name,
+                        "networks": networks,
+                    }));
+                }
+                let chosen = self.chosen(&line.kept.base).map(|chosen| {
+                    json!({
+                        "site": chosen.site,
+                        "network": chosen.network,
+                        "name": chosen.name,
+                    })
+                });
+                Ok(json!({ "sites": answer, "chosen": chosen }))
+            }
+            "choose" => {
+                let choosing: Choosing = asked(payload)?;
+                let line = self.line()?;
+                let unkept = |e: io::Error| {
+                    Refusal::ForNow(format!("the choice was not kept: {e}"))
+                };
+                let Some(network) = choosing.network else {
+                    match fs::remove_file(self.chosen_path()) {
+                        Ok(()) => {}
+                        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                        Err(e) => return Err(unkept(e)),
+                    }
+                    return Ok(json!({ "chosen": null }));
+                };
+                // Chosen among what the controller has, and kept with the
+                // name it has there now.
+                let known = line.line.wireless_networks(&choosing.site).await?;
+                let Some(found) =
+                    known.into_iter().find(|known| known.id == network)
+                else {
+                    return Err(Refusal::AsAsked(
+                        "the site has no such wireless network".to_string(),
+                    ));
+                };
+                let chosen = Chosen {
+                    base: line.kept.base.clone(),
+                    site: choosing.site,
+                    network: found.id,
+                    name: found.name,
+                };
+                let bytes = serde_json::to_vec(&chosen)
+                    .map_err(|e| Refusal::AsAsked(e.to_string()))?;
+                keep(&self.chosen_path(), &bytes).map_err(unkept)?;
+                Ok(json!({ "chosen": {
+                    "site": chosen.site,
+                    "network": chosen.network,
+                    "name": chosen.name,
+                } }))
             }
             other => {
                 Err(Refusal::AsAsked(format!("unknown request type: {other}")))

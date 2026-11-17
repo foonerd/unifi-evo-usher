@@ -1,0 +1,35 @@
+# The sizes each widget kind of the pack is drawn at. The steward reads
+# this when it admits the pack; the usher's steward also carries it, so
+# that the kinds are known where the pack is missing.
+
+["usher.controller"]
+id = "usher.controller"
+min_size = "half"
+ideal_size = "full"
+max_size = "full"
+mode = "inline"
+schema_version = 1
+
+["usher.networks"]
+id = "usher.networks"
+min_size = "half"
+ideal_size = "full"
+max_size = "full"
+mode = "inline"
+schema_version = 1
+
+["usher.reserve"]
+id = "usher.reserve"
+min_size = "third"
+ideal_size = "half"
+max_size = "full"
+mode = "inline"
+schema_version = 1
+
+["usher.vouchers"]
+id = "usher.vouchers"
+min_size = "half"
+ideal_size = "full"
+max_size = "full"
+mode = "inline"
+schema_version = 1

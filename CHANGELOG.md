@@ -2,6 +2,23 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## [0.3.3] - 2026-11-17
+
+- The usher has a face, in a browser. The steward serves it over its HTTPS listener from one directory, the UI root, `ui/` in this repository: the door, which opens the shell the steward says is active and the usher's own while none is; the usher's shell, an evo `ui_shell`, which draws what the steward says is stocked on each UI shelf; and the usher's widgets, an evo `widget_kind_pack`
+- `usher.controller` looks at a controller and sets it, in the two steps the shelf has: the address, with the certificate that stands there shown for comparing, then the key. `usher.reserve` counts the vouchers kept on the unit, by type
+- `usher.vouchers` lists the vouchers the controller has for a site, the valid and the expired apart, each with its code, whether it has been used, when it was minted, how long it lasts, its limits and its note, and revokes one once the operator has said so twice. `usher.reserve` is headed as what it is, the vouchers minted ahead and kept on the unit, so that it is not read as the controller's
+- The controller plugin stocks a second shelf, `networks.directory`, from its one line to the controller. `networks` lists the wireless networks of a site, each with what the controller says of it: the network and VLAN it puts a guest on, how it is joined, whether it asks for a voucher. `choose` makes one of them the network vouchers are for, the one a voucher names to its guest, and the choice is kept. It is the usher's own: the controller lets a voucher in on every wireless network of its site that asks for one, and holds it to none. `usher.networks` lists them, takes the choice, and says so
+- The shape of `networks.directory` is written down as a schema, and the plugin is held to it as to the other
+- An answer of the controller is read for what is needed: of a voucher, its identifier and its code, the code as a text or as a number; of a wireless network, its identifier and its name. The rest is told where the controller tells it. Where an answer is not what Ubiquiti's description says, the refusal says where it differs and which names stand there, never what stands under them, and the steward's log says the same
+- `evo-usher-steward` declares a UI shelf for `access.controller`, for `networks.directory` and for `stock.reserve`, each with the widget it is drawn with; the plugin that stocks the catalogue shelf is on the screen and declares nothing for it. It admits the shells and widget packs under its search roots before its plugins. Started without a UI root it has no face and hands out vouchers all the same
+- Another shell placed in the UI root and made active with the steward's `activate_ui_shell` takes the place of the usher's on every open screen, with nothing else changed
+- Every request that sets, reads or spends what lets guests on to the network asks for evo's `network_admin` capability; only `count` on `stock.reserve` is answered to anyone. A browser pairs on the code the unit is given before it is first started, and keeps the bearer the steward answers with
+- `info` on `access.controller` no longer refuses when the controller that is set does not answer: it says that it is set, and why it does not answer
+- The face is held to the steward as it runs, in Chrome or Chromium without a window: a browser pairs, then sets a simulated controller from the screen and chooses the network its vouchers are for
+- The controller plugin has been set on a UniFi Network application, version 11.0.99, and has read its version and its sites
+- `scripts/try.sh` runs the steward with its face on a directory of its own, on the loopback address, for looking at it
+- The UI root is not yet in the archive, the packages or the image
+
 ## [0.3.2] - 2026-11-17
 
 - The shapes of the two stocked shelves, `access.controller` and `stock.reserve`, are written down as schemas in the format of evo-catalogue-schemas, under `schemas/org.evoframework.usher/`: the requests each shelf takes, their payloads, and what a plugin on the shape must hold to

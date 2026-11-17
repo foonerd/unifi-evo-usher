@@ -6,9 +6,9 @@ What it is built to be: a core that holds the UniFi key, mints the vouchers on t
 
 ## Status
 
-0.3.2 stands on the evo steward. `evo-usher-steward` is the steward with the usher's catalogue and two plugins: the controller, which mints vouchers on a UniFi Network controller, and the stock of vouchers ready to hand out. It is built and tested, and not yet in the archive, the packages or the image. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else.
+0.3.3 stands on the evo steward and has a face. `evo-usher-steward` is the steward with the usher's catalogue and two plugins: the controller, which mints vouchers on a UniFi Network controller, and the stock of vouchers ready to hand out. It serves the usher's face to a browser, in which a controller is looked at and set, its vouchers are listed and revoked, and the wireless network vouchers are for is chosen. It is built and tested, and not yet in the archive, the packages or the image. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else.
 
-The controller plugin is written from Ubiquiti's published description of the UniFi Network API, version 11.0.97, and is held to a simulated controller written from the same description. It has not yet been run against a controller. There is no screen yet: the steward is asked over its client socket.
+The controller plugin is written from Ubiquiti's published description of the UniFi Network API, version 11.0.97, and is held to a simulated controller written from the same description. It has been set on a UniFi Network application, version 11.0.99, and has read its version and its sites; minting, listing, revoking and the wireless networks have not yet been run against a controller. No voucher is minted or handed out from the screen yet: that is asked of the steward directly.
 
 ## On evo
 
@@ -31,13 +31,14 @@ Plugins stock the shelves. Two do so far:
 | Plugin | Shelf | What it does |
 | --- | --- | --- |
 | `org.evoframework.usher.controller.unifi` | `access.controller` | Sets the controller to mint on; says its version and its sites; mints vouchers on terms, lists them and revokes them. |
+| | `networks.directory` | Lists the wireless networks of a site, each with what the controller says of it, and keeps the choice of the one vouchers are for. |
 | `org.evoframework.usher.stock` | `stock.reserve` | Takes vouchers in by type, hands each out once, oldest first, and says how many it holds. What it holds is kept through a restart. |
 
 `evo-usher-steward` is the steward with these plugins compiled in. It is started as the evo steward is, with a configuration that names the catalogue, and is asked over the steward's client socket; `bins/evo-usher-steward/tests/steward.rs` starts it, sets a simulated controller, mints on it, puts the vouchers in the stock, hands one out, stops the steward and starts it again.
 
 ### Shapes
 
-What a shelf takes and answers is its shape, written down as a schema in the format of [evo-catalogue-schemas](https://github.com/foonerd/evo-catalogue-schemas): `schemas/org.evoframework.usher/<rack>/<shelf>.v<N>.toml`, with the requests, their payloads and what a plugin on that shape must hold to. `access/controller.v1.toml` and `stock/reserve.v1.toml` are the shapes of the two shelves stocked so far.
+What a shelf takes and answers is its shape, written down as a schema in the format of [evo-catalogue-schemas](https://github.com/foonerd/evo-catalogue-schemas): `schemas/org.evoframework.usher/<rack>/<shelf>.v<N>.toml`, with the requests, their payloads and what a plugin on that shape must hold to. `access/controller.v1.toml`, `networks/directory.v1.toml` and `stock/reserve.v1.toml` are the shapes of the three shelves stocked so far.
 
 ```text
 evo-plugin-tool catalogue lint catalogue/usher.toml
@@ -54,7 +55,40 @@ The controller is a Cloud Key, a UniFi console or a self-hosted Network applicat
 - It is believed on a certificate the public authorities vouch for, or on one certificate held to its SHA-256 fingerprint. A console's own certificate is signed by nobody, so `probe` shakes hands with a controller and says what it presents, sending it nothing, for the fingerprint to be compared with the controller's own before it is held to it.
 - A controller is set only once it has answered. One that is not believed is sent nothing, the key least of all; a wrong address, key or certificate is said at once, and what was set before stays.
 - The key is kept in the plugin's credentials directory, in a file only its owner may read, apart from everything else the plugin keeps. It is in no message and no log line.
-- Terms the controller would refuse are refused in words before anything is sent. A voucher belongs to a site of the controller, not to one guest network.
+- Terms the controller would refuse are refused in words before anything is sent.
+- A voucher belongs to a site of the controller, not to one guest network. The controller lets it in on every wireless network of its site that it puts its hotspot portal in front of, and has no way to hold it to one of them. The network a voucher names to the guest it is handed to is the usher's own choice, made among the controller's wireless networks and kept on `networks.directory`.
+- An answer of the controller is read for what is needed. Of a voucher that is its identifier and its code, and of a wireless network its identifier and its name; the network and VLAN it puts a guest on, how it is joined and whether it asks for a voucher are told where the controller tells them. Where an answer is not what Ubiquiti's description says, the refusal says where it differs and which names stand there, never what stands under them.
+
+### The face
+
+The usher is looked at and worked in a browser. The steward serves the face itself, over its HTTPS listener, from one directory, the UI root; `ui/` in this repository is one.
+
+| In the UI root | What it is |
+| --- | --- |
+| `index.html`, `door.js` | The door. It asks the steward which shell is active and opens it, and the usher's own while none is. |
+| `org.evoframework.usher.shell/` | The usher's shell, an evo `ui_shell`. It asks the steward what is stocked on which UI shelf and draws each stocking with the widget pack that provides its kind. It knows no plugin and no widget. |
+| `org.evoframework.usher.widgets/` | The usher's widgets, an evo `widget_kind_pack`: `usher.controller`, with which a controller is looked at and set; `usher.vouchers`, which lists the controller's vouchers, the valid and the expired apart, and revokes one; `usher.networks`, with which the wireless network vouchers are for is chosen; and `usher.reserve`, which counts the vouchers minted ahead and kept on the unit. |
+
+The steward admits the shell and the widget pack from the UI root as it admits any plugin. `evo-usher-steward` declares a UI shelf for each shelf of the catalogue that has a face, under that shelf's name and with the widget it is drawn with, so a plugin that stocks the catalogue shelf is on the screen and need declare nothing for it; one that stands there with more than that widget, or on the UI shelf of a second shelf it stocks, says so in its manifest. A steward started without a UI root has no face, and hands out vouchers all the same.
+
+```text
+EVO_HTTPS_LISTEN_ADDR=127.0.0.1:8443
+EVO_HTTPS_STATIC_DIR=/opt/evo/ui
+```
+
+turn the listener on and name the UI root, which is also listed in the steward's configuration under `plugins.search_roots`. The steward's certificate is signed by an authority of its own, made when it first starts and kept as `https/ca.crt` beside its state; a browser believes the steward once that authority is installed in it.
+
+Another shell goes into the UI root, in a directory under its own name, and is made the active one with the steward's `activate_ui_shell`, for which the steward asks a step-up. Every open screen then goes back through the door and into it. No plugin, nothing in the catalogue and nothing in the widget pack changes.
+
+A shell loads a widget pack as the module `index.js` in the pack's directory. The module exports `kinds`, the widget kinds it draws, and `mount(kind, element, context)`, which draws one into an element and returns what takes it away again. The context carries the stocking and the one way to the steward a widget has, `steward.request(shelf, request, payload)`, so a widget is the same under any shell that loads packs this way. The usher's shell loads the packs its `packs.json` names.
+
+### Who may ask
+
+Every request that sets, reads or spends what lets guests on to the network asks for evo's `network_admin` capability, declared verb by verb in the plugins' manifests. Only how many vouchers are held is told to anyone.
+
+A browser comes by the capability by pairing. A unit without a screen of its own is given a pairing code before it is first started, in the file `EVO_PAIR_PRESEED_FILE` names; the shell asks for the code when the steward first refuses it, and the steward answers with a bearer, which the browser keeps. A code pairs one browser, once, and a wrong guess spends it until the unit is next started.
+
+evo 0.1.13 also lets a caller on the same network who presents nothing hold that capability, unless the operator has raised the steward's household protection. The listener is therefore kept on the loopback address, as above: opened to a network, it opens the vouchers to that network.
 
 ## Printers
 
@@ -133,7 +167,7 @@ sha256sum --ignore-missing -c SHA256SUMS
 scripts/check.sh
 ```
 
-runs the formatting, the lints with warnings denied, the tests and the documentation, and lints the scripts and the workflows, as CI does.
+runs the formatting, the lints with warnings denied, the tests and the documentation, and lints the scripts and the workflows, as CI does. The tests of the face run it in Chrome or Chromium without a window, the first found on the path or the one `USHER_BROWSER` names; where there is none they say so and are skipped, except in CI, where that is a failure. With `USHER_PICTURE` naming a file, they write a picture of the face there, with a simulated controller set.
 
 ```text
 scripts/build.sh amd64
@@ -141,6 +175,12 @@ scripts/package.sh amd64
 ```
 
 builds the programs for one architecture into `out/`, proves them static and, on a machine of that architecture, runs them; then packs what was built into `dist/`. The toolchain is the one `rust-toolchain.toml` names; `scripts/toolchain.sh` installs it where it is missing.
+
+```text
+scripts/try.sh
+```
+
+builds the steward and runs it with its face on a directory of its own, on the loopback address, and says where to look: `https://127.0.0.1:8443/` unless another port is named. It is for looking at the face while working on it, not for installing a unit.
 
 ## UniFi
 

@@ -1,0 +1,22 @@
+[plugin]
+name = "org.evoframework.usher.widgets"
+# The workspace's version; a test holds the two together.
+version = "0.3.3"
+contract = 1
+kind = "widget_kind_pack"
+
+[target]
+shelf = "system.ui.widgets"
+shape = 1
+
+[trust]
+class = "unprivileged"
+
+[prerequisites]
+evo_min_version = "0.1.13"
+os_family = "any"
+
+[widgets]
+provides = ["usher.controller", "usher.networks", "usher.reserve", "usher.vouchers"]
+size_envelopes_path = "size_envelopes.toml"
+accessibility_declarations_path = "a11y.toml"

@@ -3,7 +3,7 @@ name = "org.evoframework.usher.stock"
 # The crate's version, which is the workspace's. The steward refuses a
 # plugin that says another version than its manifest; a test holds the two
 # together.
-version = "0.3.2"
+version = "0.3.3"
 contract = 1
 
 [target]
@@ -41,3 +41,12 @@ restart_budget = 5
 [capabilities.respondent]
 request_types = ["put", "take", "count"]
 response_budget_ms = 1000
+
+# Who may ask. A voucher is what lets a guest on to the network, so putting
+# vouchers in and taking one out ask for the network_admin capability: a
+# caller the steward trusts only for being on the same network is refused.
+# How many vouchers are held is no secret.
+[capabilities.respondent.verb_capabilities]
+put = { kind = "write", scope = "network_admin" }
+take = { kind = "write", scope = "network_admin" }
+count = { kind = "none" }

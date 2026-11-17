@@ -1,8 +1,11 @@
 //! The usher's steward: the evo steward composed with the usher's plugin
 //! set. Everything the steward does is the framework's, through
-//! [`evo::run`]; this program adds only the plugins it admits.
+//! [`evo::run`]; this program adds only what makes it an usher: the UI
+//! shelves, and the plugins it admits.
 
 #![forbid(unsafe_code)]
+
+mod face;
 
 use clap::Parser as _;
 
@@ -18,10 +21,39 @@ async fn main() -> anyhow::Result<()> {
     evo::run(evo::RunOptions::new(args, admission())).await
 }
 
-/// The usher's plugin set, admitted in-process.
+/// What the steward admits, in order: the UI shelves; the shells and
+/// widget packs under the search roots; the usher's plugin set,
+/// in-process.
 fn admission() -> AdmissionSetup {
-    Box::new(|engine: &mut AdmissionEngine, _config: &StewardConfig| {
+    Box::new(|engine: &mut AdmissionEngine, config: &StewardConfig| {
         Box::pin(async move {
+            engine
+                .register_ui_shelves(&face::shelves())
+                .await
+                .map_err(|e| anyhow::anyhow!("the UI shelves: {e}"))?;
+            // Shells and widget packs come before the plugins: a plugin
+            // is put on its UI shelf as it is admitted, and the kind it
+            // is drawn with must be known by then.
+            evo::plugin_discovery::discover_and_admit(engine, config)
+                .await
+                .map_err(|e| anyhow::anyhow!("the search roots: {e}"))?;
+            // The usher's kinds are known even where its widget pack is
+            // not, so that a steward without a face still hands out
+            // vouchers. Where the pack was admitted it brought them, and
+            // the steward refuses them a second time.
+            for kind in face::kinds() {
+                if engine
+                    .register_ui_widget_kinds(std::slice::from_ref(&kind))
+                    .await
+                    .is_ok()
+                {
+                    tracing::warn!(
+                        kind = %kind.id,
+                        "no widget pack brought this kind; it is known, \
+                         and nothing draws it"
+                    );
+                }
+            }
             engine
                 .admit_singleton_respondent(
                     ControllerPlugin::new(),

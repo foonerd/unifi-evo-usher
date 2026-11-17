@@ -104,6 +104,7 @@ async fn a_controller_is_set_once_it_answers_and_is_kept() {
     assert_eq!(info["set"], true);
     assert_eq!(info["base"], simulated.base());
     assert_eq!(info["version"], "11.0.97");
+    assert_eq!(info["trouble"], Value::Null);
     let sites = ask(&again, "sites", json!({})).await.unwrap();
     assert_eq!(
         sites,
@@ -254,6 +255,98 @@ async fn vouchers_are_minted_listed_and_revoked() {
 }
 
 #[tokio::test]
+async fn the_wireless_networks_are_listed_and_one_is_chosen_for_vouchers() {
+    let simulated = Simulated::start().await;
+    let kept = Kept::new();
+    let controller = kept.open();
+
+    // With no controller set there is nothing to ask.
+    assert!(matches!(
+        ask(&controller, "networks", json!({})).await,
+        Err(Refusal::AsAsked(_))
+    ));
+    set(&controller, &simulated).await;
+
+    // Every wireless network of the site, each with what the controller
+    // says of it; none is chosen yet.
+    let known = ask(&controller, "networks", json!({})).await.unwrap();
+    assert_eq!(known["chosen"], Value::Null);
+    let site = &known["sites"][0];
+    assert_eq!(site["id"], simulated.site());
+    assert_eq!(site["name"], "Default");
+    let told: Vec<Value> = site["networks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|n| {
+            json!([
+                n["name"],
+                n["enabled"],
+                n["network"],
+                n["vlan"],
+                n["security"],
+                n["portal"]
+            ])
+        })
+        .collect();
+    assert_eq!(
+        json!(told),
+        json!([
+            ["Staff", true, "Default", 1, "passphrase", false],
+            ["Guests", true, "Guest", 1000, "open", true],
+            ["Sensors", true, "Default", 1, "passphrase", false],
+            ["Visitors", false, "Default", 1, "passphrase", true],
+            ["Roaming", true, "Guest", 1000, "enterprise", false],
+        ])
+    );
+    let guests = site["networks"][1]["id"].clone();
+
+    // One is chosen as the network vouchers are for, by its identifier,
+    // and is kept with the name it has.
+    let chosen = ask(
+        &controller,
+        "choose",
+        json!({ "site": simulated.site(), "network": guests }),
+    )
+    .await
+    .unwrap();
+    let choice = json!({
+        "site": simulated.site(), "network": guests, "name": "Guests",
+    });
+    assert_eq!(chosen, json!({ "chosen": choice }));
+    let again = kept.open();
+    let known = ask(&again, "networks", json!({ "site": simulated.site() }))
+        .await
+        .unwrap();
+    assert_eq!(known["chosen"], choice, "kept through a restart");
+
+    // What the controller does not have is not chosen, and what was
+    // chosen stays.
+    for asked in [
+        json!({ "site": simulated.site(), "network": "no-such-network" }),
+        json!({ "site": "00000000-0000-4000-8000-000000000000", "network": guests }),
+        json!({ "network": guests }),
+    ] {
+        let refused = ask(&again, "choose", asked.clone()).await;
+        assert!(matches!(refused, Err(Refusal::AsAsked(_))), "{asked}");
+    }
+    assert!(matches!(
+        ask(&again, "networks", json!({ "site": "no-such-site" })).await,
+        Err(Refusal::AsAsked(_))
+    ));
+    let known = ask(&again, "networks", json!({})).await.unwrap();
+    assert_eq!(known["chosen"], choice);
+
+    // The choice is taken away again.
+    let none = ask(&again, "choose", json!({ "site": simulated.site() }))
+        .await
+        .unwrap();
+    assert_eq!(none, json!({ "chosen": null }));
+    let known = ask(&again, "networks", json!({})).await.unwrap();
+    assert_eq!(known["chosen"], Value::Null);
+}
+
+#[tokio::test]
 async fn a_listing_is_followed_page_by_page() {
     let simulated = Simulated::start().await;
     let kept = Kept::new();
@@ -326,4 +419,15 @@ async fn a_controller_that_is_gone_is_a_refusal_for_now() {
     tokio::task::yield_now().await;
     let gone = ask(&controller, "sites", json!({})).await;
     assert!(matches!(gone, Err(Refusal::ForNow(_))), "{gone:?}");
+
+    // It is still the controller that is set, and `info` says that it
+    // does not answer, and why.
+    let info = ask(&controller, "info", json!({})).await.unwrap();
+    assert_eq!(info["set"], true, "{info}");
+    assert_eq!(info["held"], true);
+    assert_eq!(info["version"], Value::Null);
+    assert!(
+        info["trouble"].as_str().is_some_and(|why| !why.is_empty()),
+        "{info}"
+    );
 }
