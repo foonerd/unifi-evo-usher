@@ -1,0 +1,64 @@
+# Schema for the `stock.reserve` shelf at shape version 1.
+#
+# The request types and payloads a plugin stocking `stock.reserve` at
+# shape 1 answers. Payloads are JSON objects, in and out.
+
+schema_version = 1
+rack = "stock"
+shelf = "reserve"
+shape = 1
+
+description = """
+The vouchers minted and not yet handed out, held by type. A voucher
+leaves the reserve once and is never taken in again, so that no guest is
+handed a voucher another guest was handed. What the reserve holds is
+kept through a restart: a change is on disk before it is answered.
+"""
+
+[[requests]]
+request_type = "put"
+description = """
+Add vouchers of a type. Payload `{ type: string, vouchers: [{ id:
+string, code: string }] }`. A voucher the reserve holds, or has handed
+out, is left out. Returns `{ added: integer }`.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "take"
+description = """
+Take the oldest voucher of a type. Payload `{ type: string }`. Returns
+`{ voucher: { id: string, code: string } }`, or `{ voucher: null }`
+where none of that type is held: an empty reserve is an answer, not a
+refusal.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "count"
+description = """
+How many vouchers of each type are held. Returns `{ held: { <type>:
+integer } }`.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[acceptance]]
+name = "a-voucher-is-handed-out-once"
+detail = """
+After `put` of vouchers a, b, successive `take` return a, then b, then
+`{ voucher: null }`.
+"""
+
+[[acceptance]]
+name = "a-voucher-handed-out-is-not-taken-in-again"
+detail = "After a was taken, `put` of a returns `{ added: 0 }`."
+
+[[acceptance]]
+name = "the-reserve-is-kept"
+detail = """
+After `put` of three vouchers, one `take` and a restart of the plugin,
+`count` returns two of that type and `take` returns the second.
+"""

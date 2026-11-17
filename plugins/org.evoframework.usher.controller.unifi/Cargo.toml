@@ -29,6 +29,7 @@ webpki-roots = "1"
 
 [dev-dependencies]
 evo-plugin-test = { workspace = true }
+toml = "0.8"
 evo-usher-controller-unifi = { path = ".", features = ["simulated"] }
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

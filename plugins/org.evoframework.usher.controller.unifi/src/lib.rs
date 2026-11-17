@@ -207,4 +207,43 @@ mod tests {
         );
         assert_eq!(manifest.target.shelf, "access.controller");
     }
+
+    /// The shelf's shape is written down as a schema; the plugin takes
+    /// exactly the requests the schema declares, on that shelf and shape.
+    #[tokio::test]
+    async fn the_plugin_takes_what_its_shelfs_shape_declares() {
+        let schema: toml::Table = include_str!(concat!(
+            "../../../schemas/org.evoframework.usher/",
+            "access/controller.v1.toml"
+        ))
+        .parse()
+        .unwrap();
+        let declared: std::collections::BTreeSet<String> = schema["requests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["request_type"].as_str().unwrap().to_string())
+            .collect();
+        let taken: std::collections::BTreeSet<String> = ControllerPlugin::new()
+            .describe()
+            .await
+            .runtime_capabilities
+            .request_types
+            .into_iter()
+            .collect();
+        assert_eq!(taken, declared);
+        let manifest = manifest();
+        assert_eq!(
+            manifest.target.shelf,
+            format!(
+                "{}.{}",
+                schema["rack"].as_str().unwrap(),
+                schema["shelf"].as_str().unwrap()
+            )
+        );
+        assert_eq!(
+            i64::from(manifest.target.shape),
+            schema["shape"].as_integer().unwrap()
+        );
+    }
 }

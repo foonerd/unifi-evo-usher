@@ -1481,11 +1481,11 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-about"
-version = "0.3.1"
+version = "0.3.2"
 
 [[package]]
 name = "evo-usher-controller-unifi"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "evo-plugin-sdk",
  "evo-plugin-test",
@@ -1501,27 +1501,28 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-rustls",
+ "toml",
  "tracing",
  "webpki-roots 1.0.9",
 ]
 
 [[package]]
 name = "evo-usher-core"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "evo-usher-about",
 ]
 
 [[package]]
 name = "evo-usher-printer"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "rustix 1.1.4",
 ]
 
 [[package]]
 name = "evo-usher-render"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "ab_glyph",
  "qrcode",
@@ -1530,7 +1531,7 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-station"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "evo-usher-about",
  "evo-usher-printer",
@@ -1539,7 +1540,7 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-steward"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1554,7 +1555,7 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-stock"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "evo-plugin-sdk",
  "evo-plugin-test",
@@ -1563,6 +1564,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "toml",
  "tracing",
 ]
 

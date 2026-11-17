@@ -1,0 +1,16 @@
+# Rack-level metadata for the `access` rack.
+
+rack = "access"
+namespace = "org.evoframework.usher"
+
+description = """
+Turn a request for guest access into access the network grants. The rack
+holds the network's controller: where vouchers are minted, listed and
+revoked.
+"""
+
+# Shelves under this rack and their current shape version. Each entry has
+# a `<shelf>.v<N>.toml` file in this directory.
+[[shelves]]
+name = "controller"
+current_shape = 1

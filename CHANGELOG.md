@@ -2,6 +2,11 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## [0.3.2] - 2026-11-17
+
+- The shapes of the two stocked shelves, `access.controller` and `stock.reserve`, are written down as schemas in the format of evo-catalogue-schemas, under `schemas/org.evoframework.usher/`: the requests each shelf takes, their payloads, and what a plugin on the shape must hold to
+- A test in each plugin holds it to its shelf's schema: it takes exactly the requests the schema declares, on that shelf and at that shape
+
 ## [0.3.1] - 2026-11-17
 
 - The controller plugin, `org.evoframework.usher.controller.unifi`, on the shelf `access.controller`: it sets the UniFi Network controller to mint on, says the controller's version and its sites, mints vouchers on terms, lists them and revokes them. It is written from Ubiquiti's published description of the UniFi Network API, version 11.0.97

@@ -1,0 +1,163 @@
+# Schema for the `access.controller` shelf at shape version 1.
+#
+# The request types and payloads a plugin stocking `access.controller` at
+# shape 1 answers. Payloads are JSON objects, in and out. Nothing in the
+# shape is a vendor's: a controller of another make is stocked by another
+# plugin on the same shape.
+
+schema_version = 1
+rack = "access"
+shelf = "controller"
+shape = 1
+
+description = """
+The network's controller, as the usher uses it: one controller is set,
+by the address its API stands under and a key, and is then asked for its
+sites and to mint, list and revoke vouchers. A voucher belongs to a site
+of the controller.
+
+A controller is spoken to over HTTPS only. It is believed on a
+certificate the public authorities vouch for, or on one certificate held
+to its SHA-256 fingerprint. A controller that is not believed is sent
+nothing, the key least of all.
+
+A request that may succeed if asked again (the controller was not
+reached, or failed on its side) is refused as transient; one that will
+not succeed as asked, as permanent.
+"""
+
+[[requests]]
+request_type = "probe"
+description = """
+Shake hands with a controller and say what it presents, for an operator
+to compare before the controller is believed. Nothing is sent to the
+controller: no request and no key.
+
+Payload `{ base: string }`. Returns `{ fingerprint: string, vouched:
+bool }`: the SHA-256 of the certificate presented, as 64 hexadecimal
+digits, and whether the public authorities vouch for it under the name
+the controller was reached by.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "set"
+description = """
+Set the controller. Payload `{ base: string, key: string, fingerprint:
+string? }`: the address its API stands under, without the API's
+version; the key it is asked with; and, where given, the fingerprint of
+the one certificate it is held to. Without a fingerprint it is held to
+the public authorities.
+
+The controller is set only once it has answered with the key: a wrong
+address, key or certificate is refused, and what was set before stays.
+Returns `{ base: string, held: bool, version: string }`. What is set is
+kept through a restart; the key is kept apart from the rest, readable by
+its owner only.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "info"
+description = """
+The controller that is set. Returns `{ set: false }` where none is, and
+otherwise `{ set: true, base: string, held: bool, version: string }`,
+the version being asked of the controller there and then.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "sites"
+description = """
+The controller's sites. Returns `{ sites: [{ id: string, name: string,
+reference: string }] }`.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "mint"
+description = """
+Mint vouchers. Payload `{ site: string, note: string, minutes: integer,
+count: integer?, guests: integer?, megabytes: integer?, down_kbps:
+integer?, up_kbps: integer? }`: the site; the note every voucher of the
+batch carries; how long a voucher gives access from the moment its first
+guest is let in; how many to mint (1 where absent); how many guests may
+use one voucher; a data allowance; a download and an upload limit.
+
+Terms the controller would refuse are refused before anything is sent.
+Returns `{ vouchers: [voucher] }`, a voucher being `{ id, code, note,
+minutes, created, guests, guests_used, activated, expires, expired,
+megabytes, down_kbps, up_kbps }`, with `null` where it has no such
+limit or has not been used.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "list"
+description = """
+The vouchers of a site. Payload `{ site: string, filter: string? }`, the
+filter being in the controller's own filter language. Returns
+`{ vouchers: [voucher] }`, every page of the controller's answer
+followed.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "revoke"
+description = """
+Take a voucher back: it lets nobody in from then on. Payload `{ site:
+string, id: string }`. Returns `{ revoked: integer }`: how many the
+controller removed, which is 0 where it knew no such voucher.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[acceptance]]
+name = "nothing-is-sent-to-a-controller-that-is-not-believed"
+detail = """
+With a controller presenting a certificate that is neither vouched for
+nor the one it is held to, `set` is refused and the controller receives
+no request.
+"""
+
+[[acceptance]]
+name = "a-probe-sends-nothing"
+detail = "After `probe` the controller has received no request."
+
+[[acceptance]]
+name = "a-controller-is-set-only-once-it-answers"
+detail = """
+`set` with a key the controller refuses is refused as permanent; `info`
+then returns `{ set: false }`, or what was set before.
+"""
+
+[[acceptance]]
+name = "what-is-set-is-kept"
+detail = """
+After `set` and a restart of the plugin, `info` returns the same base
+and `sites` answers.
+"""
+
+[[acceptance]]
+name = "the-key-is-in-no-answer"
+detail = "No answer and no refusal carries the key."
+
+[[acceptance]]
+name = "minted-vouchers-are-the-controllers"
+detail = """
+`mint` with `count = n` returns n vouchers, each with a code of its own,
+and `list` on the same site then returns them.
+"""
+
+[[acceptance]]
+name = "a-revoked-voucher-is-gone"
+detail = """
+`revoke` of a minted voucher returns `{ revoked: 1 }`; a second `revoke`
+of the same returns `{ revoked: 0 }`.
+"""

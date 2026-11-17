@@ -1,0 +1,15 @@
+# Rack-level metadata for the `stock` rack.
+
+rack = "stock"
+namespace = "org.evoframework.usher"
+
+description = """
+Keep vouchers ready, so that one is handed out at once and without the
+controller.
+"""
+
+# Shelves under this rack and their current shape version. Each entry has
+# a `<shelf>.v<N>.toml` file in this directory.
+[[shelves]]
+name = "reserve"
+current_shape = 1

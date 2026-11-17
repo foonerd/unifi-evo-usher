@@ -6,7 +6,7 @@ What it is built to be: a core that holds the UniFi key, mints the vouchers on t
 
 ## Status
 
-0.3.1 stands on the evo steward. `evo-usher-steward` is the steward with the usher's catalogue and two plugins: the controller, which mints vouchers on a UniFi Network controller, and the stock of vouchers ready to hand out. It is built and tested, and not yet in the archive, the packages or the image. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else.
+0.3.2 stands on the evo steward. `evo-usher-steward` is the steward with the usher's catalogue and two plugins: the controller, which mints vouchers on a UniFi Network controller, and the stock of vouchers ready to hand out. It is built and tested, and not yet in the archive, the packages or the image. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else.
 
 The controller plugin is written from Ubiquiti's published description of the UniFi Network API, version 11.0.97, and is held to a simulated controller written from the same description. It has not yet been run against a controller. There is no screen yet: the steward is asked over its client socket.
 
@@ -34,6 +34,17 @@ Plugins stock the shelves. Two do so far:
 | `org.evoframework.usher.stock` | `stock.reserve` | Takes vouchers in by type, hands each out once, oldest first, and says how many it holds. What it holds is kept through a restart. |
 
 `evo-usher-steward` is the steward with these plugins compiled in. It is started as the evo steward is, with a configuration that names the catalogue, and is asked over the steward's client socket; `bins/evo-usher-steward/tests/steward.rs` starts it, sets a simulated controller, mints on it, puts the vouchers in the stock, hands one out, stops the steward and starts it again.
+
+### Shapes
+
+What a shelf takes and answers is its shape, written down as a schema in the format of [evo-catalogue-schemas](https://github.com/foonerd/evo-catalogue-schemas): `schemas/org.evoframework.usher/<rack>/<shelf>.v<N>.toml`, with the requests, their payloads and what a plugin on that shape must hold to. `access/controller.v1.toml` and `stock/reserve.v1.toml` are the shapes of the two shelves stocked so far.
+
+```text
+evo-plugin-tool catalogue lint catalogue/usher.toml
+evo-plugin-tool catalogue validate-shelf-schema --schemas-path schemas
+```
+
+check the catalogue and the schemas with evo's own tool. A test in each plugin holds it to its schema: the plugin takes exactly the requests the schema declares, on that shelf and at that shape.
 
 ### The controller
 
