@@ -186,6 +186,13 @@ hold(
   "refused: How long it lasts: a whole number, 1 or more.",
 );
 
+// The theme a shell is drawn in.
+const { themeAddress, OWN_THEME } = await import("/org.evoframework.usher.shell/theme.js");
+hold("no theme active, the usher's own", themeAddress(null), `/${OWN_THEME}/theme.css`);
+hold("nothing said, the usher's own", themeAddress(undefined), `/${OWN_THEME}/theme.css`);
+hold("the active theme", themeAddress("com.vendor.theme.midnight"), "/com.vendor.theme.midnight/theme.css");
+hold("no plugin's name, the usher's own", themeAddress("../etc"), `/${OWN_THEME}/theme.css`);
+
 // A fingerprint, as it is compared by eye.
 hold("pairs of digits", paired("ab01cd02"), "ab:01:cd:02");
 

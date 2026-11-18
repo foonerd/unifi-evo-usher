@@ -1,10 +1,11 @@
 // The usher's shell. It asks the steward what is stocked on which UI
 // shelf, and draws each stocking with the widget pack that provides its
 // kind. It knows no plugin and no widget: what is on the screen is what
-// the steward says is there.
+// the steward says is there, in the theme the steward says is active.
 
 import * as steward from "./steward.js";
 import { compose } from "./compose.js";
+import { themeAddress } from "./theme.js";
 
 /** A plugin's name, as evo writes one. */
 const NAME = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
@@ -247,6 +248,30 @@ function draw(snapshot) {
   shelves.replaceChildren(...sections);
 }
 
+const themeLink = /** @type {HTMLLinkElement} */ (document.getElementById("theme"));
+
+/**
+ * Draw in a theme: the one named, or the usher's own where none is.
+ *
+ * @param {unknown} theme the active theme, as the steward names it
+ */
+function wear(theme) {
+  const address = themeAddress(theme);
+  if (themeLink.getAttribute("href") !== address) themeLink.setAttribute("href", address);
+}
+
+// A theme whose stylesheet is not there to load leaves the usher's own.
+themeLink.addEventListener("error", () => wear(null));
+
+/** Ask the steward which theme is active, and draw in it. */
+async function loadTheme() {
+  try {
+    wear((await steward.op("describe_active_ui_selection"))?.theme);
+  } catch (why) {
+    console.warn("shell: the active theme:", why);
+  }
+}
+
 /** Ask the steward what is stocked, and draw it. */
 async function look() {
   try {
@@ -264,6 +289,9 @@ function happened(happening) {
   if (happening.type === "ui_active_shell_changed") {
     // Another shell is active, or none: back through the door.
     location.replace("/");
+  } else if (happening.type === "ui_active_theme_changed") {
+    // Another theme is active, or none: the same screen, in it.
+    wear(/** @type {any} */ (happening).current);
   } else if (happening.type.startsWith("ui_") || happening.type.startsWith("plugin_")) {
     look();
   }
@@ -274,11 +302,13 @@ function lineIs(joined) {
   line.textContent = joined
     ? "Joined to the steward."
     : "The steward does not answer. Trying again.";
+  line.classList.toggle("up", joined);
   line.classList.toggle("down", !joined);
   // What was missed while the line was down is looked at afresh.
   if (joined) look();
 }
 
+await loadTheme();
 await loadPacks();
 await loadOrder();
 await look();

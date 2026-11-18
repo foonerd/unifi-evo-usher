@@ -2,6 +2,15 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## [0.3.6] - 2026-11-18
+
+- The face has a look of its own, and wears it as a theme. `org.evoframework.usher.theme.frost` is an evo `theme` in the UI root: the colours, the corners and the type of the face as tokens, dark unless the browser asks for light, and the stylesheet that sets them as custom properties under the names the evo family's shells bind
+- The usher's shell is drawn in the theme the steward says is active, and in Frost while none is; when another is made active, every open screen is drawn in it at once. The shell says in its manifest that it supports themes
+- The look: a backdrop with a glow in it, panes of glass over it, shelves named in small capitals, voucher types as tiles, how a voucher stands as a word with a light before it, the chosen network lit, the voucher handed out set apart by a bar of the theme's colour. What is pointed at or pressed fades into its state, and does not for a reader who asks for stillness; the widget kinds say so
+- Frost says it is AAA. A test holds every colour it writes in at 7 to 1 or more against every surface it is written on, and another holds its stylesheet to its manifest
+- The custom properties the widgets read are the evo family's: `--evo-text`, `--evo-text-muted`, `--evo-input-bg`, `--evo-border`, `--evo-hover`, with `--primary`, `--destructive`, `--status-ok`, `--status-warn` and `--radius`
+- With `USHER_SCHEME` set to `dark` or `light`, the tests of the face ask for that page, for the picture they write
+
 ## [0.3.5] - 2026-11-18
 
 - The counter writes every voucher it hands out down: which, of which type, when, and whether it was held or minted for the asking. `issue.counter` takes `handed`, which tells the hand-outs of the vouchers asked about, or the newest hundred; `hand` says when; `assign` refuses a voucher that was handed out here. The record is kept through a restart

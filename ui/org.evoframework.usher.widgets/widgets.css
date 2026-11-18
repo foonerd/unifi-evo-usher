@@ -1,26 +1,39 @@
 /*
- * The look of the usher's widgets. Colours and measures are the shell's,
- * read from its custom properties, each with a fallback for a shell that
- * sets none.
+ * The look of the usher's widgets. Colours, corners and measures are the
+ * shell's, read from its custom properties under the names of the evo
+ * family, each with a fallback for a shell that sets none.
+ *
+ * What is written in the quiet colour stands on the pane itself, never on
+ * a tile, a pill or a row that is lit: there it would stand too faint.
  */
 [data-widget^="usher."] h3 {
-  margin: 0 0 0.5rem;
+  margin: 0 0 0.75rem;
   font-size: 1.125rem;
+  font-weight: 600;
+}
+
+[data-widget^="usher."] h4 {
+  margin: 0.875rem 0 0.375rem;
+  font-size: 1rem;
 }
 
 [data-widget^="usher."] p {
   margin: 0.5rem 0;
 }
 
+/* What is known of a thing: its name small and quiet, the thing itself
+   plain to read. */
 [data-widget^="usher."] dl {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
-  gap: 0.25rem 1rem;
+  gap: 0.375rem 1.25rem;
+  align-items: baseline;
   margin: 0;
 }
 
 [data-widget^="usher."] dt {
-  color: var(--evo-quiet, #454545);
+  color: var(--evo-text-muted, #454545);
+  font-size: 0.875rem;
 }
 
 [data-widget^="usher."] dd {
@@ -35,45 +48,52 @@
 }
 
 .usher-fingerprint {
-  font: 1rem/1.6 ui-monospace, monospace;
+  font: 1rem/1.6 var(--font-mono, ui-monospace, monospace);
   overflow-wrap: anywhere;
 }
 
 .usher-hint {
-  color: var(--evo-quiet, #454545);
-  font-size: 0.9375rem;
+  color: var(--evo-text-muted, #454545);
+  font-size: 0.875rem;
 }
 
 .usher-said {
-  min-height: 1.5rem;
-  color: var(--evo-quiet, #454545);
+  color: var(--evo-text-muted, #454545);
+}
+
+/* With nothing to say it takes no room. */
+.usher-said:empty {
+  display: none;
 }
 
 .usher-trouble {
-  color: var(--evo-trouble, #8a1010);
+  color: var(--destructive, #8a1010);
   font-weight: 600;
 }
 
+/* A box or a round to tick, with what it says beside it. */
 .usher-check {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.625rem;
   min-height: var(--evo-touch, 3rem);
+  margin: 0;
+  font-size: 1rem;
   font-weight: 400;
 }
 
 .usher-check input {
-  width: 1.5rem;
-  height: 1.5rem;
+  flex: none;
+  width: 1.375rem;
+  height: 1.375rem;
   min-height: 0;
 }
 
-[data-widget^="usher."] h4 {
-  margin: 0.75rem 0 0.25rem;
-  font-size: 1rem;
-}
-
+/* The networks to choose among: a row each, and the chosen one lit, with
+   a bar of the theme's colour at its edge. */
 .usher-networks {
+  display: grid;
+  gap: 0.25rem;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -86,17 +106,29 @@
 .usher-networks label {
   flex-wrap: wrap;
   gap: 0 0.75rem;
-  margin: 0;
+  padding: 0 0.875rem;
+  border-radius: calc(var(--radius, 0.75rem) - 3px);
+  cursor: pointer;
 }
 
-.usher-networks span {
-  color: var(--evo-quiet, #454545);
+.usher-networks label:hover {
+  background: var(--evo-hover, rgb(127 127 127 / 12%));
+}
+
+.usher-networks label:has(input:checked) {
+  background: var(--evo-lit, rgb(127 127 127 / 18%));
+  box-shadow: inset 3px 0 0 var(--primary, #0b3d91);
+}
+
+.usher-networks label:has(input:disabled) {
+  cursor: default;
 }
 
 .usher-scroll {
   overflow-x: auto;
 }
 
+/* A list in rows: its headings small, a hairline under each row. */
 [data-widget^="usher."] table {
   width: 100%;
   border-collapse: collapse;
@@ -104,26 +136,81 @@
 
 [data-widget^="usher."] th,
 [data-widget^="usher."] td {
-  padding: 0.375rem 0.75rem 0.375rem 0;
-  border-bottom: 1px solid var(--evo-rule, #6b6b6b);
+  padding: 0.5rem 1rem 0.5rem 0;
+  border-bottom: 1px solid var(--evo-hairline, #6b6b6b);
   text-align: left;
   vertical-align: middle;
   white-space: nowrap;
 }
 
+[data-widget^="usher."] th {
+  color: var(--evo-text-muted, #454545);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+[data-widget^="usher."] tbody tr:last-child td {
+  border-bottom: 0;
+}
+
 /* The note is the one cell that may run long. */
-[data-widget^="usher."] td:nth-child(6) {
+[data-widget^="usher."] td:nth-child(6),
+[data-widget^="usher."] td.usher-wraps {
   white-space: normal;
 }
 
-[data-widget^="usher."] th {
-  color: var(--evo-quiet, #454545);
-  font-weight: 600;
+.usher-code {
+  font: 600 1rem/1.5 var(--font-mono, ui-monospace, monospace);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
-.usher-code {
-  font: 1rem/1.5 ui-monospace, monospace;
+/* How a thing stands, in a word, with a light before it that says the
+   same by its colour. */
+.usher-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4375rem;
+  padding: 0.125rem 0.625rem;
+  border-radius: 999px;
+  background: var(--evo-hover, rgb(127 127 127 / 12%));
+  font-size: 0.8125rem;
+  font-weight: 600;
   white-space: nowrap;
+}
+
+.usher-pill::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--evo-text-muted, #454545);
+}
+
+.usher-pill-lit::before {
+  background: var(--primary, #0b3d91);
+}
+
+.usher-pill-good::before {
+  background: var(--status-ok, #0b5a1e);
+}
+
+.usher-pill-held::before {
+  background: var(--status-warn, #6b4200);
+}
+
+.usher-pill-spent::before {
+  background: var(--destructive, #8a1010);
+}
+
+/* What can be done with a row: its buttons side by side. */
+.usher-options {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 [data-widget^="usher."] summary {
@@ -134,42 +221,66 @@
 }
 
 [data-widget^="usher."] select {
-  font: inherit;
   min-height: var(--evo-touch, 3rem);
   padding: 0 0.75rem;
 }
 
-/* A cell that may run long, where the others do not wrap. */
-[data-widget^="usher."] td.usher-wraps {
-  white-space: normal;
-}
-
-/* A voucher type to press: its name, and under it what it gives. */
+/* A voucher type to press: a tile, its name and under it what a voucher
+   of it gives. Lit when it is pointed at. */
 .usher-type {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  justify-content: center;
   gap: 0.125rem;
-  padding: 0.5rem 1.25rem;
+  min-width: 13rem;
+  min-height: 4.5rem;
+  padding: 0.75rem 1.125rem;
+  border: 1px solid var(--evo-hairline, #6b6b6b);
+  border-radius: var(--radius, 0.75rem);
+  background: var(--evo-hover, transparent);
+  box-shadow: inset 0 1px 0 var(--evo-hairline, transparent);
+  color: var(--evo-text, inherit);
   text-align: left;
 }
 
+.usher-type:hover {
+  border-color: var(--primary, currentColor);
+  background: var(--evo-lit, transparent);
+  filter: none;
+}
+
+.usher-type:active {
+  background: var(--evo-pressed, transparent);
+}
+
+.usher-type strong {
+  font-size: 1.0625rem;
+}
+
 .usher-type span {
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   font-weight: 400;
 }
 
-/* The voucher handed out: read from across a counter. */
-.usher-voucher {
-  font: 600 clamp(2rem, 8vw, 3.5rem) / 1.2 ui-monospace, monospace;
-  letter-spacing: 0.04em;
-  overflow-wrap: anywhere;
+.usher-type:disabled {
+  border-color: var(--evo-hairline, #6b6b6b);
+  background: transparent;
 }
 
+/* The voucher handed out: set apart by a bar of the theme's colour, its
+   code large enough to read from across a counter. */
 .usher-handed:not(:empty) {
-  margin-top: 0.75rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--evo-rule, #6b6b6b);
+  margin-top: 1rem;
+  padding: 0.25rem 0 0.25rem 1.25rem;
+  box-shadow: inset 4px 0 0 var(--primary, currentColor);
+}
+
+.usher-voucher {
+  margin: 0 0 0.75rem;
+  font: 700 clamp(2.25rem, 8vw, 3.75rem) / 1.15 var(--font-mono, ui-monospace, monospace);
+  letter-spacing: 0.04em;
+  overflow-wrap: anywhere;
 }
 
 /* The fields of a form, side by side where there is room. */
@@ -185,11 +296,4 @@
 
 .usher-field select {
   width: 100%;
-}
-
-/* What can be done with a row: its buttons side by side. */
-.usher-options {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
 }

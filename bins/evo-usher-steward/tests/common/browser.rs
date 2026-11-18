@@ -171,6 +171,16 @@ impl Browser {
             "Security.setIgnoreCertificateErrors",
             json!({"ignore": true}),
         );
+        // A browser without a window asks for a light page. One that is
+        // told to asks for a dark one, as a reader's own may.
+        if let Ok(scheme) = std::env::var("USHER_SCHEME") {
+            browser.tell(
+                "Emulation.setEmulatedMedia",
+                json!({"features": [
+                    {"name": "prefers-color-scheme", "value": scheme},
+                ]}),
+            );
+        }
         Some(browser)
     }
 

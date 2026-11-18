@@ -1,5 +1,6 @@
 # What each widget kind of the pack promises a reader who does not see
-# the screen, or does not use a pointer.
+# the screen, or does not use a pointer. What is pointed at or pressed
+# fades into its state, and does not for a reader who asks for stillness.
 
 ["usher.controller"]
 kind_id = "usher.controller"
@@ -8,7 +9,7 @@ aria_label_source = "inner_text"
 contrast = "aaa"
 keyboard = { focusable = true, interactions = [] }
 screen_reader = { announces = ["usher.controller.changed"] }
-motion = { animates = false, honours_prefers_reduced_motion = true }
+motion = { animates = true, honours_prefers_reduced_motion = true }
 
 ["usher.counter"]
 kind_id = "usher.counter"
@@ -17,7 +18,7 @@ aria_label_source = "inner_text"
 contrast = "aaa"
 keyboard = { focusable = true, interactions = [] }
 screen_reader = { announces = ["usher.counter.changed"] }
-motion = { animates = false, honours_prefers_reduced_motion = true }
+motion = { animates = true, honours_prefers_reduced_motion = true }
 
 ["usher.networks"]
 kind_id = "usher.networks"
@@ -26,7 +27,7 @@ aria_label_source = "inner_text"
 contrast = "aaa"
 keyboard = { focusable = true, interactions = [] }
 screen_reader = { announces = ["usher.networks.changed"] }
-motion = { animates = false, honours_prefers_reduced_motion = true }
+motion = { animates = true, honours_prefers_reduced_motion = true }
 
 ["usher.reserve"]
 kind_id = "usher.reserve"
@@ -35,7 +36,7 @@ aria_label_source = "inner_text"
 contrast = "aaa"
 keyboard = { focusable = true, interactions = [] }
 screen_reader = { announces = ["usher.reserve.changed"] }
-motion = { animates = false, honours_prefers_reduced_motion = true }
+motion = { animates = true, honours_prefers_reduced_motion = true }
 
 ["usher.types"]
 kind_id = "usher.types"
@@ -44,7 +45,7 @@ aria_label_source = "inner_text"
 contrast = "aaa"
 keyboard = { focusable = true, interactions = [] }
 screen_reader = { announces = ["usher.types.changed"] }
-motion = { animates = false, honours_prefers_reduced_motion = true }
+motion = { animates = true, honours_prefers_reduced_motion = true }
 
 ["usher.vouchers"]
 kind_id = "usher.vouchers"
@@ -53,4 +54,4 @@ aria_label_source = "inner_text"
 contrast = "aaa"
 keyboard = { focusable = true, interactions = [] }
 screen_reader = { announces = ["usher.vouchers.changed"] }
-motion = { animates = false, honours_prefers_reduced_motion = true }
+motion = { animates = true, honours_prefers_reduced_motion = true }

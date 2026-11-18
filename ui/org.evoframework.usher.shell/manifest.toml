@@ -1,7 +1,7 @@
 [plugin]
 name = "org.evoframework.usher.shell"
 # The workspace's version; a test holds the two together.
-version = "0.3.5"
+version = "0.3.6"
 contract = 1
 kind = "ui_shell"
 
@@ -21,6 +21,6 @@ display_name = "Usher"
 shell_type = "web_bundle"
 entry_point = "index.html"
 required_widget_kinds = ["usher.*"]
-supports_themes = false
+supports_themes = true
 supports_offline = false
 min_evo_version = "0.1.13"

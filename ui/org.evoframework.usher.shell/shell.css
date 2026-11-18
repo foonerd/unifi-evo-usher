@@ -1,86 +1,150 @@
 /*
- * The shell's look. Colours and measures are custom properties on the
- * root, under names a widget pack reads too, so a widget looks at home in
- * whichever shell draws it. Nothing moves.
+ * The shell's look. Colours, type and corners are the active theme's,
+ * read from the custom properties its stylesheet sets, under the names
+ * the evo family's shells bind. What is here is what is made of them: a
+ * backdrop with a glow in it, panes of glass over it, and what is pressed
+ * and typed into on the panes.
+ *
+ * What a widget pack reads is set on the root under `--evo-` names, so a
+ * widget looks at home in whichever shell draws it.
+ *
+ * What is written in a quiet colour is written on the page or on a pane,
+ * never on a surface that is lit or pressed: there it would stand too
+ * faint.
  */
 :root {
-  color-scheme: light dark;
-  --evo-paper: #ffffff;
-  --evo-ink: #111111;
-  --evo-quiet: #454545;
-  --evo-rule: #6b6b6b;
-  --evo-field: #ffffff;
-  --evo-accent: #0b3d91;
-  --evo-on-accent: #ffffff;
-  --evo-trouble: #8a1010;
-  --evo-good: #0b5a1e;
+  /* What the widgets read, as the family names it. */
+  --evo-text: var(--foreground);
+  --evo-text-muted: var(--muted-foreground);
+  --evo-surface-1: var(--card);
+  --evo-surface-2: color-mix(in oklab, var(--card) 88%, var(--foreground));
+  --evo-input-bg: var(--input);
+  --evo-border: var(--border);
+  --evo-border-strong: color-mix(in oklab, var(--border) 60%, var(--foreground));
+  --evo-hover: color-mix(in oklab, var(--foreground) 8%, transparent);
+
+  /* The usher's own: glass, its states, and its measures. */
+  --evo-hairline: color-mix(in oklab, var(--foreground) 12%, transparent);
+  --evo-glass: color-mix(in oklab, var(--card) 78%, transparent);
+  --evo-lit: color-mix(in oklab, var(--primary) 18%, transparent);
+  --evo-pressed: color-mix(in oklab, var(--foreground) 16%, transparent);
   --evo-gap: 1rem;
   --evo-touch: 3rem;
-  font: 1.125rem/1.5 system-ui, sans-serif;
-}
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --evo-paper: #101010;
-    --evo-ink: #f4f4f4;
-    --evo-quiet: #c4c4c4;
-    --evo-rule: #9a9a9a;
-    --evo-field: #1c1c1c;
-    --evo-accent: #a9c7ff;
-    --evo-on-accent: #0a0a0a;
-    --evo-trouble: #ffb4b4;
-    --evo-good: #a6e6b4;
-  }
+  font: 1.0625rem/1.5 var(--font, system-ui, sans-serif);
 }
 
 * {
   box-sizing: border-box;
 }
 
+/* The backdrop: the page's colour, with a glow at two corners. Where the
+   glow is strongest it is the theme's `backdrop-glow` and no lighter. */
 body {
   margin: 0;
-  background: var(--evo-paper);
-  color: var(--evo-ink);
+  min-height: 100vh;
+  background-color: var(--background);
+  background-image:
+    radial-gradient(64rem 40rem at 82% -6%, var(--backdrop-glow), transparent 70%),
+    radial-gradient(
+      48rem 34rem at 0% 104%,
+      color-mix(in oklab, var(--backdrop-glow) 70%, var(--background)),
+      transparent 70%
+    );
+  background-attachment: fixed;
+  color: var(--evo-text);
 }
 
+/* The bar stays at the top, a pane of glass like the rest. */
 .bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0 var(--evo-gap);
+  align-items: center;
+  gap: 0.5rem var(--evo-gap);
   /* In line with what is under it, however wide the window. */
   padding: 0.75rem max(var(--evo-gap), calc((100% - 80rem) / 2 + var(--evo-gap)));
-  border-bottom: 2px solid var(--evo-rule);
+  border-bottom: 1px solid var(--evo-hairline);
+  background: var(--evo-glass);
+  -webkit-backdrop-filter: blur(var(--blur, 14px));
+  backdrop-filter: blur(var(--blur, 14px));
 }
 
 .bar h1 {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
   margin: 0;
-  font-size: 1.5rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
+/* The usher's mark: a square of the theme's own colour. */
+.bar h1::before {
+  content: "";
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.5rem;
+  background: linear-gradient(
+    140deg,
+    var(--primary),
+    color-mix(in oklab, var(--primary) 50%, var(--background))
+  );
+  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--foreground) 30%, transparent);
+}
+
+/* How the line to the steward stands: a word, and a light before it. */
 .bar p {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
   margin: 0;
-  color: var(--evo-quiet);
+  color: var(--evo-text-muted);
+  font-size: 0.875rem;
+}
+
+.bar p::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--evo-text-muted);
+}
+
+.bar p.up::before {
+  background: var(--status-ok);
 }
 
 .bar p.down {
-  color: var(--evo-trouble);
+  color: var(--destructive);
   font-weight: 600;
 }
 
+.bar p.down::before {
+  background: var(--destructive);
+}
+
 main {
-  padding: var(--evo-gap);
   max-width: 80rem;
   margin: 0 auto;
+  padding: calc(1.5 * var(--evo-gap)) var(--evo-gap) calc(3 * var(--evo-gap));
 }
 
 .shelf {
   margin-bottom: calc(2 * var(--evo-gap));
 }
 
+/* A shelf is named in small capitals, on the page itself. */
 .shelf h2 {
-  margin: 0 0 0.5rem;
-  font-size: 1.25rem;
+  margin: 0 0 0.625rem 0.25rem;
+  color: var(--evo-text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .stockings {
@@ -89,12 +153,20 @@ main {
   gap: var(--evo-gap);
 }
 
+/* A pane of glass: the panel's colour let through, what is behind it
+   blurred, a hairline of light along its upper edge. */
 .stocking {
   grid-column: span 12;
   min-width: 0;
-  padding: var(--evo-gap);
-  border: 2px solid var(--evo-rule);
-  border-radius: 0.5rem;
+  padding: 1.25rem;
+  border: 1px solid var(--evo-hairline);
+  border-radius: var(--radius, 0.75rem);
+  background: var(--evo-glass);
+  box-shadow:
+    inset 0 1px 0 var(--evo-hairline),
+    0 12px 32px -18px rgb(0 0 0 / 45%);
+  -webkit-backdrop-filter: blur(var(--blur, 14px));
+  backdrop-filter: blur(var(--blur, 14px));
 }
 
 @media (min-width: 48rem) {
@@ -108,61 +180,101 @@ main {
 
 .notice {
   margin: 0;
-  color: var(--evo-quiet);
+  color: var(--evo-text-muted);
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
-  min-height: var(--evo-touch);
-  border-radius: 0.375rem;
 }
 
+/* A button is the theme's colour, filled: the thing to do next. */
 button {
+  min-height: var(--evo-touch);
   padding: 0 1.25rem;
-  border: 2px solid var(--evo-accent);
-  background: var(--evo-accent);
-  color: var(--evo-on-accent);
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius, 0.75rem) - 2px);
+  background: var(--primary);
+  color: var(--primary-foreground);
   font-weight: 600;
   cursor: pointer;
 }
 
+button:hover {
+  filter: brightness(1.08);
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+/* A quiet one is a thing that can be done, and need not be. */
 button.quiet {
-  background: transparent;
-  color: var(--evo-accent);
+  border-color: var(--evo-border-strong);
+  background: var(--evo-hover);
+  color: var(--evo-text);
+}
+
+button.quiet:hover {
+  background: var(--evo-pressed);
+  filter: none;
+}
+
+/* One that takes something away says so by its edge. */
+button.danger {
+  border-color: var(--destructive);
 }
 
 button:disabled {
-  border-color: var(--evo-rule);
+  border-color: var(--evo-hairline);
   background: transparent;
-  color: var(--evo-quiet);
+  color: var(--evo-text-muted);
   cursor: default;
+  filter: none;
+  transform: none;
 }
 
 input[type="text"],
 input[type="url"],
-input[type="password"] {
+input[type="password"],
+select {
   width: 100%;
-  padding: 0 0.75rem;
-  border: 2px solid var(--evo-rule);
-  background: var(--evo-field);
-  color: var(--evo-ink);
+  min-height: var(--evo-touch);
+  padding: 0 0.875rem;
+  border: 1px solid var(--evo-border-strong);
+  border-radius: calc(var(--radius, 0.75rem) - 3px);
+  background: var(--evo-input-bg);
+  color: var(--evo-text);
+}
+
+input[type="text"]:hover,
+input[type="url"]:hover,
+input[type="password"]:hover,
+select:hover {
+  border-color: var(--primary);
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--primary);
 }
 
 /* A code is read back before it is sent: each character told from the next. */
 #pairing-code {
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono, ui-monospace, monospace);
   letter-spacing: 0.08em;
 }
 
 :focus-visible {
-  outline: 3px solid var(--evo-accent);
+  outline: 3px solid var(--primary);
   outline-offset: 2px;
 }
 
 label {
   display: block;
-  margin: 0.75rem 0 0.25rem;
+  margin: 0.875rem 0 0.375rem;
+  font-size: 0.875rem;
   font-weight: 600;
 }
 
@@ -175,15 +287,18 @@ label {
 
 dialog {
   width: min(32rem, calc(100vw - 2rem));
-  padding: 1.25rem;
-  border: 2px solid var(--evo-rule);
-  border-radius: 0.5rem;
-  background: var(--evo-paper);
-  color: var(--evo-ink);
+  padding: 1.5rem;
+  border: 1px solid color-mix(in oklab, var(--primary) 45%, var(--border));
+  border-radius: var(--radius, 0.75rem);
+  background: var(--card);
+  color: var(--evo-text);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 50%);
 }
 
 dialog::backdrop {
-  background: rgb(0 0 0 / 60%);
+  background: rgb(0 0 0 / 55%);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
 }
 
 dialog h2 {
@@ -197,6 +312,20 @@ dialog p {
 
 [role="alert"] {
   min-height: 1.5rem;
-  color: var(--evo-trouble);
+  color: var(--destructive);
   font-weight: 600;
+}
+
+/* What changes when it is pointed at or pressed fades into it, briefly,
+   for a reader who has not asked for stillness. Nothing slides. */
+@media (prefers-reduced-motion: no-preference) {
+  button,
+  input,
+  select,
+  label {
+    transition:
+      background-color 140ms ease,
+      border-color 140ms ease,
+      filter 140ms ease;
+  }
 }

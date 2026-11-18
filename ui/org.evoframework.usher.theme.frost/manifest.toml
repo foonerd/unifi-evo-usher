@@ -1,0 +1,69 @@
+[plugin]
+name = "org.evoframework.usher.theme.frost"
+# The workspace's version; a test holds the two together.
+version = "0.3.6"
+contract = 1
+kind = "theme"
+
+[target]
+shelf = "system.appearance.themes"
+shape = 1
+
+[trust]
+class = "unprivileged"
+
+[prerequisites]
+evo_min_version = "0.1.13"
+os_family = "any"
+
+[theme]
+display_name = "Frost"
+# The variant is the reader's: dark unless the browser asks for light.
+variants = ["dark", "light"]
+
+# The tokens, under the names the evo family's shells bind: each is the
+# custom property of that name in `theme.css`, which is what a shell
+# loads. A test holds the two together.
+[theme.tokens]
+radius = "0.75rem"
+blur = "14px"
+font = "Inter, system-ui, sans-serif"
+font-mono = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+
+# Surfaces: the page, the lightest the glow behind it gets, a panel, a
+# field. Then what is written on them, and what marks a state.
+[theme.tokens.dark]
+background = "#0a0e14"
+backdrop-glow = "#11273a"
+card = "#121821"
+input = "#0c1118"
+border = "#2a3444"
+foreground = "#f2f2f5"
+muted-foreground = "#aeb6c4"
+primary = "#5cc8ff"
+primary-foreground = "#06121c"
+destructive = "#ff9d94"
+status-ok = "#7ddc9a"
+status-warn = "#f0c060"
+
+[theme.tokens.light]
+background = "#eef1f6"
+backdrop-glow = "#dbe8f6"
+card = "#ffffff"
+input = "#ffffff"
+border = "#c5cedb"
+foreground = "#10151c"
+muted-foreground = "#3f4958"
+primary = "#084a8a"
+primary-foreground = "#ffffff"
+destructive = "#8c1010"
+status-ok = "#0a5019"
+status-warn = "#6b4200"
+
+[theme.assets]
+stylesheet = "theme.css"
+
+# Every colour that is written in stands at 7 to 1 or more against every
+# surface it is written on. A test holds the tokens to it.
+[theme.compliance]
+wcag_conformance = "AAA"

@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 
 const SHELL: &str = "org.evoframework.usher.shell";
 const WIDGETS: &str = "org.evoframework.usher.widgets";
+const THEME: &str = "org.evoframework.usher.theme.frost";
 
 #[test]
 fn the_steward_serves_the_door_the_shell_and_the_widget_pack() {
@@ -29,6 +30,7 @@ fn the_steward_serves_the_door_the_shell_and_the_widget_pack() {
         format!("/{SHELL}/shell.js"),
         format!("/{SHELL}/steward.js"),
         format!("/{SHELL}/compose.js"),
+        format!("/{SHELL}/theme.js"),
         format!("/{WIDGETS}/index.js"),
         format!("/{WIDGETS}/controller.js"),
         format!("/{WIDGETS}/counter.js"),
@@ -54,6 +56,16 @@ fn the_steward_serves_the_door_the_shell_and_the_widget_pack() {
         json!([WIDGETS]),
         "the shell draws with the usher's widget pack"
     );
+    // The shell and the door wear the usher's theme, which the steward
+    // serves from the theme's own directory.
+    let theme = format!("/{THEME}/theme.css");
+    let (status, kind, sheet) = steward.file(&theme);
+    assert_eq!(status, 200);
+    assert!(kind.starts_with("text/css"), "{kind}");
+    assert!(sheet.contains("--primary:"), "{sheet}");
+    assert!(shell.contains(&theme), "{shell}");
+    assert!(door.contains(&theme), "{door}");
+
     let (status, _, order) = steward.file(&format!("/{SHELL}/order.json"));
     assert_eq!(status, 200);
     assert_eq!(

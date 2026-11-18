@@ -575,6 +575,28 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
         &format!(r#"{walk_in_button} === "2 hours; one guest""#),
     );
 
+    // The page wears the usher's theme: the shell's colours are the
+    // theme's tokens, in the variant the browser asks for.
+    let worn = browser.look(
+        r#"
+        const root = getComputedStyle(document.documentElement);
+        return {
+          sheet: document.getElementById("theme").getAttribute("href"),
+          primary: root.getPropertyValue("--primary").trim(),
+          text: root.getPropertyValue("--evo-text").trim() !== "",
+        };
+        "#,
+    );
+    assert_eq!(
+        worn["sheet"],
+        "/org.evoframework.usher.theme.frost/theme.css"
+    );
+    assert!(
+        ["#5cc8ff", "#084a8a"].contains(&worn["primary"].as_str().unwrap()),
+        "{worn}"
+    );
+    assert_eq!(worn["text"], true, "{worn}");
+
     // For the eye: a picture of the face as it now stands, where one is
     // asked for.
     if let Some(to) = std::env::var_os("USHER_PICTURE") {

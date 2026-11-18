@@ -1,0 +1,46 @@
+/*
+ * Frost: the usher's theme. The tokens of `manifest.toml`, as the custom
+ * properties a shell binds. The names are the evo family's, so that a
+ * shell of the family reads this theme, and the usher's shell reads a
+ * theme of the family.
+ *
+ * Dark unless the browser asks for light.
+ */
+:root {
+  color-scheme: dark;
+  --radius: 0.75rem;
+  --blur: 14px;
+  --font: Inter, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --background: #0a0e14;
+  --backdrop-glow: #11273a;
+  --card: #121821;
+  --input: #0c1118;
+  --border: #2a3444;
+  --foreground: #f2f2f5;
+  --muted-foreground: #aeb6c4;
+  --primary: #5cc8ff;
+  --primary-foreground: #06121c;
+  --destructive: #ff9d94;
+  --status-ok: #7ddc9a;
+  --status-warn: #f0c060;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --background: #eef1f6;
+    --backdrop-glow: #dbe8f6;
+    --card: #ffffff;
+    --input: #ffffff;
+    --border: #c5cedb;
+    --foreground: #10151c;
+    --muted-foreground: #3f4958;
+    --primary: #084a8a;
+    --primary-foreground: #ffffff;
+    --destructive: #8c1010;
+    --status-ok: #0a5019;
+    --status-warn: #6b4200;
+  }
+}

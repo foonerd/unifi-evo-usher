@@ -73,6 +73,20 @@ export function standing(voucher) {
   return used ? "in use" : "not used yet";
 }
 
+/** The light a word on a voucher's standing is given. */
+const TONES = { "in use": "good", expired: "spent" };
+
+/**
+ * A word on how a voucher stands, with a light of its tone before it.
+ *
+ * @param {string} word
+ * @param {string} [tone] `lit`, `good`, `held` or `spent`; plain with none
+ * @returns {HTMLElement}
+ */
+function pill(word, tone = "") {
+  return el("span", { class: tone === "" ? "usher-pill" : `usher-pill usher-pill-${tone}` }, word);
+}
+
 /** @param {unknown} when @returns {string} */
 function at(when) {
   if (typeof when !== "string" || when === "") return "";
@@ -229,7 +243,7 @@ export function vouchers(element, context) {
             "button",
             {
               type: "button",
-              class: "quiet",
+              class: "quiet danger",
               "aria-label": `Revoke ${code}`,
               onclick: () => {
                 option.replaceChildren(
@@ -238,6 +252,7 @@ export function vouchers(element, context) {
                     "button",
                     {
                       type: "button",
+                      class: "quiet danger",
                       onclick: async () => {
                         say(`Revoking ${code}.`);
                         try {
@@ -279,10 +294,23 @@ export function vouchers(element, context) {
         "td",
         {},
         ...(isHeld
-          ? ["for hand-out"]
+          ? [pill("for hand-out", "lit")]
           : given
-            ? ["handed out", el("br"), at(new Date(Number(out.at) * 1000).toISOString())]
-            : [standing(voucher)]),
+            ? [
+                pill("handed out", "held"),
+                el("br"),
+                el(
+                  "span",
+                  { class: "usher-hint" },
+                  at(new Date(Number(out.at) * 1000).toISOString()),
+                ),
+              ]
+            : [
+                pill(
+                  standing(voucher),
+                  TONES[/** @type {keyof typeof TONES} */ (standing(voucher))] ?? "",
+                ),
+              ]),
       ),
       el("td", {}, at(voucher.created)),
       el("td", {}, lasts(voucher.minutes)),
