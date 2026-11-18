@@ -223,6 +223,8 @@ fn a_guest_is_handed_a_voucher_minted_for_the_asking() {
     // of the one, a voucher of the other, on the type's terms.
     let handed = hand(&steward, "Day guest");
     assert_eq!(handed["network"], "Guests", "{handed}");
+    // The network is open: a phone joins it from the voucher.
+    assert_eq!(handed["join"]["text"], "WIFI:T:nopass;S:Guests;;");
     assert_eq!(handed["type"], day);
     let code = handed["voucher"]["code"].as_str().expect("a code");
     assert!(

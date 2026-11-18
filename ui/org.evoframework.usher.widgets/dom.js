@@ -25,6 +25,21 @@ export function el(tag, set = {}, ...within) {
 }
 
 /**
+ * Make an element of a drawing.
+ *
+ * @param {string} tag
+ * @param {Record<string, string>} [set] attributes
+ * @param {...Node} within what goes in it
+ * @returns {SVGElement}
+ */
+export function svg(tag, set = {}, ...within) {
+  const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [name, value] of Object.entries(set)) element.setAttribute(name, value);
+  element.append(...within);
+  return element;
+}
+
+/**
  * What went wrong, in the words it was said in. The steward puts its own
  * words before a plugin's; the plugin's are the ones for the screen.
  *

@@ -457,6 +457,39 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
     );
     assert_eq!(simulated.held(), 2, "one press, one voucher");
 
+    // The network is joined without a passphrase, so the voucher comes
+    // with the symbol a phone joins it from; and the whole is put before
+    // the guest, alone on the screen, and taken away again.
+    assert_eq!(
+        browser.look(
+            r#"
+            const drawn = widget("usher.counter").querySelector(".usher-ticket svg.usher-qr");
+            return [drawn?.getAttribute("aria-label"), drawn?.querySelector("path").getAttribute("d").length > 100];
+            "#
+        ),
+        json!(["A code a phone reads to join Guests", true])
+    );
+    browser.act(
+        r#"[...widget("usher.counter").querySelectorAll("button")].find((b) => b.textContent === "Show to the guest").click();"#,
+    );
+    let before_the_guest = browser.wait(
+        "the voucher before the guest",
+        r#"widget("usher.counter").querySelector("dialog.usher-guest[open]")?.innerText"#,
+    );
+    let before_the_guest = before_the_guest.as_str().unwrap();
+    assert!(
+        before_the_guest.contains("Wi-Fi: Guests"),
+        "{before_the_guest}"
+    );
+    assert!(before_the_guest.contains(&code), "{before_the_guest}");
+    browser.act(
+        r#"widget("usher.counter").querySelector("dialog.usher-guest button").click();"#,
+    );
+    browser.wait(
+        "the voucher taken from before the guest",
+        r#"widget("usher.counter").querySelector("dialog.usher-guest") === null"#,
+    );
+
     // The controller's list on the screen has it, unasked, as handed
     // out: it is that guest's, and is not offered for handing out again.
     let row_of = |code: &str| {

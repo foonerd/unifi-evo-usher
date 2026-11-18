@@ -38,7 +38,8 @@
 //!
 //! - `networks`: `{"site"}`, optional, answers `{"sites": [{"id", "name",
 //!   "networks": [{"id", "name", "enabled", "network", "vlan",
-//!   "security", "portal"}]}], "chosen": {"site", "network", "name"}}`:
+//!   "security", "portal"}]}], "chosen": {"site", "network", "name",
+//!   "security"}}`:
 //!   for each site, or the one asked for, its wireless networks, and the
 //!   one vouchers are for where one was chosen. Only a wireless network's
 //!   identifier and name are counted on; the rest is told where the

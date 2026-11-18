@@ -131,6 +131,11 @@ hold(
   "on the network Guest, VLAN 1000; open; asks for a voucher",
 );
 hold("a name and no more", told({ name: "Bare" }), "");
+hold(
+  "a hotspot of no stated kind",
+  told({ security: "open", portal: null, enabled: true }),
+  "open; a hotspot",
+);
 hold("switched off", told({ security: "passphrase", enabled: false }), "joined with a passphrase; switched off");
 
 // What a voucher of a type gives, and what is typed for one.
@@ -185,6 +190,14 @@ hold(
   refused(() => terms({ name: "Day", lasts: "", unit: "days", guests: "", megabytes: "", down: "", up: "" })),
   "refused: How long it lasts: a whole number, 1 or more.",
 );
+
+// The symbol a phone reads, drawn from its rows: a square for each dark
+// module, inside the quiet margin.
+const { symbol } = await import("/org.evoframework.usher.widgets/counter.js");
+const drawn = symbol({ text: "x", side: 2, rows: ["10", "01"] }, "to join");
+hold("its room, margin included", drawn.getAttribute("viewBox"), "0 0 10 10");
+hold("its dark modules", drawn.querySelector("path").getAttribute("d"), "M4 4h1v1h-1zM5 5h1v1h-1z");
+hold("what it is, in words", drawn.getAttribute("aria-label"), "to join");
 
 // The theme a shell is drawn in.
 const { themeAddress, OWN_THEME } = await import("/org.evoframework.usher.shell/theme.js");

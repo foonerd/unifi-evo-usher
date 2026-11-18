@@ -35,7 +35,9 @@ export function told(network) {
   return [
     on,
     how,
-    network.portal === true ? "asks for a voucher" : "",
+    // A hotspot of which the controller does not say the kind is still
+    // a hotspot.
+    network.portal === true ? "asks for a voucher" : network.portal === null ? "a hotspot" : "",
     network.enabled === false ? "switched off" : "",
   ]
     .filter((part) => part !== "")

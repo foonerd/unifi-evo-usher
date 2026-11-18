@@ -245,6 +245,7 @@ async fn with_none_held_a_voucher_is_minted_on_the_terms_of_its_type() {
             "voucher": { "id": "v-1", "code": "0123456789" },
             "type": house_guests(),
             "network": "Guests",
+            "join": null,
             "held": false,
         })
     );
@@ -351,6 +352,7 @@ async fn a_voucher_assigned_is_held_for_its_type_and_goes_first() {
                 "voucher": { "id": id, "code": code },
                 "type": house_guests(),
                 "network": "Guests",
+                "join": null,
                 "held": true,
             })
         );
@@ -573,4 +575,71 @@ async fn every_hand_out_is_written_down_and_its_voucher_not_assigned() {
         .await
         .unwrap();
     assert_eq!(kept["handed"][0]["id"], "old-1", "{kept}");
+}
+
+#[tokio::test]
+async fn an_open_network_is_joined_from_the_voucher() {
+    let dir = tempfile::tempdir().unwrap();
+    for (security, joined) in [
+        (json!("open"), true),
+        (json!("passphrase"), false),
+        (json!("enterprise"), false),
+        (Value::Null, false),
+    ] {
+        let mut chosen = guests();
+        chosen["name"] = json!("Guest; spot");
+        chosen["security"] = security.clone();
+        let stand = Arc::new(Stand::new(
+            chosen,
+            Ok(json!({ "vouchers": [listed("v-1", "0123456789")] })),
+        ));
+        let counter = Counter::open(dir.path(), Some(stand)).unwrap();
+        ask(&counter, "put_type", house_guests()).await.unwrap();
+        let handed = ask(&counter, "hand", json!({ "type": "House guests" }))
+            .await
+            .unwrap();
+        let join = &handed["join"];
+        if !joined {
+            assert_eq!(*join, Value::Null, "{security}");
+            continue;
+        }
+
+        // The text a phone joins an open network from, its marks
+        // escaped, and the symbol that carries it: a square.
+        assert_eq!(join["text"], r"WIFI:T:nopass;S:Guest\; spot;;");
+        let side = join["side"].as_u64().unwrap() as usize;
+        let rows = join["rows"].as_array().unwrap();
+        assert!(side >= 21, "{side}");
+        assert_eq!(rows.len(), side);
+        for row in rows {
+            let row = row.as_str().unwrap();
+            assert_eq!(row.len(), side);
+            assert!(row.bytes().all(|module| module == b'0' || module == b'1'));
+        }
+        // Drawn as a screen draws it, each module a few dots wide inside
+        // its quiet margin, the symbol reads back as the text.
+        const DOTS: usize = 4;
+        const QUIET: usize = 4;
+        let span = (side + 2 * QUIET) * DOTS;
+        let dark = |x: usize, y: usize| {
+            let (column, row) = (x / DOTS, y / DOTS);
+            (QUIET..QUIET + side).contains(&column)
+                && (QUIET..QUIET + side).contains(&row)
+                && rows[row - QUIET].as_str().unwrap().as_bytes()
+                    [column - QUIET]
+                    == b'1'
+        };
+        let mut picture =
+            rqrr::PreparedImage::prepare_from_greyscale(span, span, |x, y| {
+                if dark(x, y) {
+                    0
+                } else {
+                    255
+                }
+            });
+        let grids = picture.detect_grids();
+        assert_eq!(grids.len(), 1, "one symbol");
+        let (_, read) = grids[0].decode().expect("the symbol reads");
+        assert_eq!(read, join["text"].as_str().unwrap());
+    }
 }

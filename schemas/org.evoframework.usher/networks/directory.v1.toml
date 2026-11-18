@@ -26,7 +26,8 @@ with none, every site of the controller is answered for. Returns `{
 sites: [{ id: string, name: string, networks: [{ id: string, name:
 string, enabled: bool, network: string | null, vlan: integer | null,
 security: string | null, portal: bool | null }] }], chosen: { site:
-string, network: string, name: string } | null }`. `name` is the
+string, network: string, name: string, security: string | null } |
+null }`. `name` is the
 wireless network's name as a guest's device shows it; `network` and
 `vlan` are the network it puts a guest on; `security` is how it is
 joined, `open`, `passphrase` or `enterprise`; `portal` is whether the
@@ -43,7 +44,8 @@ description = """
 Make a wireless network the one vouchers are for. Payload `{ site:
 string, network: string }`, the network by its `id`; with no `network`
 the choice is taken away. The network is kept with the name it has when
-it is chosen. Returns `{ chosen: { site, network, name } | null }`.
+it is chosen, and with how it is joined then. Returns `{ chosen: { site,
+network, name, security } | null }`.
 """
 payload_in = "json"
 payload_out = "json"
@@ -52,7 +54,8 @@ payload_out = "json"
 request_type = "chosen"
 description = """
 The wireless network vouchers are for, as it is kept. Returns `{ chosen:
-{ site, network, name } | null }`, null where no controller is set or
+{ site, network, name, security } | null }`, null where no controller is
+set or
 none was chosen. The controller is asked nothing, so the choice is told
 while the controller is away.
 """

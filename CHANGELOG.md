@@ -2,6 +2,13 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## [0.3.7] - 2026-11-18
+
+- A voucher handed out for a wireless network that is joined without a passphrase comes with the symbol a phone joins that network from. `hand` answers `join`: the join text, and the QR symbol that carries it, made by the crate that draws the voucher label. The counter draws the symbol beside the code
+- "Show to the guest" puts the voucher before the guest, alone on the screen: the network, the symbol, the code and what the voucher gives, as large as the screen gives
+- `networks.directory` keeps how the chosen network is joined with the choice, and tells it. A network chosen before this version is chosen again for the symbol
+- A hotspot of which the controller does not say the kind is shown as a hotspot
+
 ## [0.3.6] - 2026-11-18
 
 - The face has a look of its own, and wears it as a theme. `org.evoframework.usher.theme.frost` is an evo `theme` in the UI root: the colours, the corners and the type of the face as tokens, dark unless the browser asks for light, and the stylesheet that sets them as custom properties under the names the evo family's shells bind

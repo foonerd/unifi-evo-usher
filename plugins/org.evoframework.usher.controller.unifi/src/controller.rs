@@ -33,6 +33,11 @@ struct Chosen {
     network: String,
     /// The wireless network's name when it was chosen.
     name: String,
+    /// How it was joined when it was chosen, where the controller said:
+    /// `open`, `passphrase` or `enterprise`. A choice kept before this
+    /// was kept with it says nothing.
+    #[serde(default)]
+    security: Option<String>,
 }
 
 impl Chosen {
@@ -42,6 +47,7 @@ impl Chosen {
             "site": self.site,
             "network": self.network,
             "name": self.name,
+            "security": self.security,
         })
     }
 }
@@ -404,6 +410,7 @@ impl Controller {
                     site: choosing.site,
                     network: found.id,
                     name: found.name,
+                    security: found.security.map(str::to_string),
                 };
                 let bytes = serde_json::to_vec(&chosen)
                     .map_err(|e| Refusal::AsAsked(e.to_string()))?;

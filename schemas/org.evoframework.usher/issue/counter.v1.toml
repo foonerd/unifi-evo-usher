@@ -77,10 +77,18 @@ request_type = "hand"
 description = """
 Hand out one voucher of a type. Payload `{ type: string }`, the type by
 its name. Returns `{ voucher: { id: string, code: string }, type: type,
-network: string, held: bool, at: integer }`: the voucher, by the
-controller's identifier of it and the code a guest types; the terms of
-its type; the name of the wireless network it is for; whether it was
-held for the type or minted for the asking; and when it was handed out.
+network: string, join: { text: string, side: integer, rows: [string] } |
+null, held: bool, at: integer }`: the voucher, by the controller's
+identifier of it and the code a guest types; the terms of its type; the
+name of the wireless network it is for; what a phone joins that network
+from; whether the voucher was held for the type or minted for the
+asking; and when it was handed out.
+
+`join` is given for a network that `networks.directory` says is joined
+`open`: `text` is the text a phone joins it from, and `rows` the QR
+symbol that carries the text, `side` rows of `side` characters, a `1`
+for each dark module. For a network joined any other way, or of which
+the choice does not say how it is joined, `join` is null.
 
 A voucher held for the type is handed out before one is minted, the
 oldest first, and is handed out while the controller is away. Where the
@@ -200,4 +208,13 @@ name = "a-voucher-handed-out-is-not-assigned"
 detail = """
 `assign` of a voucher that `hand` returned, held or minted, is refused
 as permanent.
+"""
+
+[[acceptance]]
+name = "an-open-network-is-joined-from-the-voucher"
+detail = """
+With an open wireless network chosen, `hand` returns a `join` whose
+`text` joins that network without a passphrase and whose `rows` are a
+square of `side`. With a network joined by a passphrase chosen, or one
+kept without how it is joined, `join` is null.
 """

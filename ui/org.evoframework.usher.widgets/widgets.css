@@ -297,3 +297,48 @@
 .usher-field select {
   width: 100%;
 }
+
+/* The voucher as it is handed over: the symbol a phone reads, where
+   there is one, beside the code and what it gives. */
+.usher-ticket {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  align-items: center;
+}
+
+/* The symbol is dark on light whatever the theme: a phone reads it so. */
+.usher-qr {
+  flex: none;
+  width: 11rem;
+  height: 11rem;
+  border-radius: 0.5rem;
+}
+
+/* The voucher before the guest: alone on the screen, as large as the
+   screen gives. */
+dialog.usher-guest {
+  width: min(52rem, calc(100vw - 2rem));
+  padding: 2rem;
+  text-align: center;
+}
+
+.usher-guest h4 {
+  margin: 0 0 1rem;
+  font-size: 1.5rem;
+}
+
+.usher-guest .usher-qr {
+  width: min(20rem, 60vw);
+  height: auto;
+  aspect-ratio: 1;
+}
+
+.usher-guest .usher-voucher {
+  margin: 0.5rem 0;
+  font-size: clamp(3rem, 11vw, 6rem);
+}
+
+.usher-guest .row {
+  justify-content: center;
+}

@@ -60,6 +60,34 @@ pub trait Shelves: Send + Sync {
 struct Network {
     site: String,
     name: String,
+    /// How it is joined, where that was kept with the choice.
+    #[serde(default)]
+    security: Option<String>,
+}
+
+impl Network {
+    /// What a phone joins the network from: the text, and the symbol
+    /// that carries it, row by row, a `1` for each dark module. Only an
+    /// open network is joined so: the passphrase of another is not the
+    /// usher's to know, and one of which the choice does not say how it
+    /// is joined is not guessed at.
+    fn join(&self) -> Value {
+        if self.security.as_deref() != Some("open") {
+            return Value::Null;
+        }
+        let text = evo_usher_render::qr::wifi(&self.name, None);
+        let Some(symbol) = evo_usher_render::qr::Symbol::new(&text) else {
+            return Value::Null;
+        };
+        let rows: Vec<String> = (0..symbol.side())
+            .map(|y| {
+                (0..symbol.side())
+                    .map(|x| if symbol.dark(x, y) { '1' } else { '0' })
+                    .collect()
+            })
+            .collect();
+        json!({ "text": text, "side": symbol.side(), "rows": rows })
+    }
 }
 
 /// A voucher to hand out, as the shelf that mints or the one that holds
@@ -333,6 +361,7 @@ impl Counter {
                 "voucher": { "id": voucher.id, "code": voucher.code },
                 "type": kind,
                 "network": network.name,
+                "join": network.join(),
                 "held": true,
                 "at": at,
             }));
@@ -371,6 +400,7 @@ impl Counter {
             "voucher": { "id": voucher.id, "code": voucher.code },
             "type": kind,
             "network": network.name,
+            "join": network.join(),
             "held": false,
             "at": at,
         }))

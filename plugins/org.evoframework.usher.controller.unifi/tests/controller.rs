@@ -316,6 +316,7 @@ async fn the_wireless_networks_are_listed_and_one_is_chosen_for_vouchers() {
     .unwrap();
     let choice = json!({
         "site": simulated.site(), "network": guests, "name": "Guests",
+        "security": "open",
     });
     assert_eq!(chosen, json!({ "chosen": choice }));
     let again = kept.open();

@@ -23,10 +23,13 @@
 //!   `{"type": type}`.
 //! - `drop_type`: `{"name": "..."}` answers `{"dropped": bool}`.
 //! - `hand`: `{"type": "..."}` answers `{"voucher": {"id", "code"},
-//!   "type": type, "network": "...", "held": bool, "at": n}`: the
-//!   voucher, the terms of its type, the name of the wireless network it
-//!   is for, whether it was held or minted for the asking, and when it
-//!   was handed out, in seconds since 1970.
+//!   "type": type, "network": "...", "join": {...}, "held": bool, "at":
+//!   n}`: the voucher, the terms of its type, the name of the wireless
+//!   network it is for, what a phone joins that network from, whether
+//!   the voucher was held or minted for the asking, and when it was
+//!   handed out, in seconds since 1970. `join` is `{"text", "side",
+//!   "rows"}`, the text and the QR symbol that carries it, for an open
+//!   network, and null for any other.
 //! - `assign`: `{"site": "...", "id": "..."}` assigns a voucher the
 //!   controller has, and that no guest has used, for handing out: it is
 //!   held for the type its note names, which is kept on the voucher's
