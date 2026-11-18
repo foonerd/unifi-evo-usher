@@ -28,6 +28,10 @@ pub const PAIRING_CODE: &str = "pair-me-once";
 /// network presents itself.
 pub const FROM_BEYOND: &str = "203.0.113.9";
 
+/// An address in a private range, as a caller elsewhere on the same
+/// network presents itself.
+pub const FROM_THE_LAN: &str = "10.20.30.40";
+
 /// The usher's UI root in this repository: what the steward serves, and
 /// where it finds the shell and the widget pack.
 pub fn ui_root() -> PathBuf {
@@ -72,6 +76,15 @@ impl Caller {
         Self {
             bearer: None,
             from: Some(FROM_BEYOND),
+        }
+    }
+
+    /// Nobody in particular, from elsewhere on the same network, as the
+    /// proxy in front of the steward reports it.
+    pub fn on_the_lan() -> Self {
+        Self {
+            bearer: None,
+            from: Some(FROM_THE_LAN),
         }
     }
 
@@ -360,7 +373,8 @@ impl Drop for Steward {
     }
 }
 
-fn encoded(payload: &Value) -> String {
+/// A payload as the `request` operation carries it.
+pub fn encoded(payload: &Value) -> String {
     base64::engine::general_purpose::STANDARD.encode(payload.to_string())
 }
 

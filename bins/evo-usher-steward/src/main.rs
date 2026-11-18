@@ -18,7 +18,14 @@ use evo_usher_stock::StockPlugin;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = evo::cli::Args::parse();
-    evo::run(evo::RunOptions::new(args, admission())).await
+    // A caller on the LAN who presents nothing is given no more than one
+    // from beyond it: what lets guests on to the network asks for a
+    // bearer, wherever the asking comes from.
+    evo::run(
+        evo::RunOptions::new(args, admission())
+            .with_lan_privilege(evo::LanPrivilege::Withheld),
+    )
+    .await
 }
 
 /// What the steward admits, in order: the UI shelves; the shells and

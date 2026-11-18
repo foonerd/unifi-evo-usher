@@ -1085,7 +1085,7 @@ dependencies = [
 [[package]]
 name = "evo"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1154,7 +1154,7 @@ dependencies = [
 [[package]]
 name = "evo-auth-bearer"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
@@ -1170,7 +1170,7 @@ dependencies = [
 [[package]]
 name = "evo-coalesce-labels"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1180,7 +1180,7 @@ dependencies = [
 [[package]]
 name = "evo-graphql"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "async-graphql",
  "async-graphql-axum",
@@ -1197,7 +1197,7 @@ dependencies = [
 [[package]]
 name = "evo-grpc"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "async-trait",
  "prost 0.13.5",
@@ -1213,7 +1213,7 @@ dependencies = [
 [[package]]
 name = "evo-http3"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1232,7 +1232,7 @@ dependencies = [
 [[package]]
 name = "evo-multiroom-sdk"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "serde",
  "thiserror 1.0.69",
@@ -1242,7 +1242,7 @@ dependencies = [
 [[package]]
 name = "evo-observatory"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "serde",
  "serde_json",
@@ -1252,7 +1252,7 @@ dependencies = [
 [[package]]
 name = "evo-os-clock"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "libc",
  "thiserror 1.0.69",
@@ -1261,7 +1261,7 @@ dependencies = [
 [[package]]
 name = "evo-otel-export"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "evo-observatory",
  "opentelemetry",
@@ -1275,7 +1275,7 @@ dependencies = [
 [[package]]
 name = "evo-plugin-sdk"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "base64 0.22.1",
  "ciborium",
@@ -1299,7 +1299,7 @@ dependencies = [
 [[package]]
 name = "evo-plugin-test"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "evo-plugin-sdk",
 ]
@@ -1307,7 +1307,7 @@ dependencies = [
 [[package]]
 name = "evo-primitives"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "async-trait",
  "serde",
@@ -1318,7 +1318,7 @@ dependencies = [
 [[package]]
 name = "evo-projection-core"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "serde",
  "thiserror 1.0.69",
@@ -1327,7 +1327,7 @@ dependencies = [
 [[package]]
 name = "evo-projection-rest"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "evo-projection-core",
  "serde",
@@ -1336,7 +1336,7 @@ dependencies = [
 [[package]]
 name = "evo-projection-ws"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "evo-projection-core",
  "serde",
@@ -1346,7 +1346,7 @@ dependencies = [
 [[package]]
 name = "evo-runtime-http"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "async-trait",
  "axum 0.7.9",
@@ -1385,7 +1385,7 @@ dependencies = [
 [[package]]
 name = "evo-sdk-genkit"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "evo-projection-core",
 ]
@@ -1393,7 +1393,7 @@ dependencies = [
 [[package]]
 name = "evo-sdk-kotlin"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "evo-projection-core",
  "evo-sdk-genkit",
@@ -1402,7 +1402,7 @@ dependencies = [
 [[package]]
 name = "evo-sdk-python"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "evo-projection-core",
  "evo-sdk-genkit",
@@ -1411,7 +1411,7 @@ dependencies = [
 [[package]]
 name = "evo-sdk-rust"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "evo-projection-core",
  "evo-sdk-genkit",
@@ -1420,7 +1420,7 @@ dependencies = [
 [[package]]
 name = "evo-sdk-swift"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "evo-projection-core",
  "evo-sdk-genkit",
@@ -1429,7 +1429,7 @@ dependencies = [
 [[package]]
 name = "evo-sdk-typescript"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "evo-projection-core",
  "evo-sdk-genkit",
@@ -1438,7 +1438,7 @@ dependencies = [
 [[package]]
 name = "evo-shadow-crypt"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "libc",
  "libloading",
@@ -1448,7 +1448,7 @@ dependencies = [
 [[package]]
 name = "evo-tls-certs"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "evo-observatory",
  "rcgen 0.13.2",
@@ -1463,7 +1463,7 @@ dependencies = [
 [[package]]
 name = "evo-trust"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "blake3",
  "chrono",
@@ -1579,7 +1579,7 @@ dependencies = [
 [[package]]
 name = "evo-witness"
 version = "0.1.13"
-source = "git+https://github.com/foonerd/evo-core.git?tag=v0.1.13.0#76b9dff040fcef89b9531b957180ede31ffd9f58"
+source = "git+https://github.com/foonerd/evo-core-eng.git?rev=9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a#9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",

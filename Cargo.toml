@@ -18,12 +18,14 @@ license = "MIT"
 publish = false
 repository = "https://github.com/foonerd/unifi-evo-usher"
 
-# The evo framework, pinned to one release: the steward the usher is
-# composed on, and the SDK its plugins are written against.
+# The evo framework, pinned to one commit: the steward the usher is
+# composed on, and the SDK its plugins are written against. The commit is
+# on evo-core-eng's v0.1.13.1 line, the first that lets a distribution
+# withhold the privilege evo gives a caller on the LAN.
 [workspace.dependencies]
-evo = { git = "https://github.com/foonerd/evo-core.git", tag = "v0.1.13.0" }
-evo-plugin-sdk = { git = "https://github.com/foonerd/evo-core.git", tag = "v0.1.13.0" }
-evo-plugin-test = { git = "https://github.com/foonerd/evo-core.git", tag = "v0.1.13.0" }
+evo = { git = "https://github.com/foonerd/evo-core-eng.git", rev = "9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a" }
+evo-plugin-sdk = { git = "https://github.com/foonerd/evo-core-eng.git", rev = "9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a" }
+evo-plugin-test = { git = "https://github.com/foonerd/evo-core-eng.git", rev = "9f8ca1c58b116e3c2308bb6f69fe5eac18bb196a" }
 
 # One set of lints for every crate; CI denies warnings.
 [workspace.lints.rust]

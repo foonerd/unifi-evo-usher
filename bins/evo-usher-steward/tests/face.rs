@@ -210,6 +210,71 @@ fn what_lets_guests_on_is_asked_only_with_a_credential() {
 }
 
 #[test]
+fn a_caller_on_the_lan_is_asked_for_a_credential_too() {
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+
+    // On the same machine, and elsewhere on the network behind the proxy:
+    // a caller who presents nothing is refused what lets guests on, as
+    // one from beyond the network is, and is told how many are held.
+    for caller in [Caller::here(), Caller::on_the_lan()] {
+        assert_eq!(
+            steward.ask_as(&caller, "stock.reserve", "count", json!({})),
+            json!({"held": {}}),
+            "{caller:?}"
+        );
+        for (shelf, request) in [
+            ("access.controller", "probe"),
+            ("access.controller", "set"),
+            ("access.controller", "info"),
+            ("access.controller", "mint"),
+            ("access.controller", "revoke"),
+            ("networks.directory", "choose"),
+            ("stock.reserve", "put"),
+            ("stock.reserve", "take"),
+        ] {
+            let (status, refused) = steward.op(
+                "request",
+                json!({
+                    "shelf": shelf,
+                    "request_type": request,
+                    "payload_b64": common::encoded(&json!({})),
+                }),
+                &caller,
+            );
+            assert_eq!(status, 403, "{caller:?} {shelf} {request}: {refused}");
+            assert_eq!(
+                refused["error"]["details"]["subclass"],
+                "verb_capability_scope_not_granted",
+                "{caller:?} {shelf} {request}: {refused}"
+            );
+        }
+    }
+
+    // Pairing is how a browser on the network comes by the capability,
+    // and it is still open to one.
+    let lan = Caller::on_the_lan();
+    let (status, paired) = steward.op(
+        "pair_complete",
+        json!({"pair_id": "bootstrap", "code": PAIRING_CODE}),
+        &lan,
+    );
+    assert_eq!(status, 200, "{paired}");
+    let bearer = paired["token"].as_str().expect("a bearer").to_string();
+    assert_eq!(
+        steward.ask_as(
+            &lan.with(&bearer),
+            "access.controller",
+            "info",
+            json!({})
+        ),
+        json!({"set": false}),
+        "paired, the same caller is answered"
+    );
+    assert_eq!(steward.stop(), Some(0));
+}
+
+#[test]
 fn no_shell_is_active_until_the_operator_says_so() {
     let dir = short_dir();
     let steward = Steward::start(dir.path());

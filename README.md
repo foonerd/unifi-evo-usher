@@ -88,7 +88,7 @@ Every request that sets, reads or spends what lets guests on to the network asks
 
 A browser comes by the capability by pairing. A unit without a screen of its own is given a pairing code before it is first started, in the file `EVO_PAIR_PRESEED_FILE` names; the shell asks for the code when the steward first refuses it, and the steward answers with a bearer, which the browser keeps. A code pairs one browser, once, and a wrong guess spends it until the unit is next started.
 
-evo 0.1.13 also lets a caller on the same network who presents nothing hold that capability, unless the operator has raised the steward's household protection. The listener is therefore kept on the loopback address, as above: opened to a network, it opens the vouchers to that network.
+A caller on the same network who presents nothing is refused as one from beyond the network is. evo gives such a caller the capability by default, and the usher's steward withholds it. The listener is kept on the loopback address, as above.
 
 ## Printers
 

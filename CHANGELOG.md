@@ -2,6 +2,11 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## [Unreleased]
+
+- A caller on the same network who presents nothing is refused what lets guests on, as a caller from beyond the network is. The steward withholds the privilege evo otherwise gives a caller on the LAN; pairing is still open to one, and a paired browser is answered. How many vouchers are held is still told to anyone
+- The usher is built on evo from evo-core-eng's v0.1.13.1 line, at the commit that lets a distribution withhold that privilege
+
 ## [0.3.3] - 2026-11-17
 
 - The usher has a face, in a browser. The steward serves it over its HTTPS listener from one directory, the UI root, `ui/` in this repository: the door, which opens the shell the steward says is active and the usher's own while none is; the usher's shell, an evo `ui_shell`, which draws what the steward says is stocked on each UI shelf; and the usher's widgets, an evo `widget_kind_pack`
