@@ -65,7 +65,8 @@ CONFIG
 
 echo "try: the face is at https://127.0.0.1:$PORT/"
 echo "try: the steward's certificate is signed by its own authority, $DIR/state/https/ca.crt; a browser that does not have it warns"
-echo "try: the pairing code, where the steward asks for one, is $(cat "$DIR/pairing-code")"
+echo "try: the pairing code, where the steward asks for one, is $(cat "$DIR/pairing-code"), kept in $DIR/pairing-code"
+echo "try: a wrong code spends it until the steward is started again"
 echo "try: Ctrl-C stops the steward"
 
 EVO_HTTPS_LISTEN_ADDR="127.0.0.1:$PORT" \

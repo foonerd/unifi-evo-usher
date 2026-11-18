@@ -149,6 +149,12 @@ input[type="password"] {
   color: var(--evo-ink);
 }
 
+/* A code is read back before it is sent: each character told from the next. */
+#pairing-code {
+  font-family: ui-monospace, monospace;
+  letter-spacing: 0.08em;
+}
+
 :focus-visible {
   outline: 3px solid var(--evo-accent);
   outline-offset: 2px;

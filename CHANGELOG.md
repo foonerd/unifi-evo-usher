@@ -6,6 +6,7 @@ All notable changes to unifi-evo-usher are recorded here. The format follows Kee
 
 - A caller on the same network who presents nothing is refused what lets guests on, as a caller from beyond the network is. The steward withholds the privilege evo otherwise gives a caller on the LAN; pairing is still open to one, and a paired browser is answered. How many vouchers are held is still told to anyone
 - The usher is built on evo 0.1.13.1, the release that lets a distribution withhold that privilege
+- The pairing code is shown as it is typed, so that it can be looked over before it is sent, and the spaces around it are dropped. The field is a one-time code to the browser, which has no reason to fill it from what it keeps. A code that is empty is not sent, and no second is sent while the first is unanswered. try.sh says where the code is kept
 
 ## [0.3.3] - 2026-11-17
 

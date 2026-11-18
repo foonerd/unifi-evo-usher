@@ -70,12 +70,39 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
         "what is no secret is shown before pairing: {opened}"
     );
 
+    // A code is spent by its first use, so it is shown as it is typed, and
+    // no browser has a reason to fill the field with something it keeps.
+    let field = browser.look(
+        r#"
+        const field = document.getElementById("pairing-code");
+        return { type: field.type, autocomplete: field.autocomplete };
+        "#,
+    );
+    assert_eq!(
+        field,
+        json!({ "type": "text", "autocomplete": "one-time-code" })
+    );
+
+    // Nothing typed but spaces: the steward is sent nothing. Were it sent
+    // anything, the code would be spent and the pairing below refused.
+    browser.act(
+        r#"
+        type(document.getElementById("pairing-code"), "   ");
+        document.getElementById("pairing-form").requestSubmit();
+        "#,
+    );
+    browser.wait(
+        "the word that nothing was sent",
+        r#"document.getElementById("pairing-said").innerText.includes("Nothing was sent")"#,
+    );
+
+    // The code, with the spaces a paste brings along.
     browser.act(&format!(
         r#"
         type(document.getElementById("pairing-code"), {code});
         document.getElementById("pairing-form").requestSubmit();
         "#,
-        code = json!(PAIRING_CODE),
+        code = json!(format!("  {PAIRING_CODE} ")),
     ));
     browser.wait(
         "the dialog to close",

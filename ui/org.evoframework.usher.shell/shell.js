@@ -70,11 +70,24 @@ function pairingOver(paired) {
   for (const done of told) done(paired);
 }
 
+/** Whether a code is with the steward and not yet answered. */
+let pairingAsked = false;
+
+// A code is spent by its first use, so the steward is sent one only when
+// there is one to send, and no second while the first is unanswered.
 pairingForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (pairingAsked) return;
+  const code = pairingCode.value.trim();
+  if (code === "") {
+    pairingSaid.textContent = "No code is typed. Nothing was sent.";
+    pairingCode.focus();
+    return;
+  }
   pairingSaid.textContent = "";
+  pairingAsked = true;
   try {
-    await steward.pair(pairingCode.value);
+    await steward.pair(code);
     pairingOver(true);
   } catch (why) {
     pairingSaid.textContent =
@@ -84,6 +97,8 @@ pairingForm.addEventListener("submit", async (event) => {
           ? why.message
           : String(why);
     pairingCode.select();
+  } finally {
+    pairingAsked = false;
   }
 });
 pairingLeave.addEventListener("click", () => pairingOver(false));

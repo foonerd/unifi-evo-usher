@@ -207,6 +207,15 @@ fn what_lets_guests_on_is_asked_only_with_a_credential() {
         "{local}"
     );
     assert_eq!(steward.stop(), Some(0));
+
+    // Started again, the unit still knows the browser it paired: the
+    // bearer it gave is answered, and nothing is paired a second time.
+    let steward = Steward::start(dir.path());
+    assert_eq!(
+        steward.ask_as(&paired, "access.controller", "info", json!({})),
+        json!({"set": false})
+    );
+    assert_eq!(steward.stop(), Some(0));
 }
 
 #[test]

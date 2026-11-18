@@ -18,9 +18,9 @@
 <dialog id="pairing" aria-labelledby="pairing-title">
   <form id="pairing-form" method="dialog">
     <h2 id="pairing-title">Pair this browser</h2>
-    <p>The steward asks who is asking. Type the pairing code the unit was given before it was first started. A code pairs one browser, once, and a wrong guess spends it.</p>
+    <p>The steward asks who is asking. Type the pairing code the unit was given before it was first started. A code pairs one browser, once, and a wrong guess spends it: look it over before it is sent.</p>
     <label for="pairing-code">Pairing code</label>
-    <input id="pairing-code" name="code" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+    <input id="pairing-code" name="code" type="text" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" required>
     <p id="pairing-said" role="alert"></p>
     <div class="row">
       <button type="submit" value="pair">Pair</button>
