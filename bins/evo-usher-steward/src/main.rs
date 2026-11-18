@@ -2,7 +2,8 @@
 //! set. Everything the steward does is the framework's, through
 //! [`evo::run`]; this program adds only what makes it an usher: the UI
 //! shelves, the plugins it admits, the name it answers `--version` with,
-//! and a pairing code where the unit was given none.
+//! a pairing code where the unit was given none, and that nothing of it
+//! is a household's to lock.
 
 #![forbid(unsafe_code)]
 
@@ -10,11 +11,13 @@ mod face;
 mod pairing;
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use clap::Parser as _;
 
 use evo::admission::AdmissionEngine;
 use evo::config::StewardConfig;
+use evo::household_protection::{HouseholdGroupTable, ProtectionLevel};
 use evo::AdmissionSetup;
 use evo_usher_controller_unifi::ControllerPlugin;
 use evo_usher_counter::CounterPlugin;
@@ -45,9 +48,36 @@ async fn main() -> anyhow::Result<()> {
     // bearer, wherever the asking comes from.
     evo::run(
         evo::RunOptions::new(args, admission())
-            .with_lan_privilege(evo::LanPrivilege::Withheld),
+            .with_lan_privilege(evo::LanPrivilege::Withheld)
+            .with_household_groups(Arc::new(NoHousehold)),
     )
     .await
+}
+
+/// The settings groups a household may keep with its owner: the usher
+/// has none.
+///
+/// evo lets whoever stands before a home player raise the household's
+/// level of protection, with nothing presented, and asks for the
+/// device's password to lower it again. On an usher that would let any
+/// caller who reaches the unit keep every paired browser from the
+/// counter, and a unit that runs as a service has no password to lower
+/// it with. Who may ask an usher is settled by pairing alone, so no
+/// level protects anything here.
+struct NoHousehold;
+
+impl HouseholdGroupTable for NoHousehold {
+    fn group_keys(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn scopes_for_group(&self, _key: &str) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn groups_for_level(&self, _level: ProtectionLevel) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// Make the code a first browser pairs on, where the unit is to take one

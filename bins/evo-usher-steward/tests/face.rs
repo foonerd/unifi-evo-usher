@@ -337,6 +337,58 @@ fn a_caller_on_the_lan_is_asked_for_a_credential_too() {
 }
 
 #[test]
+fn no_caller_locks_a_paired_browser_out_of_the_counter() {
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+    let beyond = Caller::beyond();
+    let (status, paired) = steward.op(
+        "pair_complete",
+        json!({"pair_id": "bootstrap", "code": PAIRING_CODE}),
+        &beyond,
+    );
+    assert_eq!(status, 200, "{paired}");
+    let browser = beyond
+        .clone()
+        .with(paired["token"].as_str().expect("a bearer"));
+    let day = json!({
+        "name": "Day guest", "minutes": 1440, "guests": 1,
+        "megabytes": null, "down_kbps": null, "up_kbps": null,
+    });
+    let asked = |steward: &Steward| {
+        (
+            steward.ask_as(&browser, "issue.counter", "types", json!({})),
+            steward.ask_as(&browser, "access.controller", "info", json!({})),
+        )
+    };
+    steward.ask_as(&browser, "issue.counter", "put_type", day.clone());
+    let before = asked(&steward);
+    assert_eq!(before.0["types"], json!([day]), "{before:?}");
+
+    // evo lets anyone who stands before a home player raise its
+    // household's level of protection, and takes the device's password
+    // to lower it. Raised to the highest by a caller who presents
+    // nothing, from beyond the network and from within it, it keeps
+    // nothing of the usher from a paired browser.
+    for (caller, level) in [
+        (Caller::beyond(), json!({"level": "strict", "lend": false})),
+        (
+            Caller::on_the_lan(),
+            json!({"level": "strict", "lend": true}),
+        ),
+        (browser.clone(), json!({"level": "strict", "lend": true})),
+    ] {
+        steward.op("household_protection_set", level, &caller);
+        assert_eq!(asked(&steward), before, "{caller:?}");
+    }
+
+    // Nor after the unit is started again on what it kept.
+    assert_eq!(steward.stop(), Some(0));
+    let steward = Steward::start(dir.path());
+    assert_eq!(asked(&steward), before);
+    assert_eq!(steward.stop(), Some(0));
+}
+
+#[test]
 fn no_shell_is_active_until_the_operator_says_so() {
     let dir = short_dir();
     let steward = Steward::start(dir.path());
