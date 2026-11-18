@@ -40,8 +40,10 @@ will not succeed as asked, as permanent.
 [[requests]]
 request_type = "types"
 description = """
-The voucher types on offer. Returns `{ types: [type] }`, in the order
-the types were first kept.
+The voucher types on offer. Returns `{ types: [type], predefined:
+[string] }`: the types the unit's configuration predefines, in the order
+they are written in there, then the unit's own, in the order they were
+first kept; and the names of the predefined.
 """
 payload_in = "json"
 payload_out = "json"
@@ -52,7 +54,8 @@ description = """
 Keep a voucher type. Payload: a type, its limits optional. A type is
 known by its name, taken without the spaces around it: one of a name
 that is kept takes that one's place, and any other is kept after the
-others. Returns `{ type: type }` as it is kept.
+others. Returns `{ type: type }` as it is kept. A type the unit's
+configuration predefines is changed there, and is not kept over.
 
 A name that is empty or longer than 64 characters, a voucher that lasts
 no minute and a limit of 0 are refused, as is one type more than the
@@ -67,7 +70,8 @@ request_type = "drop_type"
 description = """
 Drop a voucher type. Payload `{ name: string }`. Returns `{ dropped:
 bool }`: whether there was a type of that name. Vouchers minted on its
-terms stay what they are.
+terms stay what they are. A type the unit's configuration predefines is
+not dropped.
 """
 payload_in = "json"
 payload_out = "json"

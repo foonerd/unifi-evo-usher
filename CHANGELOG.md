@@ -2,6 +2,21 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## [0.3.9] - 2026-11-18
+
+- A unit's administrator predefines voucher types. The counter reads them from its configuration, `org.evoframework.usher.counter.toml` in the steward's directory of plugin configurations, one `[[types]]` table for each. They are on offer from the first start, before the unit's own and in the order they are written in, and are changed in that file alone: `types` tells their names as `predefined`, `put_type` and `drop_type` refuse them, and the screen shows them as predefined, with nothing to drop them by. A steward does not start on a file it cannot go by, and says what is wrong with it
+- The steward's package, the archive and the image bring the file with three types, an hour, a day and a week for one guest, at `/etc/evo/plugins.d/`; it is kept when a newer package comes. `scripts/prove-unit.sh` proves that a unit offers them, and one more written into the file since
+- The face has a bar with the usher's mark and name, and a menu. What is stocked stands on pages, one shown at a time: Counter, Vouchers, Voucher types, Network and Controller. The counter is the page a browser opens on
+- A page has an address of its own, `#/` and its name, so that back, forward and a reload keep to it; an address that names no page shows the first
+- Which UI shelves, and of a shelf which widget kinds, stand on which page is said in the shell's `pages.json`, which takes the place of `order.json`. What is stocked and named by no page stands on a last page, More; a page with nothing stocked is not offered
+- What stands on a page that is not shown stays as it was left, and still hears what the others do: a voucher handed out at the counter is in the list of the controller's vouchers when that page is opened
+- The menu is used with the keyboard as with a pointer, marks the page that is shown, and folds into a button on a narrow screen
+- The pairing screen wears the mark and the name too. They are drawn in one place, `brand.js`
+- Where the steward says again what it said before, the screen is left untouched, and what is being typed keeps its place
+- No caller locks a paired browser out of the counter. evo lets anyone who stands before a home player raise its household's level of protection, with nothing presented, and takes the device's password to lower it; on an usher that kept every paired browser from every shelf, and a unit run as a service has no password to lower it with. The usher's steward names no settings group for a household, so no level protects anything here
+- The usher is built on evo 0.1.13.2, which tells a plugin by name why the steward refused what it asked of another shelf. The counter passes such a refusal on under its name, as one of permission, where it said only that the shelf was not reached; and where the reserve is refused it so, it hands out nothing, and has no voucher minted in the place of one it may not take
+- The refusal of a voucher whose type is kept on other terms is written without the run of blanks it had
+
 ## [0.3.8] - 2026-11-18
 
 - The steward is installed and started as a service. `evo-usher-steward_<version>_<arch>.deb` makes a machine a unit: the program, the usher's face and its catalogue under `/opt/evo`, the configuration as `/etc/evo/evo.toml`, and `evo.service`, which runs the steward as an account of its own, `evo`, from when the machine starts. The paths are evo's defaults and the service is evo's reference unit, with the usher's choices: the face on port 8443 of every address, and a steward without privilege, capability or device, its system calls filtered

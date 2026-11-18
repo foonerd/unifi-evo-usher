@@ -6,7 +6,7 @@ What it is built to be: a core that holds the UniFi key, mints the vouchers on t
 
 ## Status
 
-0.3.8 stands on the evo steward, has a face, and is installed as a service. `evo-usher-steward` is the steward with the usher's catalogue and three plugins: the controller, which mints vouchers on a UniFi Network controller; the counter, which keeps the voucher types on offer and hands a guest a voucher of one of them, one assigned for handing out before one minted for the asking; and the stock, which holds the vouchers assigned. It serves the usher's face to a browser, in which a controller is looked at and set, its vouchers are listed, assigned for handing out and revoked, the wireless network vouchers are for is chosen, the voucher types are kept and a guest is handed a voucher. It is in the archive, in a package of its own, which makes a machine a unit, and in the image; the package is proven on a machine made for it, where it is installed, started as a service, asked as a browser asks, started again and removed. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else.
+0.3.9 stands on the evo steward, has a face, and is installed as a service. `evo-usher-steward` is the steward with the usher's catalogue and three plugins: the controller, which mints vouchers on a UniFi Network controller; the counter, which keeps the voucher types on offer and hands a guest a voucher of one of them, one assigned for handing out before one minted for the asking; and the stock, which holds the vouchers assigned. It serves the usher's face to a browser, in which a controller is looked at and set, its vouchers are listed, assigned for handing out and revoked, the wireless network vouchers are for is chosen, the voucher types are kept and a guest is handed a voucher. It is in the archive, in a package of its own, which makes a machine a unit, and in the image; the package is proven on a machine made for it, where it is installed, started as a service, asked as a browser asks, started again and removed. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else.
 
 The controller plugin is written from Ubiquiti's published description of the UniFi Network API, version 11.0.97, and is held to a simulated controller written from the same description. It has been run from the usher's face against a UniFi Network application, version 11.0.99: the controller set, its version, its sites, its vouchers and its wireless networks read, a wireless network chosen, and vouchers assigned and handed out.
 
@@ -65,12 +65,13 @@ The controller is a Cloud Key, a UniFi console or a self-hosted Network applicat
 A guest is handed a voucher at the counter, `issue.counter`.
 
 - The counter keeps the voucher types on offer. A type is the terms a voucher is minted on, under the name it is known by at the counter: how long a voucher lasts from its first use, how many guests it lets in, and its limits on data and speed. The name is also the note the type's vouchers carry on the controller.
+- A unit's administrator predefines voucher types in the counter's configuration, the file `org.evoframework.usher.counter.toml` in the steward's directory of plugin configurations (`/etc/evo/plugins.d/` on a unit), one `[[types]]` table for each. The predefined types are on offer from the first start, before the unit's own and in the order they are written in, and are changed in that file alone: the screen shows them as predefined, and neither keeps one over them nor drops one. The steward reads the file when it starts, and does not start on one it cannot go by; it says what is wrong with it. A type kept from the screen under a name that is predefined since gives way to the predefined one, and is offered again when that name is predefined no longer.
 - A voucher is minted for the asking: one press, one voucher, on the controller, there and then. While no wireless network is chosen for vouchers, none is handed out and none is minted.
 - A voucher the controller has already, and no guest has used, can be assigned for handing out. It is then held on the unit for the type its note names; where no type of that name is kept, the voucher brings one, on its own terms, and where one is kept on other terms, the voucher is not assigned.
 - A voucher assigned takes precedence: it is handed out before one is minted, the oldest first, and is handed out while the controller is away. One assigned can be taken back, and is given up when it is revoked from the screen. The list of the controller's vouchers says which assigned vouchers are no longer good there, revoked, used or expired elsewhere, and takes them back.
 - Where the wireless network vouchers are for is joined without a passphrase, a voucher comes with what a phone joins it from: the join text, and the QR symbol that carries it, made by the crate that draws the voucher label. The face draws the symbol beside the code, and puts the voucher before the guest alone on the screen. How a network is joined is kept with the choice of it; the passphrase of a network that has one is not the usher's to know, and no symbol is made for it.
 - Every voucher handed out is written down: which, of which type, when, and whether it was held or minted. The list of the controller's vouchers shows one handed out as handed out until its guest uses it, and does not offer it for handing out; one handed out is not assigned again.
-- The counter knows no controller and no reserve. It asks the steward's shelves, `networks.directory` for the network, `stock.reserve` for a voucher held and `access.controller` for one minted, as any caller does; what they refuse, it refuses in their words.
+- The counter knows no controller and no reserve. It asks the steward's shelves, `networks.directory` for the network, `stock.reserve` for a voucher held and `access.controller` for one minted, as any caller does; what they refuse, it refuses in their words. What the steward itself refuses the counter, by a name of evo's, the counter's caller is refused under the same name; and a reserve the caller is kept from is not minted around.
 
 ### The face
 
@@ -92,11 +93,13 @@ EVO_HTTPS_STATIC_DIR=/opt/evo/ui
 
 turn the listener on and name the UI root, which is also listed in the steward's configuration under `plugins.search_roots`. The steward's certificate is signed by an authority of its own, made when it first starts and kept as `https/ca.crt` beside its state; a browser believes the steward once that authority is installed in it.
 
+The face has a bar with the usher's mark and name, and a menu. What is stocked stands on pages, one shown at a time: Counter, the page a browser opens on, then Vouchers, Voucher types, Network and Controller. A page has an address of its own, `#/` and its name, so back, forward and a reload keep to it. What stands on a page that is not shown stays as it was left and still hears what the others do. The menu is used with the keyboard as with a pointer, marks the page that is shown, and folds into a button on a narrow screen. What is stocked and named by no page stands on a last page, More; a page with nothing stocked is not offered. The mark and the name are drawn in one place, the shell's `brand.js`, and the pairing screen wears them too.
+
 The shell is drawn in the theme the steward says is active, and in the usher's own, Frost, while none is. A theme is a directory in the UI root under the theme's name, with a `theme.css` that sets the theme's tokens as custom properties under the names the evo family's shells bind: `--background`, `--foreground`, `--card`, `--primary` and their kin. Another theme goes into the UI root and is made the active one with the steward's `activate_theme`; every open screen is then drawn in it at once. Frost says it is AAA, and the steward takes a theme's word for that, so a test holds it: every colour Frost writes in stands at 7 to 1 or more against every surface it is written on.
 
 Another shell goes into the UI root, in a directory under its own name, and is made the active one with the steward's `activate_ui_shell`, for which the steward asks a step-up. Every open screen then goes back through the door and into it. No plugin, nothing in the catalogue and nothing in the widget pack changes.
 
-A shell loads a widget pack as the module `index.js` in the pack's directory. The module exports `kinds`, the widget kinds it draws, and `mount(kind, element, context)`, which draws one into an element and returns what takes it away again. The context carries the stocking and the one way to the steward a widget has, `steward.request(shelf, request, payload)`, so a widget is the same under any shell that loads packs this way. The usher's shell loads the packs its `packs.json` names, and puts the UI shelves its `order.json` names first on the screen, the others after them in the steward's order.
+A shell loads a widget pack as the module `index.js` in the pack's directory. The module exports `kinds`, the widget kinds it draws, and `mount(kind, element, context)`, which draws one into an element and returns what takes it away again. The context carries the stocking and the one way to the steward a widget has, `steward.request(shelf, request, payload)`, so a widget is the same under any shell that loads packs this way. The usher's shell loads the packs its `packs.json` names, and puts what is stocked on the pages its `pages.json` names: each page an entry in the menu, with the UI shelves, and of a shelf the widget kinds, that stand on it.
 
 ### Who may ask
 
@@ -107,6 +110,8 @@ A browser comes by the capability by pairing. A unit without a screen of its own
 Where the file named is not there, the usher's steward makes a code of its own and writes it there, for its owner alone to read; a file that is there is the operator's, and is left as it is. The service names the file in a directory that is new whenever it starts, so a unit has a new code at every start, and one that was used or seen pairs nothing after the next.
 
 A caller on the same network who presents nothing is refused as one from beyond the network is. evo gives such a caller the capability by default, and the usher's steward withholds it; so a unit's face is on every address of the machine.
+
+Who may ask is settled by pairing alone. evo lets a household raise a level of protection over a home player's settings, with nothing presented, and takes the device's password to lower it again; the usher's steward names no settings group for it, so no level keeps a paired browser from anything here, whoever sets one.
 
 ## A unit
 
@@ -122,6 +127,7 @@ sudo apt install ./evo-usher-steward_<version>_<arch>.deb
 | `/opt/evo/ui/` | The UI root: the face. |
 | `/opt/evo/catalogue/default.toml` | The usher's catalogue. |
 | `/etc/evo/evo.toml` | The steward's configuration. It is the operator's to change, and is kept when a newer package comes. |
+| `/etc/evo/plugins.d/org.evoframework.usher.counter.toml` | The voucher types the unit's administrator predefines. The package brings three, an hour, a day and a week for one guest; they are the administrator's to change, and the file is kept when a newer package comes. |
 | `evo.service` | The service. It runs the steward as the account `evo`, which the package makes, from when the machine starts. |
 | `/var/lib/evo/` | What the steward keeps: the controller and its key, the voucher types, the vouchers held, the record of hand-outs, the browsers paired. It stays when the package is removed and goes when it is purged. |
 | `/run/evo/` | The steward's client socket and the pairing code, while the service runs. |
@@ -136,7 +142,7 @@ sudo cat /run/evo/pairing-code
 
 For the next browser the service is started again (`sudo systemctl restart evo`), which makes a new code. A browser that is paired stays paired.
 
-The archive carries the same for a machine that takes no Debian package: the program under `bin/`, the UI root as `ui/`, `catalogue/usher.toml`, `etc/evo.toml`, `systemd/evo.service`, and `sysusers.d/evo.conf` for the account, each for the place the table names.
+The archive carries the same for a machine that takes no Debian package: the program under `bin/`, the UI root as `ui/`, `catalogue/usher.toml`, `etc/evo.toml`, `etc/plugins.d/`, `systemd/evo.service`, and `sysusers.d/evo.conf` for the account, each for the place the table names.
 
 The image is the same unit on an empty image, with no shell. The steward runs in it as the image's one account, `evo`, numbered 10001, and keeps what it keeps in a volume at `/var/lib/evo`:
 

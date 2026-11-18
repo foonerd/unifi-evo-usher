@@ -13,15 +13,25 @@
 //! Every voucher it hands out it writes down: which, of which type,
 //! when, and whether it was held or minted.
 //!
+//! The voucher types are the unit's own, kept from the screen, and the
+//! ones its administrator predefines in the plugin's configuration, the
+//! file `org.evoframework.usher.counter.toml` in the steward's directory
+//! of plugin configurations: one `[[types]]` table for each, with the
+//! names a type has here. The predefined are on offer from the first
+//! start, before the unit's own, and are changed in that file alone.
+//!
 //! It answers six requests, each with a JSON payload:
 //!
-//! - `types`: answers `{"types": [type]}`, a type being `{"name",
-//!   "minutes", "guests", "megabytes", "down_kbps", "up_kbps"}` with null
-//!   where it sets no such limit, in the order the types were first kept.
+//! - `types`: answers `{"types": [type], "predefined": ["..."]}`, a type
+//!   being `{"name", "minutes", "guests", "megabytes", "down_kbps",
+//!   "up_kbps"}` with null where it sets no such limit: the predefined
+//!   types in the order they are written in, then the unit's own in the
+//!   order they were first kept; and the names of the predefined.
 //! - `put_type`: a type, the last four of its terms optional, keeps it in
 //!   the place of the one of its name, or after the others, and answers
-//!   `{"type": type}`.
-//! - `drop_type`: `{"name": "..."}` answers `{"dropped": bool}`.
+//!   `{"type": type}`. A predefined type is not kept over.
+//! - `drop_type`: `{"name": "..."}` answers `{"dropped": bool}`. A
+//!   predefined type is not dropped.
 //! - `hand`: `{"type": "..."}` answers `{"voucher": {"id", "code"},
 //!   "type": type, "network": "...", "join": {...}, "held": bool, "at":
 //!   n}`: the voucher, the terms of its type, the name of the wireless
@@ -53,6 +63,7 @@ use evo_plugin_sdk::contract::{
     PluginError, PluginIdentity, Request, Respondent, Response,
     RuntimeCapabilities, ShelfDispatchError, ShelfRequestDispatcher,
 };
+use evo_plugin_sdk::error_taxonomy::ErrorClass;
 use evo_plugin_sdk::Manifest;
 use serde_json::Value;
 
@@ -60,7 +71,7 @@ pub use counter::{
     Asked, Counter, Refusal, Shelves, CONTROLLER, NETWORKS, RESERVE,
 };
 pub use handed::{HandOut, Handed, MOST_HANDED};
-pub use types::{Types, VoucherType, LONGEST_NAME, MOST};
+pub use types::{predefined, Types, VoucherType, LONGEST_NAME, MOST};
 
 /// The plugin's name, as its manifest has it.
 pub const NAME: &str = "org.evoframework.usher.counter";
@@ -93,6 +104,45 @@ fn own_words(detail: String) -> String {
     detail
 }
 
+/// What asking `shelf` came to, where it came to nothing, for whoever
+/// asked the counter.
+fn refusal_of(shelf: &str, refused: ShelfDispatchError) -> Refusal {
+    match refused {
+        // What the shelf itself says is said on, in its own words.
+        ShelfDispatchError::Transient { detail } => {
+            Refusal::ForNow(own_words(detail))
+        }
+        ShelfDispatchError::Permanent { detail } => {
+            Refusal::AsAsked(own_words(detail))
+        }
+        // What the steward refuses by name is refused under that name,
+        // and is not asked again.
+        ShelfDispatchError::Refused { subclass, detail } => Refusal::Named {
+            name: subclass,
+            why: detail,
+        },
+        other if other.is_retryable() => {
+            Refusal::ForNow(format!("{shelf}: {other}"))
+        }
+        other => Refusal::AsAsked(format!("{shelf}: {other}")),
+    }
+}
+
+/// The counter's refusal, as the steward takes one from a plugin. One the
+/// steward named goes back to it as the refusal it was: a caller who may
+/// not, under the name the steward gave.
+fn told(refused: Refusal) -> PluginError {
+    match refused {
+        Refusal::ForNow(why) => PluginError::Transient(why),
+        Refusal::AsAsked(why) => PluginError::Permanent(why),
+        Refusal::Named { name, why } => PluginError::WithSubclass {
+            class: ErrorClass::PermissionDenied,
+            subclass: name,
+            message: why,
+        },
+    }
+}
+
 /// The steward's shelves as the steward gives a plugin the way to them.
 struct Steward(Arc<dyn ShelfRequestDispatcher>);
 
@@ -110,20 +160,7 @@ impl Shelves for Steward {
                 .0
                 .dispatch(shelf, request_type, payload, None)
                 .await
-                .map_err(|refused| match refused {
-                    // What the shelf itself says is said on, in its own
-                    // words.
-                    ShelfDispatchError::Transient { detail } => {
-                        Refusal::ForNow(own_words(detail))
-                    }
-                    ShelfDispatchError::Permanent { detail } => {
-                        Refusal::AsAsked(own_words(detail))
-                    }
-                    other if other.is_retryable() => {
-                        Refusal::ForNow(format!("{shelf}: {other}"))
-                    }
-                    other => Refusal::AsAsked(format!("{shelf}: {other}")),
-                })?;
+                .map_err(|refused| refusal_of(shelf, refused))?;
             serde_json::from_slice(&answer).map_err(|e| {
                 Refusal::ForNow(format!(
                     "{shelf} answered {request_type} with no JSON: {e}"
@@ -195,13 +232,27 @@ impl Plugin for CounterPlugin {
                      voucher types are kept, and no voucher is handed out"
                 );
             }
+            let predefined = predefined(&ctx.config).map_err(|why| {
+                PluginError::Permanent(format!(
+                    "the voucher types predefined in the configuration of \
+                     {NAME} are not ones a counter offers: {why}"
+                ))
+            })?;
+            if !predefined.is_empty() {
+                tracing::info!(
+                    plugin = NAME,
+                    types = predefined.len(),
+                    "voucher types are predefined"
+                );
+            }
             let counter =
-                Counter::open(&ctx.state_dir, shelves).map_err(|e| {
-                    PluginError::Permanent(format!(
-                        "the voucher types in {} cannot be opened: {e}",
-                        ctx.state_dir.display()
-                    ))
-                })?;
+                Counter::open_with(&ctx.state_dir, shelves, predefined)
+                    .map_err(|e| {
+                        PluginError::Permanent(format!(
+                            "the voucher types in {} cannot be opened: {e}",
+                            ctx.state_dir.display()
+                        ))
+                    })?;
             tracing::info!(plugin = NAME, "plugin load");
             *self.counter.lock().expect("the counter's lock") =
                 Some(Arc::new(counter));
@@ -242,10 +293,7 @@ impl Respondent for CounterPlugin {
             let answer = counter
                 .answer(&req.request_type, &req.payload)
                 .await
-                .map_err(|refused| match refused {
-                    Refusal::ForNow(why) => PluginError::Transient(why),
-                    Refusal::AsAsked(why) => PluginError::Permanent(why),
-                })?;
+                .map_err(told)?;
             let payload = serde_json::to_vec(&answer)
                 .map_err(|e| PluginError::Permanent(e.to_string()))?;
             Ok(Response::for_request(req, payload))
@@ -255,6 +303,8 @@ impl Respondent for CounterPlugin {
 
 #[cfg(test)]
 mod tests {
+    use std::pin::Pin;
+
     use super::*;
 
     #[test]
@@ -269,6 +319,124 @@ mod tests {
         ] {
             assert_eq!(own_words(said.to_string()), own);
         }
+    }
+
+    /// What the steward says where a household keeps a settings group
+    /// with its owner.
+    const KEPT: &str = "household_policy_locked";
+
+    /// A steward that refuses by name whatever is asked of its shelves,
+    /// and counts how often it was asked.
+    #[derive(Default)]
+    struct Refusing(Mutex<Vec<String>>);
+
+    impl ShelfRequestDispatcher for Refusing {
+        fn dispatch<'a>(
+            &'a self,
+            shelf: &'a str,
+            request_type: &'a str,
+            _payload: Vec<u8>,
+            _instance_id: Option<&'a str>,
+        ) -> Pin<
+            Box<
+                dyn Future<Output = Result<Vec<u8>, ShelfDispatchError>>
+                    + Send
+                    + 'a,
+            >,
+        > {
+            Box::pin(async move {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push(format!("{shelf} {request_type}"));
+                Err(ShelfDispatchError::Refused {
+                    subclass: KEPT.to_string(),
+                    detail: format!("verb {request_type:?} is the owner's"),
+                })
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn what_the_steward_refuses_by_name_is_refused_under_that_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let steward = Arc::new(Refusing::default());
+        let counter = Counter::open(
+            dir.path(),
+            Some(Arc::new(Steward(steward.clone())) as Arc<dyn Shelves>),
+        )
+        .unwrap();
+        counter
+            .answer("put_type", br#"{"name": "Day", "minutes": 1440}"#)
+            .await
+            .unwrap();
+
+        let refused = counter
+            .answer("hand", br#"{"type": "Day"}"#)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            refused,
+            Refusal::Named {
+                name: KEPT.to_string(),
+                why: "verb \"chosen\" is the owner's".to_string(),
+            }
+        );
+        // The first shelf asked refused, and no other was asked.
+        assert_eq!(*steward.0.lock().unwrap(), ["networks.directory chosen"]);
+
+        // The steward is told a refusal of its own kind: one of
+        // permission, under the name it gave, in its own words.
+        match told(refused) {
+            PluginError::WithSubclass {
+                class,
+                subclass,
+                message,
+            } => {
+                assert_eq!(class, ErrorClass::PermissionDenied);
+                assert_eq!(subclass, KEPT);
+                assert_eq!(message, "verb \"chosen\" is the owner's");
+            }
+            other => panic!("the steward is told {other:?}"),
+        }
+    }
+
+    #[test]
+    fn every_other_refusal_of_a_shelf_is_one_for_now_or_as_asked() {
+        let detail = || "the shelf's words".to_string();
+        let of = |refused| refusal_of("stock.reserve", refused);
+        assert_eq!(
+            of(ShelfDispatchError::Transient { detail: detail() }),
+            Refusal::ForNow(detail())
+        );
+        assert_eq!(
+            of(ShelfDispatchError::Permanent { detail: detail() }),
+            Refusal::AsAsked(detail())
+        );
+        // What is not the shelf's own saying names the shelf, and is
+        // asked again only where the steward says it may be.
+        let unreached =
+            of(ShelfDispatchError::SubstrateFailure { detail: detail() });
+        assert!(
+            matches!(&unreached, Refusal::ForNow(why) if why.starts_with("stock.reserve: ")),
+            "{unreached:?}"
+        );
+        let unstocked = of(ShelfDispatchError::NoPluginOnShelf {
+            shelf: "stock.reserve".to_string(),
+        });
+        assert!(
+            matches!(&unstocked, Refusal::AsAsked(why) if why.starts_with("stock.reserve: ")),
+            "{unstocked:?}"
+        );
+
+        assert!(matches!(
+            told(Refusal::ForNow(detail())),
+            PluginError::Transient(why) if why == detail()
+        ));
+        assert!(matches!(
+            told(Refusal::AsAsked(detail())),
+            PluginError::Permanent(why) if why == detail()
+        ));
     }
 
     /// The steward admits a plugin only where what it says of itself is

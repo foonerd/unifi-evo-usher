@@ -119,6 +119,9 @@ for arch in $arches; do
     install -D -m 644 "$file" "$stage/$top/$file"
   done < <(git ls-files -z -- ui catalogue)
   install -D -m 644 packaging/etc/evo.toml "$stage/$top/etc/evo.toml"
+  while IFS= read -r -d '' file; do
+    install -D -m 644 "$file" "$stage/$top/etc/plugins.d/$(basename "$file")"
+  done < <(git ls-files -z -- packaging/etc/plugins.d)
   install -D -m 644 packaging/systemd/evo.service "$stage/$top/systemd/evo.service"
   install -D -m 644 packaging/sysusers.d/evo.conf "$stage/$top/sysusers.d/evo.conf"
   install -m 644 "$from/$arch/build.json" README.md CHANGELOG.md LICENSE "$stage/$top/"
@@ -137,8 +140,9 @@ for arch in $arches; do
       install -D -m 644 packaging/systemd/evo.service "$root/usr/lib/systemd/system/evo.service"
       install -D -m 644 packaging/sysusers.d/evo.conf "$root/usr/lib/sysusers.d/$program.conf"
       install -m 755 packaging/deb/postinst packaging/deb/prerm packaging/deb/postrm "$root/DEBIAN/"
-      # The operator's to change, and kept when a newer package comes.
-      echo "/etc/evo/evo.toml" > "$root/DEBIAN/conffiles"
+      # The administrator's to change, and kept when a newer package
+      # comes: the steward's configuration, and what is set for a plugin.
+      (cd "$root" && find etc/evo -type f | LC_ALL=C sort | sed 's|^|/|') > "$root/DEBIAN/conffiles"
       {
         control "$program" "$arch"
         echo " The evo steward with the usher's plugins, as one static program under"

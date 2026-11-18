@@ -13,7 +13,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.3.8"
+version = "0.3.9"
 edition = "2021"
 license = "MIT"
 publish = false
@@ -22,11 +22,12 @@ repository = "https://github.com/foonerd/unifi-evo-usher"
 # The evo framework, pinned to one release: the steward the usher is
 # composed on, and the SDK its plugins are written against. 0.1.13.1 is
 # the first that lets a distribution withhold the privilege evo gives a
-# caller on the LAN.
+# caller on the LAN; 0.1.13.2 the first that tells a plugin by name why
+# the steward refused what it asked of another shelf.
 [workspace.dependencies]
-evo = { git = "https://github.com/foonerd/evo-core.git", tag = "v0.1.13.1" }
-evo-plugin-sdk = { git = "https://github.com/foonerd/evo-core.git", tag = "v0.1.13.1" }
-evo-plugin-test = { git = "https://github.com/foonerd/evo-core.git", tag = "v0.1.13.1" }
+evo = { git = "https://github.com/foonerd/evo-core.git", tag = "v0.1.13.2" }
+evo-plugin-sdk = { git = "https://github.com/foonerd/evo-core.git", tag = "v0.1.13.2" }
+evo-plugin-test = { git = "https://github.com/foonerd/evo-core.git", tag = "v0.1.13.2" }
 
 # One set of lints for every crate; CI denies warnings.
 [workspace.lints.rust]

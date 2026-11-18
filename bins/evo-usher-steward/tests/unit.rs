@@ -166,3 +166,26 @@ fn the_licence_of_evo_the_packages_carry_is_that_of_the_evo_built_on() {
         licence.display()
     );
 }
+
+#[test]
+fn the_voucher_types_the_packages_predefine_are_ones_the_counter_offers() {
+    // evo gives a plugin the configuration it finds under the plugin's
+    // name, so the file is named after the counter.
+    let file = packaging()
+        .join("etc/plugins.d")
+        .join(format!("{}.toml", evo_usher_counter::NAME));
+    let text = fs::read_to_string(&file)
+        .unwrap_or_else(|e| panic!("{}: {e}", file.display()));
+    let types = evo_usher_counter::predefined(&text.parse().unwrap()).unwrap();
+    let names: Vec<&str> =
+        types.iter().map(|kind| kind.name.as_str()).collect();
+    assert_eq!(names, ["One hour", "One day", "One week"]);
+    // A voucher of each is one guest's.
+    assert!(types.iter().all(|kind| kind.guests == Some(1)), "{types:?}");
+    // Nothing else is set for a plugin that is not there to read it.
+    let set: Vec<_> = fs::read_dir(packaging().join("etc/plugins.d"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(set, [file.file_name().unwrap()]);
+}

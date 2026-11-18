@@ -371,7 +371,7 @@ fn a_voucher_the_controller_has_is_assigned_and_handed_out_first() {
     assert_eq!(assign(&made[0]), json!({ "type": walk_in }));
     assert_eq!(
         steward.ask("issue.counter", "types", json!({})),
-        json!({ "types": [walk_in] })
+        json!({ "types": [walk_in], "predefined": [] })
     );
     assert_eq!(
         steward.ask("stock.reserve", "held", json!({})),
@@ -408,5 +408,78 @@ fn a_voucher_the_controller_has_is_assigned_and_handed_out_first() {
     let minted = hand();
     assert_eq!(minted["held"], false, "{minted}");
     assert_ne!(minted["voucher"], made[1]);
+    assert_eq!(steward.stop(), Some(0));
+}
+
+#[test]
+fn the_voucher_types_an_administrator_predefines_are_on_offer_from_the_start() {
+    let dir = short_dir();
+    let predefined = dir
+        .path()
+        .join("plugins.d/org.evoframework.usher.counter.toml");
+    std::fs::create_dir_all(predefined.parent().unwrap()).unwrap();
+    std::fs::write(
+        &predefined,
+        r#"
+[[types]]
+name = "One day"
+minutes = 1440
+guests = 1
+"#,
+    )
+    .unwrap();
+    let one_day = json!({
+        "name": "One day", "minutes": 1440, "guests": 1,
+        "megabytes": null, "down_kbps": null, "up_kbps": null,
+    });
+    let own = json!({
+        "name": "Walk-in", "minutes": 60, "guests": 1,
+        "megabytes": null, "down_kbps": null, "up_kbps": null,
+    });
+
+    // A unit that was never started before offers what is predefined.
+    let steward = Steward::start(dir.path());
+    assert_eq!(
+        steward.ask("issue.counter", "types", json!({})),
+        json!({ "types": [one_day], "predefined": ["One day"] })
+    );
+    // The screen keeps its own beside it, and changes nothing of it.
+    steward.ask("issue.counter", "put_type", own.clone());
+    for (request, payload) in [
+        ("put_type", json!({ "name": "One day", "minutes": 5 })),
+        ("drop_type", json!({ "name": "One day" })),
+    ] {
+        let refused = steward.ask("issue.counter", request, payload);
+        assert!(
+            refused["error"]["message"]
+                .as_str()
+                .is_some_and(|why| why.contains("'One day' is predefined")),
+            "{request}: {refused}"
+        );
+    }
+    assert_eq!(steward.stop(), Some(0));
+
+    // What the administrator writes since is what the unit offers when
+    // it is started again, before what the screen kept.
+    std::fs::write(
+        &predefined,
+        r#"
+[[types]]
+name = "One week"
+minutes = 10080
+
+[[types]]
+name = "One day"
+minutes = 1440
+guests = 1
+"#,
+    )
+    .unwrap();
+    let steward = Steward::start(dir.path());
+    let told = steward.ask("issue.counter", "types", json!({}));
+    assert_eq!(told["predefined"], json!(["One week", "One day"]), "{told}");
+    assert_eq!(told["types"][1], one_day, "{told}");
+    assert_eq!(told["types"][2], own, "{told}");
+    assert_eq!(told["types"].as_array().unwrap().len(), 3, "{told}");
     assert_eq!(steward.stop(), Some(0));
 }

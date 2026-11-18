@@ -36,6 +36,15 @@ pub enum Refusal {
     ForNow(String),
     /// It will not succeed as asked.
     AsAsked(String),
+    /// The steward refused what the counter asked of another shelf, and
+    /// named its refusal: whoever asks the counter is refused under the
+    /// same name, as they would be asking that shelf themselves.
+    Named {
+        /// The name the steward gives the refusal.
+        name: String,
+        /// What the steward said.
+        why: String,
+    },
 }
 
 /// What asking a shelf comes to.
@@ -162,6 +171,15 @@ fn unkept(e: io::Error) -> Refusal {
     Refusal::ForNow(format!("the voucher types were not kept: {e}"))
 }
 
+/// A predefined type is the administrator's, and is not kept or dropped
+/// from the screen.
+fn not_the_screens(name: &str) -> Refusal {
+    Refusal::AsAsked(format!(
+        "the voucher type '{name}' is predefined in the unit's \
+         configuration, and is changed there"
+    ))
+}
+
 /// The counter: its voucher types, and the way to the steward's other
 /// shelves.
 pub struct Counter {
@@ -182,11 +200,21 @@ impl fmt::Debug for Counter {
 
 impl Counter {
     /// Open the counter on the types and the record of hand-outs kept in
-    /// `state`. With no shelves to ask, the types are kept and told, and
-    /// no voucher is handed out.
+    /// `state`, with no type predefined. With no shelves to ask, the
+    /// types are kept and told, and no voucher is handed out.
     pub fn open(
         state: &Path,
         shelves: Option<Arc<dyn Shelves>>,
+    ) -> io::Result<Self> {
+        Self::open_with(state, shelves, Vec::new())
+    }
+
+    /// Open the counter as [`Counter::open`] does, with the voucher
+    /// types its configuration predefines offered before the unit's own.
+    pub fn open_with(
+        state: &Path,
+        shelves: Option<Arc<dyn Shelves>>,
+        predefined: Vec<VoucherType>,
     ) -> io::Result<Self> {
         let handed = Handed::open(state)?;
         if handed.unread() > 0 {
@@ -197,7 +225,7 @@ impl Counter {
             );
         }
         Ok(Self {
-            types: Mutex::new(Types::open(state)?),
+            types: Mutex::new(Types::open_with(state, predefined)?),
             handed: Mutex::new(handed),
             shelves,
         })
@@ -240,13 +268,19 @@ impl Counter {
         match request_type {
             "types" => {
                 let types = self.types.lock().expect("the types' lock");
-                Ok(json!({ "types": types.all() }))
+                Ok(json!({
+                    "types": types.all(),
+                    "predefined": types.predefined(),
+                }))
             }
             "put_type" => {
                 let kind = asked::<VoucherType>(payload)?
                     .held()
                     .map_err(Refusal::AsAsked)?;
                 let mut types = self.types.lock().expect("the types' lock");
+                if types.is_predefined(&kind.name) {
+                    return Err(not_the_screens(&kind.name));
+                }
                 if !types.takes(&kind.name) {
                     return Err(Refusal::AsAsked(format!(
                         "a counter offers {MOST} voucher types at most"
@@ -257,12 +291,11 @@ impl Counter {
             }
             "drop_type" => {
                 let naming: Naming = asked(payload)?;
-                let dropped = self
-                    .types
-                    .lock()
-                    .expect("the types' lock")
-                    .drop_named(&naming.name)
-                    .map_err(unkept)?;
+                let mut types = self.types.lock().expect("the types' lock");
+                if types.is_predefined(&naming.name) {
+                    return Err(not_the_screens(&naming.name));
+                }
+                let dropped = types.drop_named(&naming.name).map_err(unkept)?;
                 Ok(json!({ "dropped": dropped }))
             }
             "hand" => {
@@ -334,7 +367,9 @@ impl Counter {
         // What was assigned for handing out takes precedence, and is
         // there while the controller is away. A steward with no reserve,
         // or one that does not answer, leaves what a counter does with
-        // nothing held: a voucher is minted.
+        // nothing held: a voucher is minted. A reserve the steward keeps
+        // the caller from is not one with nothing held: nothing is
+        // minted in the place of what may not be taken.
         let held = match shelves
             .ask(RESERVE, "take", json!({ "type": kind.name }))
             .await
@@ -347,6 +382,7 @@ impl Counter {
                     "{RESERVE} gave what is no voucher: {e}"
                 ))
             })?,
+            Err(named @ Refusal::Named { .. }) => return Err(named),
             Err(refused) => {
                 tracing::warn!(
                     ?refused,
@@ -480,7 +516,8 @@ impl Counter {
                 Some(kept) if *kept == kind => {}
                 Some(_) => {
                     return Err(Refusal::AsAsked(format!(
-                        "the voucher type '{}' is kept on other terms than                          this voucher's",
+                        "the voucher type '{}' is kept on other terms than \
+                         this voucher's",
                         kind.name
                     )))
                 }

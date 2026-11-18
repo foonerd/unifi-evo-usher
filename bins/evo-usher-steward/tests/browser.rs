@@ -791,6 +791,101 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
 }
 
 #[test]
+fn a_predefined_voucher_type_is_shown_as_the_administrators() {
+    let Some(mut browser) = Browser::open() else {
+        return;
+    };
+    let dir = short_dir();
+    // What the unit's administrator predefines, where the steward looks
+    // for what is set for the counter.
+    let set = dir.path().join("plugins.d");
+    std::fs::create_dir_all(&set).unwrap();
+    std::fs::write(
+        set.join("org.evoframework.usher.counter.toml"),
+        "[[types]]\nname = \"One day\"\nminutes = 1440\nguests = 1\n",
+    )
+    .unwrap();
+    let steward = Steward::start(dir.path());
+    steward.ask(
+        "issue.counter",
+        "put_type",
+        json!({ "name": "Walk-in", "minutes": 120, "guests": 1 }),
+    );
+    browser.size(1280, 900);
+    browser.go(&format!("{}/door.css", steward.address()));
+    browser.act(&format!(
+        r#"localStorage.setItem("evoBearer", {bearer});"#,
+        bearer = json!(steward.operator()),
+    ));
+    browser.go(&format!("{}/", steward.address()));
+
+    // The counter offers the predefined type from the start, before the
+    // one kept from the screen.
+    browser.wait(
+        "the types on offer",
+        r#"widget("usher.counter").querySelectorAll(".usher-type").length === 2"#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"return [...widget("usher.counter").querySelectorAll(".usher-type strong")].map((name) => name.textContent);"#
+        ),
+        json!(["One day", "Walk-in"])
+    );
+
+    // Among the voucher types it is shown as predefined, with nothing to
+    // drop it by, and the page says where it is changed.
+    go_to(&mut browser, "Voucher types");
+    browser.wait(
+        "the types listed",
+        r#"widget("usher.types").querySelectorAll("tbody tr").length === 2"#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"
+            return [...widget("usher.types").querySelectorAll("tbody tr")].map((row) => ({
+              name: row.cells[0].textContent,
+              last: row.cells[2].textContent,
+              buttons: row.querySelectorAll("button").length,
+            }));
+            "#
+        ),
+        json!([
+            { "name": "One day", "last": "Predefined", "buttons": 0 },
+            { "name": "Walk-in", "last": "Drop", "buttons": 1 },
+        ])
+    );
+    assert_eq!(
+        browser.look(
+            r#"return [...widget("usher.types").querySelectorAll(".usher-hint")].map((hint) => hint.textContent).filter((text) => text.includes("predefined"));"#
+        ),
+        json!(["A predefined type is set in the unit's configuration, and is changed there."])
+    );
+
+    // Kept under its name from the form, it is refused in words, and
+    // stands as it was predefined.
+    browser.act(
+        r#"
+        const form = widget("usher.types").querySelector("form");
+        form.elements.name.value = "One day";
+        form.elements.lasts.value = "2";
+        form.requestSubmit();
+        "#,
+    );
+    browser.wait(
+        "the refusal",
+        r#"widget("usher.types").innerText.includes("'One day' is predefined in the unit's configuration")"#,
+    );
+    assert_eq!(
+        steward.ask("issue.counter", "types", json!({}))["types"][0]["minutes"],
+        1440
+    );
+    if let Some(picture) = picture_of(Some("predefined")) {
+        browser.picture(&picture);
+    }
+    assert_eq!(steward.stop(), Some(0));
+}
+
+#[test]
 fn the_menu_leads_from_page_to_page() {
     let Some(mut browser) = Browser::open() else {
         return;

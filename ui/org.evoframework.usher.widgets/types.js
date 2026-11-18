@@ -142,6 +142,11 @@ export function types(element, context) {
       const known = await ask("types");
       if (gone) return;
       const kept = Array.isArray(known?.types) ? known.types : [];
+      // The types the unit's configuration predefines are the
+      // administrator's: they are shown, and are not dropped here.
+      const predefined = new Set(
+        Array.isArray(known?.predefined) ? known.predefined.map(String) : [],
+      );
       if (kept.length === 0) {
         body.replaceChildren(el("p", {}, "No voucher type is kept yet."));
         // Nothing to hand out until there is one: the form stands open.
@@ -178,22 +183,33 @@ export function types(element, context) {
                   el(
                     "td",
                     {},
-                    el(
-                      "button",
-                      {
-                        type: "button",
-                        class: "quiet",
-                        "aria-label": `Drop ${type.name}`,
-                        onclick: () => drop(String(type.name)),
-                      },
-                      "Drop",
-                    ),
+                    predefined.has(String(type.name))
+                      ? el("span", { class: "usher-pill usher-pill-held" }, "Predefined")
+                      : el(
+                          "button",
+                          {
+                            type: "button",
+                            class: "quiet",
+                            "aria-label": `Drop ${type.name}`,
+                            onclick: () => drop(String(type.name)),
+                          },
+                          "Drop",
+                        ),
                   ),
                 ),
               ),
             ),
           ),
         ),
+        ...(predefined.size > 0
+          ? [
+              el(
+                "p",
+                { class: "usher-hint" },
+                "A predefined type is set in the unit's configuration, and is changed there.",
+              ),
+            ]
+          : []),
       );
     } catch (why) {
       if (gone) return;
@@ -278,7 +294,7 @@ export function types(element, context) {
 
   element.setAttribute("role", "region");
   element.setAttribute("aria-labelledby", title);
-  element.replaceChildren(el("h3", { id: title }, "Voucher types"), body, keeping, said);
+  element.replaceChildren(el("h3", { id: title }, "On offer at the counter"), body, keeping, said);
 
   // A voucher assigned for hand-out may bring its type with it.
   document.addEventListener(TYPES_KEPT, look);
