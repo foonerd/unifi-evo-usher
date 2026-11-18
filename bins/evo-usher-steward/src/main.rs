@@ -13,6 +13,7 @@ use evo::admission::AdmissionEngine;
 use evo::config::StewardConfig;
 use evo::AdmissionSetup;
 use evo_usher_controller_unifi::ControllerPlugin;
+use evo_usher_counter::CounterPlugin;
 use evo_usher_stock::StockPlugin;
 
 #[tokio::main]
@@ -77,6 +78,13 @@ fn admission() -> AdmissionSetup {
                 )
                 .await
                 .map_err(|e| anyhow::anyhow!("admitting the stock: {e}"))?;
+            engine
+                .admit_singleton_respondent(
+                    CounterPlugin::new(),
+                    evo_usher_counter::manifest(),
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!("admitting the counter: {e}"))?;
             Ok(())
         })
     })

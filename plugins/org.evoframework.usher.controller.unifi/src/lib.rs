@@ -34,7 +34,7 @@
 //! `base` is the address the API stands under, without its version: on a
 //! console `https://<console>/proxy/network/integration`.
 //!
-//! `networks.directory` takes two:
+//! `networks.directory` takes three:
 //!
 //! - `networks`: `{"site"}`, optional, answers `{"sites": [{"id", "name",
 //!   "networks": [{"id", "name", "enabled", "network", "vlan",
@@ -47,6 +47,9 @@
 //!   vouchers are for: the one a voucher names to the guest it is handed
 //!   to. With no `network` the choice is taken away. Answers `{"chosen":
 //!   ...}` as `networks` does.
+//! - `chosen`: answers `{"chosen": ...}` as it is kept, null where no
+//!   controller is set or none was chosen. The controller is asked
+//!   nothing.
 //!
 //! The choice is the usher's own. A voucher is a site's and not one
 //! network's: the controller lets it in on every wireless network it
@@ -77,9 +80,9 @@ pub use controller::Controller;
 pub const NAME: &str = "org.evoframework.usher.controller.unifi";
 
 /// The requests the plugin takes, on the two shelves it stocks.
-pub const REQUESTS: [&str; 9] = [
+pub const REQUESTS: [&str; 10] = [
     "probe", "set", "info", "sites", "mint", "list", "revoke", "networks",
-    "choose",
+    "choose", "chosen",
 ];
 
 /// The plugin's manifest.

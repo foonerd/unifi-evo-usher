@@ -93,6 +93,26 @@ impl Reserve {
         Ok(Some(voucher))
     }
 
+    /// Give a held voucher up, by its identifier. It was not handed out,
+    /// so it may be put again. Says whether it was held.
+    pub fn release(&mut self, id: &str) -> io::Result<bool> {
+        let mut released = false;
+        for held in self.kept.held.values_mut() {
+            let before = held.len();
+            held.retain(|voucher| voucher.id != id);
+            released |= held.len() != before;
+        }
+        if released {
+            self.keep()?;
+        }
+        Ok(released)
+    }
+
+    /// The vouchers held, by type, oldest first.
+    pub fn held(&self) -> &BTreeMap<String, Vec<Voucher>> {
+        &self.kept.held
+    }
+
     /// How many vouchers of each type are held.
     pub fn count(&self) -> BTreeMap<String, usize> {
         self.kept
@@ -154,6 +174,29 @@ mod tests {
         assert_eq!(reserve.take("day").unwrap(), Some(voucher("a")));
         assert_eq!(reserve.put("day", vec![voucher("a")]).unwrap(), 0);
         assert_eq!(reserve.take("day").unwrap(), None);
+    }
+
+    #[test]
+    fn a_voucher_given_up_is_not_handed_out_and_may_be_put_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut reserve = Reserve::open(dir.path()).unwrap();
+        reserve
+            .put("day", vec![voucher("a"), voucher("b")])
+            .unwrap();
+        assert!(reserve.release("a").unwrap());
+        assert!(!reserve.release("a").unwrap(), "it is held no longer");
+        assert_eq!(reserve.held()["day"], [voucher("b")]);
+
+        // Given up is not handed out: it is taken in again, and is then
+        // the youngest.
+        assert_eq!(reserve.put("day", vec![voucher("a")]).unwrap(), 1);
+        assert_eq!(reserve.take("day").unwrap(), Some(voucher("b")));
+        assert_eq!(reserve.take("day").unwrap(), Some(voucher("a")));
+
+        // Handed out, it is not there to give up.
+        assert!(!reserve.release("a").unwrap());
+        let again = Reserve::open(dir.path()).unwrap();
+        assert!(again.held()["day"].is_empty());
     }
 
     #[test]

@@ -2,11 +2,18 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
-## [Unreleased]
+## [0.3.4] - 2026-11-18
 
 - A caller on the same network who presents nothing is refused what lets guests on, as a caller from beyond the network is. The steward withholds the privilege evo otherwise gives a caller on the LAN; pairing is still open to one, and a paired browser is answered. How many vouchers are held is still told to anyone
 - The usher is built on evo 0.1.13.1, the release that lets a distribution withhold that privilege
 - The pairing code is shown as it is typed, so that it can be looked over before it is sent, and the spaces around it are dropped. The field is a one-time code to the browser, which has no reason to fill it from what it keeps. A code that is empty is not sent, and no second is sent while the first is unanswered. try.sh says where the code is kept
+- A guest is handed a voucher from the screen. A new plugin, `org.evoframework.usher.counter`, stocks the shelf `issue.counter`: it keeps the voucher types on offer, each the terms a voucher is minted on under a name, and hands out a voucher of one of them, minted on the controller for the asking, for the wireless network vouchers are for. It asks the steward's other shelves as any caller does, and passes their refusals on in their own words. The shape of the shelf is `schemas/org.evoframework.usher/issue/counter.v1.toml`
+- Two widgets for it, on the UI shelf `issue.counter`: `usher.counter`, with one button for each voucher type, which shows the voucher handed out large, with the network it is for and what it gives; and `usher.types`, with which a type is kept and dropped. The list of the controller's vouchers is asked for again when a voucher is handed out
+- A voucher the controller has already, and no guest has used, is assigned for handing out from the list of the controller's vouchers. `issue.counter` takes `assign`: the voucher is held for the type its note names, and brings that type, on its own terms, where none of that name is kept. A voucher assigned takes precedence: `hand` gives out one held for the type before it has one minted, also while the controller is away, and says which of the two it was
+- `stock.reserve` takes `held`, which tells the vouchers it holds, and `release`, which gives one up without handing it out. One assigned is taken back from the list, is given up when it is revoked there, and the list says which assigned vouchers are no longer good on the controller
+- The counter's buttons say how many vouchers are held for a type
+- `networks.directory` takes `chosen`, which tells the wireless network vouchers are for as it is kept, and asks the controller nothing
+- The usher's shell puts the UI shelves its `order.json` names first on the screen; the counter stands first
 
 ## [0.3.3] - 2026-11-17
 

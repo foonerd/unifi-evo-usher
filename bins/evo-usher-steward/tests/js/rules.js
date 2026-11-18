@@ -31,7 +31,7 @@ const shelf = (id, label, widgets, sizes) => ({
 const entry = (plugin, ui_shelf, widget, size) => ({
   plugin, ui_shelf, widget, size, schema_version: 1,
 });
-const shown = compose({
+const snapshot = {
   shelves: [
     shelf("a.first", "First", ["k.one"], ["half", "full"]),
     shelf("b.empty", "Empty", "*", ["full"]),
@@ -49,8 +49,14 @@ const shown = compose({
     entry("p.four", "c.last", "k.wide", "full"),
     entry("p.five", "a.first", "k.two", "half"),
   ],
-});
+};
+const shown = compose(snapshot);
 hold("a shelf with nothing on it is not shown", shown.map((s) => s.id), ["a.first", "c.last"]);
+hold(
+  "the shelves a shell names stand first",
+  compose(snapshot, ["z.unknown", "c.last"]).map((s) => s.id),
+  ["c.last", "a.first"],
+);
 hold("the shelf's own label", shown[0].label, "First");
 hold(
   "a stocking at the size it asked for",
@@ -126,6 +132,59 @@ hold(
 );
 hold("a name and no more", told({ name: "Bare" }), "");
 hold("switched off", told({ security: "passphrase", enabled: false }), "joined with a passphrase; switched off");
+
+// What a voucher of a type gives, and what is typed for one.
+const { gives, guests } = await import("/org.evoframework.usher.widgets/counter.js");
+const { kbps, terms, whole } = await import("/org.evoframework.usher.widgets/types.js");
+const refused = (ask) => {
+  try {
+    return ask();
+  } catch (why) {
+    return `refused: ${why.message}`;
+  }
+};
+hold("one guest", guests({ guests: 1 }), "one guest");
+hold("some guests", guests({ guests: 4 }), "4 guests");
+hold("any guests", guests({ guests: null }), "any number of guests");
+hold(
+  "a type with limits",
+  gives({ minutes: 1440, guests: 1, megabytes: 6000, down_kbps: 7200, up_kbps: 1200 }),
+  "1 day; one guest; down 7.2 Mbit/s, up 1.2 Mbit/s, 6000 MB",
+);
+hold("a type with none", gives({ minutes: 43200, guests: null }), "30 days; any number of guests");
+hold("a whole number", whole(" 6000 ", "Data"), 6000);
+hold("nothing typed", whole("  ", "Data"), null);
+hold("no whole number", refused(() => whole("6.5", "Data")), "refused: Data: a whole number, 1 or more.");
+hold("nought", refused(() => whole("0", "Data")), "refused: Data: a whole number, 1 or more.");
+hold("a rate", kbps("7.2", "Download"), 7200);
+hold("a rate with a comma", kbps("1,2", "Upload"), 1200);
+hold("a slow rate", kbps("0.512", "Upload"), 512);
+hold("no rate typed", kbps("", "Upload"), null);
+hold(
+  "no rate",
+  refused(() => kbps("fast", "Download")),
+  "refused: Download: megabits per second, as 7.2; empty for no limit.",
+);
+hold(
+  "what is typed, as a type",
+  terms({ name: " House Guests ", lasts: "1", unit: "days", guests: "1", megabytes: "6000", down: "7,2", up: "1.2" }),
+  { name: "House Guests", minutes: 1440, guests: 1, megabytes: 6000, down_kbps: 7200, up_kbps: 1200 },
+);
+hold(
+  "hours, and no limits",
+  terms({ name: "Evening", lasts: "8", unit: "hours", guests: "", megabytes: "", down: "", up: "" }),
+  { name: "Evening", minutes: 480, guests: null, megabytes: null, down_kbps: null, up_kbps: null },
+);
+hold(
+  "no name",
+  refused(() => terms({ name: " ", lasts: "1", unit: "days", guests: "", megabytes: "", down: "", up: "" })),
+  "refused: A voucher type needs a name.",
+);
+hold(
+  "no time",
+  refused(() => terms({ name: "Day", lasts: "", unit: "days", guests: "", megabytes: "", down: "", up: "" })),
+  "refused: How long it lasts: a whole number, 1 or more.",
+);
 
 // A fingerprint, as it is compared by eye.
 hold("pairs of digits", paired("ab01cd02"), "ab:01:cd:02");

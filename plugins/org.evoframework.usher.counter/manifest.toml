@@ -1,0 +1,67 @@
+[plugin]
+name = "org.evoframework.usher.counter"
+# The crate's version, which is the workspace's. The steward refuses a
+# plugin that says another version than its manifest; a test holds the two
+# together.
+version = "0.3.4"
+contract = 1
+
+[target]
+shelf = "issue.counter"
+shape = 1
+
+[kind]
+instance = "singleton"
+interaction = "respondent"
+
+[transport]
+type = "in-process"
+exec = "<compiled-in>"
+
+[trust]
+class = "platform"
+
+[prerequisites]
+evo_min_version = "0.1.13"
+os_family = "any"
+# Speaks to nothing but the steward's other shelves.
+outbound_network = false
+# Reads and writes its own state directory only.
+filesystem_scopes = []
+
+[resources]
+max_memory_mb = 16
+max_cpu_percent = 1
+
+[lifecycle]
+hot_reload = "restart"
+autostart = true
+restart_on_crash = true
+restart_budget = 5
+
+# Handing out and assigning wait on the controller, through its shelf:
+# the budget is that shelf's, and a little over.
+[capabilities.respondent]
+request_types = ["types", "put_type", "drop_type", "hand", "assign"]
+response_budget_ms = 35000
+
+# Who may ask. A voucher is what lets a guest on to the network, and its
+# types are the terms it is minted on, so every request here asks for the
+# network_admin capability.
+[capabilities.respondent.verb_capabilities]
+types = { kind = "read", scope = "network_admin" }
+put_type = { kind = "write", scope = "network_admin" }
+drop_type = { kind = "write", scope = "network_admin" }
+hand = { kind = "write", scope = "network_admin" }
+assign = { kind = "write", scope = "network_admin" }
+
+# On the screen: the counter itself, and the types it offers under it.
+[[ui.stocks]]
+ui_shelf = "issue.counter"
+widget = "usher.counter"
+size = "full"
+
+[[ui.stocks]]
+ui_shelf = "issue.counter"
+widget = "usher.types"
+size = "full"

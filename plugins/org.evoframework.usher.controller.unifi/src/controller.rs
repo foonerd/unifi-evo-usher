@@ -35,6 +35,17 @@ struct Chosen {
     name: String,
 }
 
+impl Chosen {
+    /// The choice as the shelf answers it.
+    fn told(&self) -> Value {
+        json!({
+            "site": self.site,
+            "network": self.network,
+            "name": self.name,
+        })
+    }
+}
+
 /// The controller that is set, and the line to it.
 #[derive(Debug)]
 struct Set {
@@ -351,14 +362,18 @@ impl Controller {
                         "networks": networks,
                     }));
                 }
-                let chosen = self.chosen(&line.kept.base).map(|chosen| {
-                    json!({
-                        "site": chosen.site,
-                        "network": chosen.network,
-                        "name": chosen.name,
-                    })
-                });
+                let chosen =
+                    self.chosen(&line.kept.base).map(|chosen| chosen.told());
                 Ok(json!({ "sites": answer, "chosen": chosen }))
+            }
+            "chosen" => {
+                // What is kept, and nothing asked of the controller: the
+                // choice is told while the controller is away.
+                let chosen = self
+                    .set()
+                    .and_then(|set| self.chosen(&set.kept.base))
+                    .map(|chosen| chosen.told());
+                Ok(json!({ "chosen": chosen }))
             }
             "choose" => {
                 let choosing: Choosing = asked(payload)?;
@@ -393,11 +408,7 @@ impl Controller {
                 let bytes = serde_json::to_vec(&chosen)
                     .map_err(|e| Refusal::AsAsked(e.to_string()))?;
                 keep(&self.chosen_path(), &bytes).map_err(unkept)?;
-                Ok(json!({ "chosen": {
-                    "site": chosen.site,
-                    "network": chosen.network,
-                    "name": chosen.name,
-                } }))
+                Ok(json!({ "chosen": chosen.told() }))
             }
             other => {
                 Err(Refusal::AsAsked(format!("unknown request type: {other}")))

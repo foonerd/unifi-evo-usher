@@ -11,6 +11,7 @@ repository.workspace = true
 evo = { workspace = true }
 evo-plugin-sdk = { workspace = true }
 evo-usher-controller-unifi = { path = "../../plugins/org.evoframework.usher.controller.unifi" }
+evo-usher-counter = { path = "../../plugins/org.evoframework.usher.counter" }
 evo-usher-stock = { path = "../../plugins/org.evoframework.usher.stock" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }

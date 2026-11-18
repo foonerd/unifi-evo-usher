@@ -265,6 +265,10 @@ async fn the_wireless_networks_are_listed_and_one_is_chosen_for_vouchers() {
         ask(&controller, "networks", json!({})).await,
         Err(Refusal::AsAsked(_))
     ));
+    assert_eq!(
+        ask(&controller, "chosen", json!({})).await.unwrap(),
+        json!({ "chosen": null })
+    );
     set(&controller, &simulated).await;
 
     // Every wireless network of the site, each with what the controller
@@ -319,6 +323,10 @@ async fn the_wireless_networks_are_listed_and_one_is_chosen_for_vouchers() {
         .await
         .unwrap();
     assert_eq!(known["chosen"], choice, "kept through a restart");
+    assert_eq!(
+        ask(&again, "chosen", json!({})).await.unwrap(),
+        json!({ "chosen": choice })
+    );
 
     // What the controller does not have is not chosen, and what was
     // chosen stays.
@@ -344,6 +352,10 @@ async fn the_wireless_networks_are_listed_and_one_is_chosen_for_vouchers() {
     assert_eq!(none, json!({ "chosen": null }));
     let known = ask(&again, "networks", json!({})).await.unwrap();
     assert_eq!(known["chosen"], Value::Null);
+    assert_eq!(
+        ask(&again, "chosen", json!({})).await.unwrap(),
+        json!({ "chosen": null })
+    );
 }
 
 #[tokio::test]
@@ -415,10 +427,24 @@ async fn a_controller_that_is_gone_is_a_refusal_for_now() {
     let kept = Kept::new();
     let controller = kept.open();
     set(&controller, &simulated).await;
+    let networks = ask(&controller, "networks", json!({})).await.unwrap();
+    let chosen = ask(
+        &controller,
+        "choose",
+        json!({
+            "site": simulated.site(),
+            "network": networks["sites"][0]["networks"][1]["id"],
+        }),
+    )
+    .await
+    .unwrap();
     drop(simulated);
     tokio::task::yield_now().await;
     let gone = ask(&controller, "sites", json!({})).await;
     assert!(matches!(gone, Err(Refusal::ForNow(_))), "{gone:?}");
+
+    // The network vouchers are for is told as it is kept.
+    assert_eq!(ask(&controller, "chosen", json!({})).await.unwrap(), chosen);
 
     // It is still the controller that is set, and `info` says that it
     // does not answer, and why.

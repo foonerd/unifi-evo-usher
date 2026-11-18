@@ -1,0 +1,14 @@
+# Rack-level metadata for the `issue` rack.
+
+rack = "issue"
+namespace = "org.evoframework.usher"
+
+description = """
+Hand a voucher to a guest and record who, where and when.
+"""
+
+# Shelves under this rack and their current shape version. Each entry has
+# a `<shelf>.v<N>.toml` file in this directory.
+[[shelves]]
+name = "counter"
+current_shape = 1

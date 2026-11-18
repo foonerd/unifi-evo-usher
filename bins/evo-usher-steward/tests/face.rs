@@ -31,10 +31,14 @@ fn the_steward_serves_the_door_the_shell_and_the_widget_pack() {
         format!("/{SHELL}/compose.js"),
         format!("/{WIDGETS}/index.js"),
         format!("/{WIDGETS}/controller.js"),
+        format!("/{WIDGETS}/counter.js"),
         format!("/{WIDGETS}/networks.js"),
         format!("/{WIDGETS}/reserve.js"),
+        format!("/{WIDGETS}/types.js"),
         format!("/{WIDGETS}/vouchers.js"),
         format!("/{WIDGETS}/dom.js"),
+        format!("/{WIDGETS}/events.js"),
+        format!("/{WIDGETS}/shelves.js"),
     ] {
         let (status, kind, _) = steward.file(&module);
         assert_eq!(status, 200, "{module}");
@@ -49,6 +53,13 @@ fn the_steward_serves_the_door_the_shell_and_the_widget_pack() {
         serde_json::from_str::<Value>(&packs).unwrap(),
         json!([WIDGETS]),
         "the shell draws with the usher's widget pack"
+    );
+    let (status, _, order) = steward.file(&format!("/{SHELL}/order.json"));
+    assert_eq!(status, 200);
+    assert_eq!(
+        serde_json::from_str::<Value>(&order).unwrap(),
+        json!(["issue.counter"]),
+        "what is done most stands first on the screen"
     );
     assert_eq!(steward.stop(), Some(0));
 }
@@ -65,7 +76,7 @@ fn each_plugin_stands_on_the_ui_shelf_of_its_catalogue_shelf() {
     // shelf named after the shelf it stocks, with the widget that shelf
     // is drawn with, as it does the stock. The controller plugin says
     // where it stands: with two widgets on the one shelf, with one on the
-    // other.
+    // other. So does the counter, with two on its one shelf.
     let stocked: Vec<(&str, &str, &str)> = said["entries"]
         .as_array()
         .unwrap()
@@ -97,6 +108,16 @@ fn each_plugin_stands_on_the_ui_shelf_of_its_catalogue_shelf() {
                 "usher.networks"
             ),
             (
+                "issue.counter",
+                "org.evoframework.usher.counter",
+                "usher.counter"
+            ),
+            (
+                "issue.counter",
+                "org.evoframework.usher.counter",
+                "usher.types"
+            ),
+            (
                 "stock.reserve",
                 "org.evoframework.usher.stock",
                 "usher.reserve"
@@ -116,8 +137,10 @@ fn each_plugin_stands_on_the_ui_shelf_of_its_catalogue_shelf() {
         kinds,
         [
             "usher.controller",
+            "usher.counter",
             "usher.networks",
             "usher.reserve",
+            "usher.types",
             "usher.vouchers"
         ]
     );
@@ -148,8 +171,16 @@ fn what_lets_guests_on_is_asked_only_with_a_credential() {
         ("access.controller", "revoke"),
         ("networks.directory", "networks"),
         ("networks.directory", "choose"),
+        ("networks.directory", "chosen"),
         ("stock.reserve", "put"),
         ("stock.reserve", "take"),
+        ("stock.reserve", "held"),
+        ("stock.reserve", "release"),
+        ("issue.counter", "types"),
+        ("issue.counter", "put_type"),
+        ("issue.counter", "drop_type"),
+        ("issue.counter", "hand"),
+        ("issue.counter", "assign"),
     ] {
         let refused = steward.ask_as(&beyond, shelf, request, json!({}));
         assert_eq!(
@@ -239,8 +270,16 @@ fn a_caller_on_the_lan_is_asked_for_a_credential_too() {
             ("access.controller", "mint"),
             ("access.controller", "revoke"),
             ("networks.directory", "choose"),
+            ("networks.directory", "chosen"),
             ("stock.reserve", "put"),
             ("stock.reserve", "take"),
+            ("stock.reserve", "held"),
+            ("stock.reserve", "release"),
+            ("issue.counter", "types"),
+            ("issue.counter", "put_type"),
+            ("issue.counter", "drop_type"),
+            ("issue.counter", "hand"),
+            ("issue.counter", "assign"),
         ] {
             let (status, refused) = steward.op(
                 "request",
@@ -324,7 +363,7 @@ fn a_steward_without_its_face_still_hands_out_vouchers() {
     // kinds the steward knows and nothing draws.
     let (_, said) =
         steward.op("describe_ui_stockings", json!({}), &Caller::here());
-    assert_eq!(said["entries"].as_array().unwrap().len(), 4, "{said}");
+    assert_eq!(said["entries"].as_array().unwrap().len(), 6, "{said}");
 
     let vouchers = json!([{"id": "a", "code": "00001-00001"}]);
     assert_eq!(

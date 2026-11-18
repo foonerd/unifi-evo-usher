@@ -3,7 +3,7 @@ name = "org.evoframework.usher.controller.unifi"
 # The crate's version, which is the workspace's. The steward refuses a
 # plugin that says another version than its manifest; a test holds the two
 # together.
-version = "0.3.3"
+version = "0.3.4"
 contract = 1
 
 # Two shelves from the one line to the controller: minting on it, and
@@ -18,7 +18,7 @@ request_types = ["probe", "set", "info", "sites", "mint", "list", "revoke"]
 shelf = "networks.directory"
 shape = 1
 role = "respondent"
-request_types = ["networks", "choose"]
+request_types = ["networks", "choose", "chosen"]
 
 [kind]
 instance = "singleton"
@@ -50,7 +50,7 @@ restart_on_crash = true
 restart_budget = 5
 
 [capabilities.respondent]
-request_types = ["probe", "set", "info", "sites", "mint", "list", "revoke", "networks", "choose"]
+request_types = ["probe", "set", "info", "sites", "mint", "list", "revoke", "networks", "choose", "chosen"]
 response_budget_ms = 30000
 
 # Who may ask. Every request here sets, reads or spends what lets guests on
@@ -66,6 +66,7 @@ list = { kind = "read", scope = "network_admin" }
 revoke = { kind = "write", scope = "network_admin" }
 networks = { kind = "read", scope = "network_admin" }
 choose = { kind = "write", scope = "network_admin" }
+chosen = { kind = "read", scope = "network_admin" }
 
 # On the screen: the controller and its vouchers on the UI shelf of the
 # one catalogue shelf, the choice of network on that of the other.

@@ -1,8 +1,10 @@
-// The reserve: the vouchers minted ahead and kept on this unit, to hand
-// out while the controller is away, counted by type. They are not the
-// controller's vouchers; those are another widget's.
+// The reserve: the vouchers assigned for handing out and held on this
+// unit, counted by type. One held goes before one minted for the asking,
+// and is handed out while the controller is away. Which vouchers they are
+// is told among the controller's vouchers, in another widget.
 
 import { el, id, words } from "./dom.js";
+import { HELD_CHANGED, VOUCHER_HANDED } from "./events.js";
 
 /** How often the count is asked for while the page is looked at. */
 const EVERY_MS = 15000;
@@ -23,13 +25,13 @@ export function reserve(element, context) {
     try {
       const counted = await context.steward.request(shelf, "count", {});
       if (gone) return;
-      const types = Object.entries(counted?.held ?? {});
+      const types = Object.entries(counted?.held ?? {}).filter(([, count]) => count > 0);
       if (types.length === 0) {
         held.replaceChildren(
           el(
             "p",
             {},
-            "None. Vouchers minted ahead are kept here, to hand out while the controller is away.",
+            "None. A voucher assigned for hand-out, among the controller's vouchers, is held here; it goes before one minted for the asking, also while the controller is away.",
           ),
         );
       } else {
@@ -63,6 +65,8 @@ export function reserve(element, context) {
     if (document.visibilityState === "visible") look();
   };
   document.addEventListener("visibilitychange", seen);
+  document.addEventListener(HELD_CHANGED, look);
+  document.addEventListener(VOUCHER_HANDED, look);
   const timer = setInterval(seen, EVERY_MS);
   look();
 
@@ -70,6 +74,8 @@ export function reserve(element, context) {
     gone = true;
     clearInterval(timer);
     document.removeEventListener("visibilitychange", seen);
+    document.removeEventListener(HELD_CHANGED, look);
+    document.removeEventListener(VOUCHER_HANDED, look);
     element.replaceChildren();
   };
 }

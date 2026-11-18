@@ -1,0 +1,24 @@
+[package]
+name = "evo-usher-counter"
+description = "The counter where a guest is handed a voucher: a singleton respondent on the issue.counter shelf of the evo steward."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+evo-plugin-sdk = { workspace = true }
+semver = { version = "1", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+
+[dev-dependencies]
+evo-plugin-test = { workspace = true }
+toml = "0.8"
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt"] }
+
+[lints]
+workspace = true

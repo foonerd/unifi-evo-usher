@@ -7,8 +7,10 @@
 // else, so it is the same widget under any shell.
 
 import { controller } from "./controller.js";
+import { counter } from "./counter.js";
 import { networks } from "./networks.js";
 import { reserve } from "./reserve.js";
+import { types } from "./types.js";
 import { vouchers } from "./vouchers.js";
 
 /**
@@ -26,8 +28,10 @@ import { vouchers } from "./vouchers.js";
 /** @type {Record<string, (element: HTMLElement, context: Context) => (() => void)>} */
 const drawn = {
   "usher.controller": controller,
+  "usher.counter": counter,
   "usher.networks": networks,
   "usher.reserve": reserve,
+  "usher.types": types,
   "usher.vouchers": vouchers,
 };
 

@@ -47,7 +47,7 @@ charter = "Hand a voucher to a guest and record who, where and when."
 [[racks.shelves]]
 name = "counter"
 shape = 1
-description = "Takes a voucher from the reserve for a guest and records the issue."
+description = "Keeps the voucher types on offer and hands a guest a voucher of one of them."
 
 [[racks]]
 name = "printing"

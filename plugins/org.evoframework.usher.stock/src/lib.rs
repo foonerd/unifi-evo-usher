@@ -1,13 +1,17 @@
 //! The reserve of vouchers ready to hand out, as a plugin of the evo
 //! steward: a singleton respondent on the `stock.reserve` shelf.
 //!
-//! It answers three requests, each with a JSON payload:
+//! It answers five requests, each with a JSON payload:
 //!
 //! - `put`: `{"type": "...", "vouchers": [{"id": "...", "code": "..."}]}`
 //!   adds vouchers of a type and answers `{"added": n}`.
 //! - `take`: `{"type": "..."}` answers `{"voucher": {...}}`, or
 //!   `{"voucher": null}` where none of that type is held.
 //! - `count`: answers `{"held": {"<type>": n}}`.
+//! - `held`: answers `{"held": {"<type>": [{"id": "...", "code":
+//!   "..."}]}}`, the vouchers themselves, oldest first.
+//! - `release`: `{"id": "..."}` gives a held voucher up without handing
+//!   it out and answers `{"released": bool}`.
 
 #![forbid(unsafe_code)]
 
@@ -65,6 +69,11 @@ struct Take {
     kind: String,
 }
 
+#[derive(Deserialize)]
+struct Release {
+    id: String,
+}
+
 fn refused(why: impl std::fmt::Display) -> PluginError {
     PluginError::Permanent(why.to_string())
 }
@@ -84,6 +93,8 @@ impl Plugin for StockPlugin {
                         "put".to_string(),
                         "take".to_string(),
                         "count".to_string(),
+                        "held".to_string(),
+                        "release".to_string(),
                     ],
                     course_correct_verbs: vec![],
                     accepts_custody: false,
@@ -163,6 +174,14 @@ impl Respondent for StockPlugin {
                     json!({ "voucher": voucher })
                 }
                 "count" => json!({ "held": reserve.count() }),
+                "held" => json!({ "held": reserve.held() }),
+                "release" => {
+                    let release: Release = serde_json::from_slice(&req.payload)
+                        .map_err(refused)?;
+                    let released =
+                        reserve.release(&release.id).map_err(refused)?;
+                    json!({ "released": released })
+                }
                 other => {
                     return Err(refused(format!(
                         "unknown request type: {other}"

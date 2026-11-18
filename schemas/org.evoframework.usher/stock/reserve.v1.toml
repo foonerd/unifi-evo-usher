@@ -45,6 +45,25 @@ integer } }`.
 payload_in = "json"
 payload_out = "json"
 
+[[requests]]
+request_type = "held"
+description = """
+The vouchers held, by type, oldest first. Returns `{ held: { <type>: [{
+id: string, code: string }] } }`.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "release"
+description = """
+Give a held voucher up without handing it out. Payload `{ id: string }`.
+Returns `{ released: bool }`: whether it was held. A voucher given up
+was not handed out, and may be put again.
+"""
+payload_in = "json"
+payload_out = "json"
+
 [[acceptance]]
 name = "a-voucher-is-handed-out-once"
 detail = """
@@ -61,4 +80,12 @@ name = "the-reserve-is-kept"
 detail = """
 After `put` of three vouchers, one `take` and a restart of the plugin,
 `count` returns two of that type and `take` returns the second.
+"""
+
+[[acceptance]]
+name = "a-voucher-given-up-is-not-handed-out"
+detail = """
+After `put` of a, b and `release` of a, `held` returns b alone and
+`take` returns b. `release` of a again returns `{ released: false }`,
+and `put` of a returns `{ added: 1 }`.
 """

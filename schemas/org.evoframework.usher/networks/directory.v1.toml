@@ -48,6 +48,17 @@ it is chosen. Returns `{ chosen: { site, network, name } | null }`.
 payload_in = "json"
 payload_out = "json"
 
+[[requests]]
+request_type = "chosen"
+description = """
+The wireless network vouchers are for, as it is kept. Returns `{ chosen:
+{ site, network, name } | null }`, null where no controller is set or
+none was chosen. The controller is asked nothing, so the choice is told
+while the controller is away.
+"""
+payload_in = "json"
+payload_out = "json"
+
 [[acceptance]]
 name = "a-network-is-listed-on-its-name-alone"
 detail = """
@@ -80,5 +91,12 @@ After `choose` and a restart of the plugin, `networks` returns the same
 name = "nothing-is-known-of-no-controller"
 detail = """
 With no controller set, `networks` and `choose` are refused as
-permanent.
+permanent, and `chosen` returns `chosen: null`.
+"""
+
+[[acceptance]]
+name = "the-choice-is-told-while-the-controller-is-away"
+detail = """
+After `choose`, with the controller no longer reached, `chosen` returns
+what `choose` returned.
 """

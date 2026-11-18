@@ -10,6 +10,14 @@ max_size = "full"
 mode = "inline"
 schema_version = 1
 
+["usher.counter"]
+id = "usher.counter"
+min_size = "half"
+ideal_size = "full"
+max_size = "full"
+mode = "inline"
+schema_version = 1
+
 ["usher.networks"]
 id = "usher.networks"
 min_size = "half"
@@ -22,6 +30,14 @@ schema_version = 1
 id = "usher.reserve"
 min_size = "third"
 ideal_size = "half"
+max_size = "full"
+mode = "inline"
+schema_version = 1
+
+["usher.types"]
+id = "usher.types"
+min_size = "half"
+ideal_size = "full"
 max_size = "full"
 mode = "inline"
 schema_version = 1

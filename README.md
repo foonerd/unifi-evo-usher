@@ -6,9 +6,9 @@ What it is built to be: a core that holds the UniFi key, mints the vouchers on t
 
 ## Status
 
-0.3.3 stands on the evo steward and has a face. `evo-usher-steward` is the steward with the usher's catalogue and two plugins: the controller, which mints vouchers on a UniFi Network controller, and the stock of vouchers ready to hand out. It serves the usher's face to a browser, in which a controller is looked at and set, its vouchers are listed and revoked, and the wireless network vouchers are for is chosen. It is built and tested, and not yet in the archive, the packages or the image. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else.
+0.3.4 stands on the evo steward and has a face. `evo-usher-steward` is the steward with the usher's catalogue and three plugins: the controller, which mints vouchers on a UniFi Network controller; the counter, which keeps the voucher types on offer and hands a guest a voucher of one of them, one assigned for handing out before one minted for the asking; and the stock, which holds the vouchers assigned. It serves the usher's face to a browser, in which a controller is looked at and set, its vouchers are listed, assigned for handing out and revoked, the wireless network vouchers are for is chosen, the voucher types are kept and a guest is handed a voucher. It is built and tested, and not yet in the archive, the packages or the image. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else.
 
-The controller plugin is written from Ubiquiti's published description of the UniFi Network API, version 11.0.97, and is held to a simulated controller written from the same description. It has been set on a UniFi Network application, version 11.0.99, and has read its version and its sites; minting, listing, revoking and the wireless networks have not yet been run against a controller. No voucher is minted or handed out from the screen yet: that is asked of the steward directly.
+The controller plugin is written from Ubiquiti's published description of the UniFi Network API, version 11.0.97, and is held to a simulated controller written from the same description. It has been run from the usher's face against a UniFi Network application, version 11.0.99: the controller set, its version, its sites, its vouchers and its wireless networks read, a wireless network chosen, and vouchers assigned and handed out.
 
 ## On evo
 
@@ -26,19 +26,20 @@ The catalogue, `catalogue/usher.toml`, declares what an usher is concerned with:
 
 It also declares the subjects the usher speaks of (controller, guest network, voucher type, voucher, point of issue, printer, place, person) and the relations between them. No rack, shelf or relation is named after a vendor or a plugin.
 
-Plugins stock the shelves. Two do so far:
+Plugins stock the shelves. Three do so far:
 
 | Plugin | Shelf | What it does |
 | --- | --- | --- |
 | `org.evoframework.usher.controller.unifi` | `access.controller` | Sets the controller to mint on; says its version and its sites; mints vouchers on terms, lists them and revokes them. |
 | | `networks.directory` | Lists the wireless networks of a site, each with what the controller says of it, and keeps the choice of the one vouchers are for. |
-| `org.evoframework.usher.stock` | `stock.reserve` | Takes vouchers in by type, hands each out once, oldest first, and says how many it holds. What it holds is kept through a restart. |
+| `org.evoframework.usher.counter` | `issue.counter` | Keeps the voucher types on offer, each the terms a voucher is minted on under a name; assigns a voucher the controller has for handing out; and hands out a voucher of a type, one assigned before one minted for the asking. |
+| `org.evoframework.usher.stock` | `stock.reserve` | Takes vouchers in by type, hands each out once, oldest first, gives one up again, and says how many and which it holds. What it holds is kept through a restart. |
 
-`evo-usher-steward` is the steward with these plugins compiled in. It is started as the evo steward is, with a configuration that names the catalogue, and is asked over the steward's client socket; `bins/evo-usher-steward/tests/steward.rs` starts it, sets a simulated controller, mints on it, puts the vouchers in the stock, hands one out, stops the steward and starts it again.
+`evo-usher-steward` is the steward with these plugins compiled in. It is started as the evo steward is, with a configuration that names the catalogue, and is asked over the steward's client socket; `bins/evo-usher-steward/tests/steward.rs` starts it, sets a simulated controller, mints on it, puts the vouchers in the stock, hands one out, stops the steward and starts it again. It also keeps a voucher type at the counter and has a voucher of it handed out, which the counter mints through the steward.
 
 ### Shapes
 
-What a shelf takes and answers is its shape, written down as a schema in the format of [evo-catalogue-schemas](https://github.com/foonerd/evo-catalogue-schemas): `schemas/org.evoframework.usher/<rack>/<shelf>.v<N>.toml`, with the requests, their payloads and what a plugin on that shape must hold to. `access/controller.v1.toml`, `networks/directory.v1.toml` and `stock/reserve.v1.toml` are the shapes of the three shelves stocked so far.
+What a shelf takes and answers is its shape, written down as a schema in the format of [evo-catalogue-schemas](https://github.com/foonerd/evo-catalogue-schemas): `schemas/org.evoframework.usher/<rack>/<shelf>.v<N>.toml`, with the requests, their payloads and what a plugin on that shape must hold to. `access/controller.v1.toml`, `issue/counter.v1.toml`, `networks/directory.v1.toml` and `stock/reserve.v1.toml` are the shapes of the four shelves stocked so far.
 
 ```text
 evo-plugin-tool catalogue lint catalogue/usher.toml
@@ -59,6 +60,16 @@ The controller is a Cloud Key, a UniFi console or a self-hosted Network applicat
 - A voucher belongs to a site of the controller, not to one guest network. The controller lets it in on every wireless network of its site that it puts its hotspot portal in front of, and has no way to hold it to one of them. The network a voucher names to the guest it is handed to is the usher's own choice, made among the controller's wireless networks and kept on `networks.directory`.
 - An answer of the controller is read for what is needed. Of a voucher that is its identifier and its code, and of a wireless network its identifier and its name; the network and VLAN it puts a guest on, how it is joined and whether it asks for a voucher are told where the controller tells them. Where an answer is not what Ubiquiti's description says, the refusal says where it differs and which names stand there, never what stands under them.
 
+### The counter
+
+A guest is handed a voucher at the counter, `issue.counter`.
+
+- The counter keeps the voucher types on offer. A type is the terms a voucher is minted on, under the name it is known by at the counter: how long a voucher lasts from its first use, how many guests it lets in, and its limits on data and speed. The name is also the note the type's vouchers carry on the controller.
+- A voucher is minted for the asking: one press, one voucher, on the controller, there and then. While no wireless network is chosen for vouchers, none is handed out and none is minted.
+- A voucher the controller has already, and no guest has used, can be assigned for handing out. It is then held on the unit for the type its note names; where no type of that name is kept, the voucher brings one, on its own terms, and where one is kept on other terms, the voucher is not assigned.
+- A voucher assigned takes precedence: it is handed out before one is minted, the oldest first, and is handed out while the controller is away. One assigned can be taken back, and is given up when it is revoked from the screen. The list of the controller's vouchers says which assigned vouchers are no longer good there, revoked, used or expired elsewhere, and takes them back.
+- The counter knows no controller and no reserve. It asks the steward's shelves, `networks.directory` for the network, `stock.reserve` for a voucher held and `access.controller` for one minted, as any caller does; what they refuse, it refuses in their words.
+
 ### The face
 
 The usher is looked at and worked in a browser. The steward serves the face itself, over its HTTPS listener, from one directory, the UI root; `ui/` in this repository is one.
@@ -67,7 +78,7 @@ The usher is looked at and worked in a browser. The steward serves the face itse
 | --- | --- |
 | `index.html`, `door.js` | The door. It asks the steward which shell is active and opens it, and the usher's own while none is. |
 | `org.evoframework.usher.shell/` | The usher's shell, an evo `ui_shell`. It asks the steward what is stocked on which UI shelf and draws each stocking with the widget pack that provides its kind. It knows no plugin and no widget. |
-| `org.evoframework.usher.widgets/` | The usher's widgets, an evo `widget_kind_pack`: `usher.controller`, with which a controller is looked at and set; `usher.vouchers`, which lists the controller's vouchers, the valid and the expired apart, and revokes one; `usher.networks`, with which the wireless network vouchers are for is chosen; and `usher.reserve`, which counts the vouchers minted ahead and kept on the unit. |
+| `org.evoframework.usher.widgets/` | The usher's widgets, an evo `widget_kind_pack`: `usher.counter`, with which a guest is handed a voucher, shown large with the network it is for and what it gives; `usher.types`, with which the voucher types on offer are kept; `usher.controller`, with which a controller is looked at and set; `usher.vouchers`, which lists the controller's vouchers, the valid and the expired apart, assigns one for handing out and revokes one; `usher.networks`, with which the wireless network vouchers are for is chosen; and `usher.reserve`, which counts the vouchers assigned for handing out and held on the unit. |
 
 The steward admits the shell and the widget pack from the UI root as it admits any plugin. `evo-usher-steward` declares a UI shelf for each shelf of the catalogue that has a face, under that shelf's name and with the widget it is drawn with, so a plugin that stocks the catalogue shelf is on the screen and need declare nothing for it; one that stands there with more than that widget, or on the UI shelf of a second shelf it stocks, says so in its manifest. A steward started without a UI root has no face, and hands out vouchers all the same.
 
@@ -80,7 +91,7 @@ turn the listener on and name the UI root, which is also listed in the steward's
 
 Another shell goes into the UI root, in a directory under its own name, and is made the active one with the steward's `activate_ui_shell`, for which the steward asks a step-up. Every open screen then goes back through the door and into it. No plugin, nothing in the catalogue and nothing in the widget pack changes.
 
-A shell loads a widget pack as the module `index.js` in the pack's directory. The module exports `kinds`, the widget kinds it draws, and `mount(kind, element, context)`, which draws one into an element and returns what takes it away again. The context carries the stocking and the one way to the steward a widget has, `steward.request(shelf, request, payload)`, so a widget is the same under any shell that loads packs this way. The usher's shell loads the packs its `packs.json` names.
+A shell loads a widget pack as the module `index.js` in the pack's directory. The module exports `kinds`, the widget kinds it draws, and `mount(kind, element, context)`, which draws one into an element and returns what takes it away again. The context carries the stocking and the one way to the steward a widget has, `steward.request(shelf, request, payload)`, so a widget is the same under any shell that loads packs this way. The usher's shell loads the packs its `packs.json` names, and puts the UI shelves its `order.json` names first on the screen, the others after them in the steward's order.
 
 ### Who may ask
 

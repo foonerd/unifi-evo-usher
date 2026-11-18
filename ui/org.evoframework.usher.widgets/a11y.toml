@@ -10,6 +10,15 @@ keyboard = { focusable = true, interactions = [] }
 screen_reader = { announces = ["usher.controller.changed"] }
 motion = { animates = false, honours_prefers_reduced_motion = true }
 
+["usher.counter"]
+kind_id = "usher.counter"
+aria_role = "region"
+aria_label_source = "inner_text"
+contrast = "aaa"
+keyboard = { focusable = true, interactions = [] }
+screen_reader = { announces = ["usher.counter.changed"] }
+motion = { animates = false, honours_prefers_reduced_motion = true }
+
 ["usher.networks"]
 kind_id = "usher.networks"
 aria_role = "region"
@@ -26,6 +35,15 @@ aria_label_source = "inner_text"
 contrast = "aaa"
 keyboard = { focusable = true, interactions = [] }
 screen_reader = { announces = ["usher.reserve.changed"] }
+motion = { animates = false, honours_prefers_reduced_motion = true }
+
+["usher.types"]
+kind_id = "usher.types"
+aria_role = "region"
+aria_label_source = "inner_text"
+contrast = "aaa"
+keyboard = { focusable = true, interactions = [] }
+screen_reader = { announces = ["usher.types.changed"] }
 motion = { animates = false, honours_prefers_reduced_motion = true }
 
 ["usher.vouchers"]

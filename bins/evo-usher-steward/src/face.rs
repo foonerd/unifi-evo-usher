@@ -18,6 +18,12 @@ use evo_plugin_sdk::ui::{
     UiSize, WidgetKindEnvelope,
 };
 
+/// The widget a guest is handed a voucher with.
+pub const COUNTER: &str = "usher.counter";
+
+/// The widget the voucher types on offer are kept with.
+pub const TYPES: &str = "usher.types";
+
 /// The widget a controller is set and looked at with.
 pub const CONTROLLER: &str = "usher.controller";
 
@@ -63,6 +69,13 @@ fn shelf(
 /// The usher's UI shelves.
 pub fn shelves() -> Vec<ShelfContract> {
     vec![
+        // What is done most stands first: a guest is handed a voucher.
+        shelf(
+            "issue.counter",
+            "Hand out",
+            &[COUNTER, TYPES],
+            &[UiSize::Half, UiSize::Full],
+        ),
         shelf(
             "access.controller",
             "Controller",
@@ -134,7 +147,10 @@ mod tests {
             kinds().into_iter().map(|k| k.id).collect();
         declared.sort();
         assert_eq!(declared, provided);
-        assert_eq!(declared, [CONTROLLER, NETWORKS, RESERVE, VOUCHERS]);
+        assert_eq!(
+            declared,
+            [CONTROLLER, COUNTER, NETWORKS, RESERVE, TYPES, VOUCHERS]
+        );
     }
 
     /// The pack and the shell carry the workspace's version.

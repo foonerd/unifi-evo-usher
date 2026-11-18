@@ -14,6 +14,18 @@ use serde_json::{json, Value};
 
 const SHELL: &str = "org.evoframework.usher.shell";
 
+/// Press a button of the list of the controller's vouchers, by its
+/// label, once the list has it: the list is asked for afresh after every
+/// change, and the others on the page do not wait for it.
+fn press_listed(browser: &mut Browser, label: &str) {
+    let button = format!(
+        r#"widget("usher.vouchers").querySelector(`button[aria-label="${{{label}}}"]`)"#,
+        label = json!(label),
+    );
+    browser.wait(label, &format!("{button} !== null"));
+    browser.act(&format!("{button}.click();"));
+}
+
 #[test]
 fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
     let Some(mut browser) = Browser::open() else {
@@ -56,6 +68,8 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
     assert_eq!(
         opened["widgets"],
         json!([
+            "usher.counter",
+            "usher.types",
             "usher.controller",
             "usher.vouchers",
             "usher.networks",
@@ -66,7 +80,7 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
         opened["reserve"]
             .as_str()
             .unwrap()
-            .contains("Vouchers minted ahead are kept here"),
+            .contains("A voucher assigned for hand-out"),
         "what is no secret is shown before pairing: {opened}"
     );
 
@@ -312,7 +326,7 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
     // One is revoked from the screen, after the operator has said so
     // twice, and is gone from the controller.
     browser.act(
-        r#"widget("usher.vouchers").querySelector("tbody tr button").click();"#,
+        r#"widget("usher.vouchers").querySelector('tbody tr button[aria-label^="Revoke"]').click();"#,
     );
     assert_eq!(simulated.held(), 2, "asked once, nothing is revoked");
     browser.act(
@@ -324,11 +338,238 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
     );
     assert_eq!(simulated.held(), 1);
 
+    // A voucher type is kept from the screen: what it is called, how long
+    // a voucher of it lasts and what it is limited to. A rate is typed in
+    // megabits, with the comma many use for the point.
+    browser.wait(
+        "a counter with nothing on offer",
+        r#"widget("usher.counter").innerText.includes("No voucher type is on offer yet.")"#,
+    );
+    let keep = |name: &str,
+                lasts: &str,
+                unit: &str,
+                guests: &str,
+                megabytes: &str,
+                down: &str,
+                up: &str| {
+        format!(
+            r#"
+            const types = widget("usher.types");
+            const typed = {typed};
+            for (const [name, text] of Object.entries(typed)) {{
+              const field = types.querySelector(`[name="${{name}}"]`);
+              if (field.tagName === "SELECT") field.value = text;
+              else type(field, text);
+            }}
+            types.querySelector("form").requestSubmit();
+            "#,
+            typed = json!({
+                "name": name, "lasts": lasts, "unit": unit, "guests": guests,
+                "megabytes": megabytes, "down": down, "up": up,
+            }),
+        )
+    };
+    let offered = r#"[...widget("usher.counter").querySelectorAll("button.usher-type")].map((b) => b.innerText.split("\n"))"#;
+    browser.act(&keep(
+        " House Guests ",
+        "1",
+        "days",
+        "1",
+        "6000",
+        "7,2",
+        "1.2",
+    ));
+    browser.wait(
+        "the type on the counter",
+        r#"widget("usher.counter").querySelector("button.usher-type") !== null"#,
+    );
+    assert_eq!(
+        browser.look(&format!("return {offered};")),
+        json!([[
+            "House Guests",
+            "1 day; one guest; down 7.2 Mbit/s, up 1.2 Mbit/s, 6000 MB"
+        ]])
+    );
+
+    // What can be no type is said in words, and nothing is kept.
+    browser.act(&keep("Fast", "1", "days", "", "", "fast", ""));
+    browser.wait(
+        "the word on the rate",
+        r#"widget("usher.types").innerText.includes("Download: megabits per second, as 7.2")"#,
+    );
+    browser.act(&keep("Evening", "8", "hours", "", "", "", ""));
+    browser.wait(
+        "a second type",
+        r#"widget("usher.counter").querySelectorAll("button.usher-type").length === 2"#,
+    );
+    assert_eq!(
+        steward.ask("issue.counter", "types", json!({}))["types"],
+        json!([
+            {
+                "name": "House Guests", "minutes": 1440, "guests": 1,
+                "megabytes": 6000, "down_kbps": 7200, "up_kbps": 1200,
+            },
+            {
+                "name": "Evening", "minutes": 480, "guests": null,
+                "megabytes": null, "down_kbps": null, "up_kbps": null,
+            },
+        ])
+    );
+
+    // A type is dropped from the screen, and is off the counter.
+    browser.act(
+        r#"widget("usher.types").querySelector('button[aria-label="Drop Evening"]').click();"#,
+    );
+    browser.wait(
+        "one type again",
+        r#"widget("usher.counter").querySelectorAll("button.usher-type").length === 1"#,
+    );
+
+    // One press, one voucher: minted there and then, and shown with the
+    // network it is for and what it gives.
+    browser.act(r#"widget("usher.counter").querySelector("button.usher-type").click();"#);
+    browser.wait(
+        "the voucher",
+        r#"widget("usher.counter").querySelector(".usher-voucher") !== null"#,
+    );
+    let handed = browser.look(
+        r#"
+        const counter = widget("usher.counter");
+        return {
+          code: counter.querySelector(".usher-voucher").textContent,
+          given: [...counter.querySelectorAll("dd")].map((said) => said.textContent),
+        };
+        "#,
+    );
+    let code = handed["code"].as_str().unwrap().to_string();
+    assert_eq!(code.len(), 11, "ten digits in two fives: {code}");
+    assert_eq!(&code[5..6], "-", "{code}");
+    assert_eq!(
+        handed["given"],
+        json!([
+            "Guests",
+            "House Guests",
+            "1 day, from its first use",
+            "one guest",
+            "down 7.2 Mbit/s, up 1.2 Mbit/s, 6000 MB",
+            "the controller, minted now"
+        ])
+    );
+    assert_eq!(simulated.held(), 2, "one press, one voucher");
+
+    // The controller's list on the screen has it, unasked.
+    browser.wait(
+        "the list with the voucher handed out",
+        &format!(
+            r#"widget("usher.vouchers").innerText.includes({code}) && widget("usher.vouchers").innerText.includes("2 valid, 0 expired, on the controller.")"#,
+            code = json!(code),
+        ),
+    );
+
+    // A voucher the controller has already, and no guest has used, is
+    // assigned for handing out from the list. Its note names no type that
+    // is kept, so it brings its own, and the counter shows one held.
+    let made = steward.ask(
+        "access.controller",
+        "mint",
+        json!({
+            "site": simulated.site(), "note": "Walk-in", "minutes": 120,
+            "count": 2, "guests": 1,
+        }),
+    );
+    let walk_in: Vec<String> = made["vouchers"]
+        .as_array()
+        .expect("vouchers were minted")
+        .iter()
+        .map(|voucher| {
+            let code = voucher["code"].as_str().unwrap();
+            format!("{}-{}", &code[..5], &code[5..])
+        })
+        .collect();
+    let walk_in_button = r#"[...widget("usher.counter").querySelectorAll("button.usher-type")].find((b) => b.innerText.startsWith("Walk-in"))?.innerText.split("\n")[1]"#;
+    browser.act(
+        r#"[...widget("usher.vouchers").querySelectorAll("button")].find((b) => b.textContent === "Ask again").click();"#,
+    );
+    browser.wait(
+        "the vouchers made elsewhere",
+        r#"widget("usher.vouchers").innerText.includes("4 valid, 0 expired, on the controller.")"#,
+    );
+    press_listed(&mut browser, &format!("Assign {} for hand-out", walk_in[0]));
+    browser.wait(
+        "one held on the counter",
+        &format!(r#"{walk_in_button} === "2 hours; one guest; 1 held""#),
+    );
+    browser.wait(
+        "the list to say it is held",
+        &format!(
+            r#"[...widget("usher.vouchers").querySelectorAll("tbody tr")].find((row) => row.innerText.includes({code}))?.querySelectorAll("td")[1].textContent === "for hand-out""#,
+            code = json!(walk_in[0]),
+        ),
+    );
+    browser.wait(
+        "the count on the unit",
+        r#"widget("usher.reserve").innerText.includes("Walk-in")"#,
+    );
+    browser.wait(
+        "the type the voucher brought, among the types",
+        r#"widget("usher.types").querySelector("tbody").innerText.includes("Walk-in")"#,
+    );
+
+    // A second is assigned and taken back: it is not held.
+    press_listed(&mut browser, &format!("Assign {} for hand-out", walk_in[1]));
+    browser.wait(
+        "two held",
+        &format!(r#"{walk_in_button} === "2 hours; one guest; 2 held""#),
+    );
+    press_listed(&mut browser, &format!("Take {} back", walk_in[1]));
+    browser.wait(
+        "one held again",
+        &format!(r#"{walk_in_button} === "2 hours; one guest; 1 held""#),
+    );
+
+    // The one held goes first: the press hands out that very voucher,
+    // and the controller is asked for none.
+    browser.act(
+        r#"
+        [...widget("usher.counter").querySelectorAll("button")].find((b) => b.textContent === "Done").click();
+        [...widget("usher.counter").querySelectorAll("button.usher-type")].find((b) => b.innerText.startsWith("Walk-in")).click();
+        "#,
+    );
+    browser.wait(
+        "the voucher that was held",
+        &format!(
+            r#"widget("usher.counter").querySelector(".usher-voucher")?.textContent === {code}"#,
+            code = json!(walk_in[0]),
+        ),
+    );
+    assert_eq!(
+        browser.look(
+            r#"return [...widget("usher.counter").querySelectorAll("dd")].at(-1).textContent;"#
+        ),
+        "those held on this unit"
+    );
+    assert_eq!(simulated.held(), 4, "nothing was minted for it");
+    browser.wait(
+        "none held any more",
+        &format!(r#"{walk_in_button} === "2 hours; one guest""#),
+    );
+
     // For the eye: a picture of the face as it now stands, where one is
     // asked for.
     if let Some(to) = std::env::var_os("USHER_PICTURE") {
         browser.picture(std::path::Path::new(&to));
     }
+
+    // The voucher is taken off the screen when the guest has it.
+    browser.act(
+        r#"[...widget("usher.counter").querySelectorAll("button")].find((b) => b.textContent === "Done").click();"#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"return widget("usher.counter").querySelector(".usher-voucher");"#
+        ),
+        Value::Null
+    );
 
     // It is set in the steward, not only on the screen.
     let info = steward.ask("access.controller", "info", json!({}));

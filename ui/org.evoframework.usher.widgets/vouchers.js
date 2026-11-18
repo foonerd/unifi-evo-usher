@@ -2,9 +2,15 @@
 // site, the valid ones and the expired ones apart, each with its code,
 // what it gives and whether it has been used, and the means to revoke
 // it. What is shown is the controller's, asked for there and then.
+//
+// One that no guest has used can be assigned for handing out: the
+// counter then holds it for the voucher type its note names, and hands
+// it out before it has another minted.
 
 import { el, id, words } from "./dom.js";
+import { HELD_CHANGED, TYPES_KEPT, VOUCHER_HANDED } from "./events.js";
 import { CONTROLLER_SET } from "./networks.js";
+import { COUNTER, RESERVE } from "./shelves.js";
 
 /** The most vouchers of a kind that are put on the screen at once. */
 const SHOWN = 100;
@@ -91,6 +97,32 @@ export function vouchers(element, context) {
   let gone = false;
   /** The site looked at. @type {string | null} */
   let site = null;
+  /** The vouchers held for handing out: identifier, and the type held for. @type {Map<string, string>} */
+  let held = new Map();
+
+  /**
+   * What is held for handing out, as the reserve says; nothing where it
+   * does not say.
+   *
+   * @returns {Promise<Map<string, string>>}
+   */
+  const heldNow = async () => {
+    const byId = new Map();
+    try {
+      const said = await context.steward.request(RESERVE, "held", {});
+      for (const [type, vouchers] of Object.entries(said?.held ?? {})) {
+        for (const voucher of Array.isArray(vouchers) ? vouchers : []) {
+          byId.set(String(voucher?.id), type);
+        }
+      }
+    } catch (why) {
+      console.warn("vouchers: what is held for handing out:", why);
+    }
+    return byId;
+  };
+
+  /** The others on the page are told that what is held has changed. */
+  const heldChanged = () => document.dispatchEvent(new Event(HELD_CHANGED));
 
   /** @param {string} text @param {boolean} [trouble] */
   const say = (text, trouble = false) => {
@@ -106,41 +138,107 @@ export function vouchers(element, context) {
    */
   const row = (voucher) => {
     const code = written(voucher.code);
+    const isHeld = held.has(voucher.id);
     const option = el("td", {});
-    const offer = () => {
-      option.replaceChildren(
-        el(
+
+    /** Held for handing out, or given up again. */
+    const assigning = () => {
+      if (isHeld) {
+        return el(
           "button",
           {
             type: "button",
             class: "quiet",
-            "aria-label": `Revoke ${code}`,
-            onclick: () => {
-              option.replaceChildren(
-                el("span", {}, "Revoke? "),
-                el(
-                  "button",
-                  {
-                    type: "button",
-                    onclick: async () => {
-                      say(`Revoking ${code}.`);
-                      try {
-                        await ask("revoke", { site, id: voucher.id });
-                        await look(`${code} is revoked.`);
-                      } catch (why) {
-                        say(words(why), true);
-                        offer();
-                      }
-                    },
-                  },
-                  "Yes",
-                ),
-                " ",
-                el("button", { type: "button", class: "quiet", onclick: offer }, "No"),
-              );
+            "aria-label": `Take ${code} back`,
+            onclick: async () => {
+              try {
+                await context.steward.request(RESERVE, "release", { id: voucher.id });
+                heldChanged();
+                await look(`${code} is no longer for hand-out.`);
+              } catch (why) {
+                say(words(why), true);
+              }
             },
           },
-          "Revoke",
+          "Take back",
+        );
+      }
+      if (voucher.expired === true || standing(voucher) !== "not used yet") return null;
+      return el(
+        "button",
+        {
+          type: "button",
+          class: "quiet",
+          "aria-label": `Assign ${code} for hand-out`,
+          onclick: async () => {
+            say(`Assigning ${code}.`);
+            try {
+              const said = await context.steward.request(COUNTER, "assign", {
+                site,
+                id: voucher.id,
+              });
+              // The voucher may have brought its type with it.
+              document.dispatchEvent(new Event(TYPES_KEPT));
+              heldChanged();
+              await look(`${code} is assigned for hand-out, as ${said?.type?.name ?? "its type"}.`);
+            } catch (why) {
+              say(words(why), true);
+            }
+          },
+        },
+        "Assign",
+      );
+    };
+
+    const offer = () => {
+      option.replaceChildren(
+        el(
+          "div",
+          { class: "usher-options" },
+          ...[
+          assigning(),
+          el(
+            "button",
+            {
+              type: "button",
+              class: "quiet",
+              "aria-label": `Revoke ${code}`,
+              onclick: () => {
+                option.replaceChildren(
+                  el("span", {}, "Revoke? "),
+                  el(
+                    "button",
+                    {
+                      type: "button",
+                      onclick: async () => {
+                        say(`Revoking ${code}.`);
+                        try {
+                          await ask("revoke", { site, id: voucher.id });
+                          // Revoked, it lets nobody in: it is not left
+                          // to be handed out.
+                          if (isHeld) {
+                            await context.steward
+                              .request(RESERVE, "release", { id: voucher.id })
+                              .catch(() => {});
+                            heldChanged();
+                          }
+                          await look(`${code} is revoked.`);
+                        } catch (why) {
+                          say(words(why), true);
+                          offer();
+                        }
+                      },
+                    },
+                    "Yes",
+                  ),
+                  " ",
+                  el("button", { type: "button", class: "quiet", onclick: offer }, "No"),
+                );
+              },
+            },
+            "Revoke",
+          ),
+          ].filter((part) => part !== null),
         ),
       );
     };
@@ -149,7 +247,7 @@ export function vouchers(element, context) {
       "tr",
       {},
       el("td", { class: "usher-code" }, code),
-      el("td", {}, standing(voucher)),
+      el("td", {}, isHeld ? "for hand-out" : standing(voucher)),
       el("td", {}, at(voucher.created)),
       el("td", {}, lasts(voucher.minutes)),
       el("td", {}, limits(voucher)),
@@ -207,10 +305,51 @@ export function vouchers(element, context) {
         .sort((/** @type {any} */ a, /** @type {any} */ b) =>
           String(b.created ?? "").localeCompare(String(a.created ?? "")),
         );
+      held = await heldNow();
       if (gone) return;
       const valid = listed.filter((/** @type {any} */ voucher) => voucher.expired !== true);
       const expired = listed.filter((/** @type {any} */ voucher) => voucher.expired === true);
       const parts = [];
+      // A voucher held for handing out that the controller no longer has,
+      // or that has been used or has expired, would let no guest in. With
+      // one site, every voucher held is one of this listing.
+      const spent =
+        sites.length === 1
+          ? [...held.keys()].filter(
+              (heldId) =>
+                !valid.some(
+                  (/** @type {any} */ voucher) =>
+                    voucher.id === heldId && standing(voucher) === "not used yet",
+                ),
+            )
+          : [];
+      if (spent.length > 0) {
+        parts.push(
+          el(
+            "p",
+            { class: "usher-trouble" },
+            spent.length === 1
+              ? "One voucher assigned for hand-out is no longer good on the controller: revoked, used or expired. "
+              : `${spent.length} vouchers assigned for hand-out are no longer good on the controller: revoked, used or expired. `,
+            el(
+              "button",
+              {
+                type: "button",
+                onclick: async () => {
+                  for (const heldId of spent) {
+                    await context.steward
+                      .request(RESERVE, "release", { id: heldId })
+                      .catch((why) => say(words(why), true));
+                  }
+                  heldChanged();
+                  await look("They are no longer for hand-out.");
+                },
+              },
+              spent.length === 1 ? "Take it back" : "Take them back",
+            ),
+          ),
+        );
+      }
       if (sites.length > 1) {
         const choice = id("vouchers-site");
         parts.push(
@@ -265,13 +404,16 @@ export function vouchers(element, context) {
     ),
   );
 
+  // Another controller, other vouchers; a voucher handed out, one more.
   const again = () => look();
   document.addEventListener(CONTROLLER_SET, again);
+  document.addEventListener(VOUCHER_HANDED, again);
   look();
 
   return () => {
     gone = true;
     document.removeEventListener(CONTROLLER_SET, again);
+    document.removeEventListener(VOUCHER_HANDED, again);
     element.replaceChildren();
   };
 }

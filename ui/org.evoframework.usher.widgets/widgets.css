@@ -138,3 +138,58 @@
   min-height: var(--evo-touch, 3rem);
   padding: 0 0.75rem;
 }
+
+/* A cell that may run long, where the others do not wrap. */
+[data-widget^="usher."] td.usher-wraps {
+  white-space: normal;
+}
+
+/* A voucher type to press: its name, and under it what it gives. */
+.usher-type {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.125rem;
+  padding: 0.5rem 1.25rem;
+  text-align: left;
+}
+
+.usher-type span {
+  font-size: 0.9375rem;
+  font-weight: 400;
+}
+
+/* The voucher handed out: read from across a counter. */
+.usher-voucher {
+  font: 600 clamp(2rem, 8vw, 3.5rem) / 1.2 ui-monospace, monospace;
+  letter-spacing: 0.04em;
+  overflow-wrap: anywhere;
+}
+
+.usher-handed:not(:empty) {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--evo-rule, #6b6b6b);
+}
+
+/* The fields of a form, side by side where there is room. */
+.usher-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0 1rem;
+}
+
+.usher-field .usher-hint {
+  margin: 0.25rem 0 0;
+}
+
+.usher-field select {
+  width: 100%;
+}
+
+/* What can be done with a row: its buttons side by side. */
+.usher-options {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}

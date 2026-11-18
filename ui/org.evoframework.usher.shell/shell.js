@@ -149,6 +149,20 @@ async function loadPacks() {
   }
 }
 
+/** The shelves that stand first on the screen, as the shell's `order.json` names them. @type {string[]} */
+let first = [];
+
+/** Load the order of the shelves; with none, the steward's order stands. */
+async function loadOrder() {
+  try {
+    const listed = await fetch("order.json", { cache: "no-store" });
+    const named = listed.ok ? await listed.json() : [];
+    first = Array.isArray(named) ? named.filter((id) => typeof id === "string") : [];
+  } catch (why) {
+    console.warn("shell: the order of the shelves:", why);
+  }
+}
+
 /** @param {string} words @returns {HTMLElement} */
 function notice(words) {
   const said = document.createElement("p");
@@ -164,7 +178,7 @@ function notice(words) {
  * @param {any} snapshot the answer to `describe_ui_stockings`
  */
 function draw(snapshot) {
-  const shown = compose(snapshot);
+  const shown = compose(snapshot, first);
   const kept = new Set();
   const sections = [];
 
@@ -266,5 +280,6 @@ function lineIs(joined) {
 }
 
 await loadPacks();
+await loadOrder();
 await look();
 steward.watch(happened, lineIs);

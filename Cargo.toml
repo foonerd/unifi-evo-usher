@@ -8,11 +8,12 @@ members = [
     "bins/evo-usher-station",
     "bins/evo-usher-steward",
     "plugins/org.evoframework.usher.controller.unifi",
+    "plugins/org.evoframework.usher.counter",
     "plugins/org.evoframework.usher.stock",
 ]
 
 [workspace.package]
-version = "0.3.3"
+version = "0.3.4"
 edition = "2021"
 license = "MIT"
 publish = false
