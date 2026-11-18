@@ -1,0 +1,19 @@
+#!/bin/sh
+# After the files are gone. What the steward kept, /var/lib/evo, is the
+# operator's and stays, unless the package is purged: then it goes, the
+# configuration with it. The account stays, as the owner of nothing.
+set -e
+
+case "$1" in
+  remove)
+    if [ -d /run/systemd/system ]; then
+      systemctl daemon-reload || true
+    fi
+    ;;
+  purge)
+    rm -rf /var/lib/evo /etc/evo
+    if [ -d /run/systemd/system ]; then
+      systemctl daemon-reload || true
+    fi
+    ;;
+esac

@@ -1,0 +1,25 @@
+# The configuration of the usher's steward, read once when it starts.
+# What is not set here is as evo sets it; evo-core's CONFIG.md says what
+# can be set.
+
+[steward]
+# One of error, warn, info, debug, trace.
+log_level = "info"
+
+[catalogue]
+# What an usher is concerned with.
+path = "/opt/evo/catalogue/default.toml"
+
+[plugins]
+# The usher's shell, its widgets and its theme are in the UI root, and
+# are found nowhere else. The package installs them as it installs the
+# program, and they carry no signature of their own: they are admitted
+# unsigned, at the least trust evo gives.
+allow_unsigned = true
+search_roots = ["/opt/evo/ui"]
+bundled_roots = ["/opt/evo/ui"]
+
+[multiroom]
+# An usher is not announced to, and does not look for, the players of a
+# multi-room set.
+discovery_enabled = false

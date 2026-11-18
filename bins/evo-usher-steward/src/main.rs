@@ -1,11 +1,15 @@
 //! The usher's steward: the evo steward composed with the usher's plugin
 //! set. Everything the steward does is the framework's, through
 //! [`evo::run`]; this program adds only what makes it an usher: the UI
-//! shelves, and the plugins it admits.
+//! shelves, the plugins it admits, the name it answers `--version` with,
+//! and a pairing code where the unit was given none.
 
 #![forbid(unsafe_code)]
 
 mod face;
+mod pairing;
+
+use std::path::PathBuf;
 
 use clap::Parser as _;
 
@@ -16,9 +20,26 @@ use evo_usher_controller_unifi::ControllerPlugin;
 use evo_usher_counter::CounterPlugin;
 use evo_usher_stock::StockPlugin;
 
+/// The program's name.
+const PROGRAM: &str = "evo-usher-steward";
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // What the program is, is the usher's to say, as every program of
+    // the workspace says it. Every other argument is the steward's.
+    if std::env::args()
+        .skip(1)
+        .any(|argument| argument == "--version" || argument == "-V")
+    {
+        println!("{}", evo_usher_about::identity(PROGRAM));
+        return Ok(());
+    }
     let args = evo::cli::Args::parse();
+    // Asked for the usage or for a ledger, the program has ended by now:
+    // a code is made only for a steward that starts.
+    if args.command.is_none() {
+        pairing_code();
+    }
     // A caller on the LAN who presents nothing is given no more than one
     // from beyond it: what lets guests on to the network asks for a
     // bearer, wherever the asking comes from.
@@ -27,6 +48,31 @@ async fn main() -> anyhow::Result<()> {
             .with_lan_privilege(evo::LanPrivilege::Withheld),
     )
     .await
+}
+
+/// Make the code a first browser pairs on, where the unit is to take one
+/// from a file and the file is not there. Said on standard error, where
+/// the code is kept and never the code: the steward's own log is not
+/// open yet, and a service's journal keeps the line.
+fn pairing_code() {
+    let Some(path) = std::env::var_os(pairing::NAMED_BY).map(PathBuf::from)
+    else {
+        return;
+    };
+    match pairing::provide(&path) {
+        Ok(true) => eprintln!(
+            "{PROGRAM}: a pairing code was made for this start; it is \
+             kept in {}",
+            path.display()
+        ),
+        Ok(false) => {}
+        Err(e) => eprintln!(
+            "{PROGRAM}: no pairing code could be made in {}: {e}; a \
+             browser pairs on a code once that file holds one and the \
+             steward is started again",
+            path.display()
+        ),
+    }
 }
 
 /// What the steward admits, in order: the UI shelves; the shells and

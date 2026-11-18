@@ -9,6 +9,10 @@
 # architecture and static, and, on a machine of that architecture, each is
 # run and must name itself as this build: nothing is emulated, so a build
 # for another architecture is proven where it is built, not here.
+#
+# The steward stands on code written in C, which a static program is
+# built from with the C compiler for musl: the package musl-tools on
+# Debian and Ubuntu.
 set -euo pipefail
 ROOT=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
@@ -19,6 +23,9 @@ arch=${1:?an architecture: amd64 or arm64}
 triple=$(arch_triple "$arch") || { echo "build: '$arch' is not an architecture unifi-evo-usher is built for ($ARCHES)" >&2; exit 1; }
 version=$(workspace_version)
 commit=$(git rev-parse --short HEAD 2> /dev/null) || { echo "build: this is not a checkout with a commit; a build names the commit it is made from" >&2; exit 1; }
+
+cc=$(arch_musl_cc "$arch")
+command -v "$cc" > /dev/null || { echo "build: $cc is not on this machine; it builds what the steward has of C into a static program, and comes with the package musl-tools" >&2; exit 1; }
 
 echo "build: $arch ($triple), $version at $commit"
 packages=()
@@ -43,6 +50,8 @@ if [ "$(this_arch)" = "$arch" ]; then
     got=$("$out/bin/$program" --version)
     [ "$got" = "$want" ] || { echo "build: $program says '$got', the build is '$want'" >&2; exit 1; }
     echo "  ok    $got"
+    # The service starts when it is asked nothing, so it is not asked.
+    if [ "$program" = "$SERVICE" ]; then continue; fi
     # Anything else is refused: no output, the usage on standard error.
     set +e
     said=$("$out/bin/$program" 2> /dev/null)

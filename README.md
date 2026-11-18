@@ -6,7 +6,7 @@ What it is built to be: a core that holds the UniFi key, mints the vouchers on t
 
 ## Status
 
-0.3.7 stands on the evo steward and has a face. `evo-usher-steward` is the steward with the usher's catalogue and three plugins: the controller, which mints vouchers on a UniFi Network controller; the counter, which keeps the voucher types on offer and hands a guest a voucher of one of them, one assigned for handing out before one minted for the asking; and the stock, which holds the vouchers assigned. It serves the usher's face to a browser, in which a controller is looked at and set, its vouchers are listed, assigned for handing out and revoked, the wireless network vouchers are for is chosen, the voucher types are kept and a guest is handed a voucher. It is built and tested, and not yet in the archive, the packages or the image. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else.
+0.3.8 stands on the evo steward, has a face, and is installed as a service. `evo-usher-steward` is the steward with the usher's catalogue and three plugins: the controller, which mints vouchers on a UniFi Network controller; the counter, which keeps the voucher types on offer and hands a guest a voucher of one of them, one assigned for handing out before one minted for the asking; and the stock, which holds the vouchers assigned. It serves the usher's face to a browser, in which a controller is looked at and set, its vouchers are listed, assigned for handing out and revoked, the wireless network vouchers are for is chosen, the voucher types are kept and a guest is handed a voucher. It is in the archive, in a package of its own, which makes a machine a unit, and in the image; the package is proven on a machine made for it, where it is installed, started as a service, asked as a browser asks, started again and removed. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else.
 
 The controller plugin is written from Ubiquiti's published description of the UniFi Network API, version 11.0.97, and is held to a simulated controller written from the same description. It has been run from the usher's face against a UniFi Network application, version 11.0.99: the controller set, its version, its sites, its vouchers and its wireless networks read, a wireless network chosen, and vouchers assigned and handed out.
 
@@ -102,9 +102,51 @@ A shell loads a widget pack as the module `index.js` in the pack's directory. Th
 
 Every request that sets, reads or spends what lets guests on to the network asks for evo's `network_admin` capability, declared verb by verb in the plugins' manifests. Only how many vouchers are held is told to anyone.
 
-A browser comes by the capability by pairing. A unit without a screen of its own is given a pairing code before it is first started, in the file `EVO_PAIR_PRESEED_FILE` names; the shell asks for the code when the steward first refuses it, and the steward answers with a bearer, which the browser keeps. A code pairs one browser, once, and a wrong guess spends it until the unit is next started.
+A browser comes by the capability by pairing. A unit without a screen of its own takes a pairing code from the file `EVO_PAIR_PRESEED_FILE` names; the shell asks for the code when the steward first refuses it, and the steward answers with a bearer, which the browser keeps. A code pairs one browser, once, and a wrong guess spends it until the unit is next started.
 
-A caller on the same network who presents nothing is refused as one from beyond the network is. evo gives such a caller the capability by default, and the usher's steward withholds it. The listener is kept on the loopback address, as above.
+Where the file named is not there, the usher's steward makes a code of its own and writes it there, for its owner alone to read; a file that is there is the operator's, and is left as it is. The service names the file in a directory that is new whenever it starts, so a unit has a new code at every start, and one that was used or seen pairs nothing after the next.
+
+A caller on the same network who presents nothing is refused as one from beyond the network is. evo gives such a caller the capability by default, and the usher's steward withholds it; so a unit's face is on every address of the machine.
+
+## A unit
+
+A unit is a machine that runs the usher's steward as a service. The steward's package makes a machine with Debian, Ubuntu or Raspberry Pi OS one, on `amd64` and `arm64`:
+
+```sh
+sudo apt install ./evo-usher-steward_<version>_<arch>.deb
+```
+
+| On the unit | What it is |
+| --- | --- |
+| `/opt/evo/bin/evo-usher-steward` | The program. |
+| `/opt/evo/ui/` | The UI root: the face. |
+| `/opt/evo/catalogue/default.toml` | The usher's catalogue. |
+| `/etc/evo/evo.toml` | The steward's configuration. It is the operator's to change, and is kept when a newer package comes. |
+| `evo.service` | The service. It runs the steward as the account `evo`, which the package makes, from when the machine starts. |
+| `/var/lib/evo/` | What the steward keeps: the controller and its key, the voucher types, the vouchers held, the record of hand-outs, the browsers paired. It stays when the package is removed and goes when it is purged. |
+| `/run/evo/` | The steward's client socket and the pairing code, while the service runs. |
+
+The paths are evo's own defaults, and the service is evo-core's reference unit with what a distribution chooses: the program, the account, the face on port 8443 of every address, and protections of the usher's own on top of evo's. The steward runs without privilege, without a capability and without a device, sees the machine's files read-only apart from what it keeps, and its system calls are filtered. What is to differ on one unit, the address of the face for one, goes into a drop-in (`sudo systemctl edit evo`), which a newer package leaves alone.
+
+The face is at `https://<the unit>:8443/`. The steward's certificate is signed by an authority of its own, `/var/lib/evo/state/https/ca.crt`, and a browser that does not have it warns. The first browser is paired with the code the unit made when it started:
+
+```sh
+sudo cat /run/evo/pairing-code
+```
+
+For the next browser the service is started again (`sudo systemctl restart evo`), which makes a new code. A browser that is paired stays paired.
+
+The archive carries the same for a machine that takes no Debian package: the program under `bin/`, the UI root as `ui/`, `catalogue/usher.toml`, `etc/evo.toml`, `systemd/evo.service`, and `sysusers.d/evo.conf` for the account, each for the place the table names.
+
+The image is the same unit on an empty image, with no shell. The steward runs in it as the image's one account, `evo`, numbered 10001, and keeps what it keeps in a volume at `/var/lib/evo`:
+
+```sh
+docker run --publish 8443:8443 --volume usher:/var/lib/evo \
+  --volume "$PWD/pairing-code:/etc/evo/pairing-code:ro" \
+  ghcr.io/foonerd/unifi-evo-usher:<version>
+```
+
+A unit in a container is given its pairing code, as the file `/etc/evo/pairing-code`, which the account 10001 must be able to read: nobody could read one the steward made there. Without the file no browser pairs.
 
 ## Printers
 
@@ -160,11 +202,12 @@ A release is tagged `v<version>` and is published as a pre-release until it has 
 
 | File | What |
 | --- | --- |
-| `unifi-evo-usher-<version>-<arch>.tar.gz` | Both programs under `bin/`, with `build.json` (the version, the commit, the target, the compiler, and the digest and size of each program), `README.md`, `CHANGELOG.md`, `LICENSE` and `OFL-Inter.txt`. |
+| `unifi-evo-usher-<version>-<arch>.tar.gz` | Every program under `bin/`; what stands beside the steward on a unit; `build.json` (the version, the commit, the target, the compiler, and the digest and size of each program), `README.md`, `CHANGELOG.md`, `LICENSE`, `LICENSE-evo.txt` and `OFL-Inter.txt`. |
+| `evo-usher-steward_<version>_<arch>.deb` | The steward as a unit: the program, its face, its catalogue, its configuration and the service that runs it. |
 | `evo-usher-core_<version>_<arch>.deb` | The core, installed as `/opt/evo/bin/evo-usher-core`. |
 | `evo-usher-station_<version>_<arch>.deb` | The station, installed as `/opt/evo/bin/evo-usher-station`. |
 
-Beside them stand `SHA256SUMS` and its signature, `SHA256SUMS.sig`. The core is also published as an image for both architectures, `ghcr.io/foonerd/unifi-evo-usher:<version>`: the static program on an empty image.
+Beside them stand `SHA256SUMS` and its signature, `SHA256SUMS.sig`. The steward is also published as an image for both architectures, `ghcr.io/foonerd/unifi-evo-usher:<version>`: the unit as its package installs it, on an empty image.
 
 The programs are static. They depend on nothing the machine has or may lose, and the same file runs on a bare machine, from the package and in the image.
 
@@ -190,13 +233,26 @@ scripts/build.sh amd64
 scripts/package.sh amd64
 ```
 
-builds the programs for one architecture into `out/`, proves them static and, on a machine of that architecture, runs them; then packs what was built into `dist/`. The toolchain is the one `rust-toolchain.toml` names; `scripts/toolchain.sh` installs it where it is missing.
+builds the programs for one architecture into `out/`, proves them static and, on a machine of that architecture, runs them; then packs what was built into `dist/`. The toolchain is the one `rust-toolchain.toml` names; `scripts/toolchain.sh` installs it where it is missing. What the steward stands on is partly written in C, which a static program is built from with the C compiler for musl: the package `musl-tools` on Debian and Ubuntu.
+
+```text
+sudo scripts/prove-unit.sh dist/evo-usher-steward_<version>_<arch>.deb
+```
+
+proves the steward's package on a machine that is made for the proof and thrown away after it, as CI does on one of each architecture: it installs the package, has systemd start the service, asks the face as a browser asks it, pairs a browser with the code the unit made, starts the service again, and removes and purges the package. It refuses a machine that has evo already.
+
+```text
+scripts/image.sh --here
+scripts/try-image.sh
+```
+
+keeps the image for this machine's architecture, made from what was built into `out/`, and runs it: the unit as it is installed, in a container, at `https://127.0.0.1:8444/` unless another port is named.
 
 ```text
 scripts/try.sh
 ```
 
-builds the steward and runs it with its face on a directory of its own, on the loopback address, and says where to look: `https://127.0.0.1:8443/` unless another port is named. It is for looking at the face while working on it, not for installing a unit.
+builds the steward and runs it with its face on a directory of its own, on the loopback address, and says where to look: `https://127.0.0.1:8443/` unless another port is named. It runs the working tree, for looking at the face while working on it.
 
 ## UniFi
 
@@ -204,6 +260,8 @@ UniFi is a trademark of Ubiquiti Inc. unifi-evo-usher is an independent project:
 
 ## Licence
 
-MIT; see `LICENSE`.
+What is in this repository is under the MIT licence; see `LICENSE`.
+
+`evo-usher-steward` is built on the evo framework and contains it, and evo is not under the MIT licence. Its steward and runtime are under the Business Source License 1.1, with the terms of use its licensor grants: the `LICENSE` of [evo-core](https://github.com/foonerd/evo-core). That licence goes wherever the program goes: `packaging/licences/LICENSE-evo.txt` in this repository, `LICENSE-evo.txt` in an archive, in the steward's package and in the image.
 
 The station carries the typeface Inter, copyright the Inter Project Authors, under the SIL Open Font License 1.1: `crates/render/assets/fonts/OFL.txt` in this repository, `OFL-Inter.txt` in an archive and in the station's package.

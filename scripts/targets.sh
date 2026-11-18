@@ -13,13 +13,28 @@
 # shellcheck disable=SC2034  # read by the scripts that source this file
 ARCHES="amd64 arm64"
 # shellcheck disable=SC2034
-PROGRAMS="evo-usher-core evo-usher-station"
+PROGRAMS="evo-usher-core evo-usher-station evo-usher-steward"
+# The program that is a service: asked nothing, it starts.
+# shellcheck disable=SC2034
+SERVICE="evo-usher-steward"
 
 # The Rust target an architecture is built for.
 arch_triple() {
   case "$1" in
     amd64) echo "x86_64-unknown-linux-musl" ;;
     arm64) echo "aarch64-unknown-linux-musl" ;;
+    *)     return 1 ;;
+  esac
+}
+
+# The C compiler that builds for an architecture against musl. What the
+# steward stands on is partly written in C, and a static program is
+# built with this compiler; Debian and Ubuntu have it in the package
+# musl-tools, for the architecture of the machine.
+arch_musl_cc() {
+  case "$1" in
+    amd64) echo "x86_64-linux-musl-gcc" ;;
+    arm64) echo "aarch64-linux-musl-gcc" ;;
     *)     return 1 ;;
   esac
 }
@@ -57,6 +72,7 @@ program_summary() {
   case "$1" in
     evo-usher-core)    echo "unifi-evo-usher core: mints, stocks and accounts for UniFi guest vouchers" ;;
     evo-usher-station) echo "unifi-evo-usher station: hands a guest a voucher, on a screen or a label" ;;
+    evo-usher-steward) echo "unifi-evo-usher steward: guest Wi-Fi vouchers for UniFi sites, as a service with its face" ;;
     *)                 return 1 ;;
   esac
 }

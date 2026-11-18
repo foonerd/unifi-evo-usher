@@ -1,0 +1,13 @@
+#!/bin/sh
+# Before the files go: the steward is stopped, and where the package is
+# removed and not replaced by a newer one, it is no longer started with
+# the machine.
+set -e
+
+case "$1" in
+  remove | deconfigure)
+    if [ -d /run/systemd/system ]; then
+      systemctl disable --now evo.service || true
+    fi
+    ;;
+esac

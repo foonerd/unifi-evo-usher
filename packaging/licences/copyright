@@ -1,0 +1,22 @@
+unifi-evo-usher
+https://github.com/foonerd/unifi-evo-usher
+
+evo-usher-steward is the evo steward with the usher's plugins compiled
+in. The usher's face, its catalogue and its configuration stand beside
+it.
+
+The usher's own code, its catalogue and its face are under the MIT
+licence, which follows.
+
+The evo framework, which the program contains, is not. Its steward and
+runtime are under the Business Source License 1.1, with the terms of use
+its licensor grants: that licence is LICENSE-evo.txt, beside this file.
+The framework's source, and the licences of the parts of it that are
+under another, are at https://github.com/foonerd/evo-core.
+
+The program also contains libraries of other authors, each under its own
+licence. Cargo.lock in the usher's repository names every one, with its
+version.
+
+----------------------------------------------------------------------
+

@@ -2,6 +2,17 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## [0.3.8] - 2026-11-18
+
+- The steward is installed and started as a service. `evo-usher-steward_<version>_<arch>.deb` makes a machine a unit: the program, the usher's face and its catalogue under `/opt/evo`, the configuration as `/etc/evo/evo.toml`, and `evo.service`, which runs the steward as an account of its own, `evo`, from when the machine starts. The paths are evo's defaults and the service is evo's reference unit, with the usher's choices: the face on port 8443 of every address, and a steward without privilege, capability or device, its system calls filtered
+- `scripts/prove-unit.sh` proves the package on a machine made for it: installed, started by systemd, the face asked as a browser asks it, a browser paired, the service started again, the package removed and purged. CI runs it on every push, for both architectures
+- A unit that was given no pairing code makes one. Where the file `EVO_PAIR_PRESEED_FILE` names is not there, the steward writes a code of its own to it, for its owner alone to read. The service names the file in `/run/evo`, which is new at every start: so is the code, and one that was used or seen pairs nothing after the next start
+- The archive carries the steward and what stands beside it on a unit: the UI root, the catalogue, the configuration, the service and the account
+- The image is the steward: the unit as the package installs it, on an empty image, run as the account 10001, with what it keeps in a volume at `/var/lib/evo`. It was the core, which does nothing yet. `scripts/image.sh --here` keeps the image for this machine, and `scripts/try-image.sh` runs it
+- `evo-usher-steward --version` names the build of the usher, as every program of the usher does; it named the evo it stands on
+- The steward contains the evo framework, whose steward and runtime are under the Business Source License 1.1. evo's licence goes wherever the steward goes, as `LICENSE-evo.txt`: in the archive, in the steward's package and in the image, which says so in its label. A test holds the text to the evo the usher is built on
+- The programs are built with the C compiler for musl, the package `musl-tools`: what the steward stands on is partly written in C
+
 ## [0.3.7] - 2026-11-18
 
 - A voucher handed out for a wireless network that is joined without a passphrase comes with the symbol a phone joins that network from. `hand` answers `join`: the join text, and the QR symbol that carries it, made by the crate that draws the voucher label. The counter draws the symbol beside the code

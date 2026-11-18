@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 evo = { workspace = true }
 evo-plugin-sdk = { workspace = true }
+evo-usher-about = { path = "../../crates/about" }
 evo-usher-controller-unifi = { path = "../../plugins/org.evoframework.usher.controller.unifi" }
 evo-usher-counter = { path = "../../plugins/org.evoframework.usher.counter" }
 evo-usher-stock = { path = "../../plugins/org.evoframework.usher.stock" }

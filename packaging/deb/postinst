@@ -1,0 +1,29 @@
+#!/bin/sh
+# After the files are in place: the account the steward runs as, and the
+# service known to the machine, set to start with it, and started.
+set -e
+
+case "$1" in
+  configure)
+    if command -v systemd-sysusers > /dev/null 2>&1; then
+      systemd-sysusers evo-usher-steward.conf
+    elif ! getent passwd evo > /dev/null; then
+      adduser --system --group --no-create-home --home /var/lib/evo \
+        --gecos "evo steward" evo
+    fi
+    # Only where systemd runs the machine. A package installed into an
+    # image that is being built is started when the image is.
+    if [ -d /run/systemd/system ]; then
+      systemctl daemon-reload
+      if [ -z "$2" ]; then
+        # A first installation.
+        systemctl enable --now evo.service
+      else
+        # A newer package: the steward that runs is the old program.
+        systemctl try-restart evo.service
+      fi
+    elif [ -z "$2" ] && command -v systemctl > /dev/null 2>&1; then
+      systemctl enable evo.service > /dev/null 2>&1 || true
+    fi
+    ;;
+esac

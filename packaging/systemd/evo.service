@@ -1,0 +1,84 @@
+# The usher's steward as a service. The shape is evo's: the name of the
+# unit, the three directories and the first block of protections are
+# those evo-core's reference unit carries. What a distribution chooses is
+# chosen here: the program, the account it runs as, the listener, and the
+# protections under the second heading.
+#
+# What is to differ on one machine goes into a drop-in
+# (`systemctl edit evo`), which a newer package leaves alone.
+
+[Unit]
+Description=unifi-evo-usher: the evo steward with the usher's plugins
+Documentation=https://github.com/foonerd/unifi-evo-usher
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/evo/bin/evo-usher-steward
+
+# The account the package makes for it. It owns what the steward keeps
+# and nothing else.
+User=evo
+Group=evo
+
+# The face, to every browser that reaches the machine. A caller who
+# presents nothing is refused what lets guests on; a browser comes by it
+# by pairing. For a machine that is its own screen:
+# EVO_HTTPS_LISTEN_ADDR=127.0.0.1:8443
+Environment=EVO_HTTPS_LISTEN_ADDR=0.0.0.0:8443
+Environment=EVO_HTTPS_STATIC_DIR=/opt/evo/ui
+
+# The code a first browser pairs on. The steward makes one where the
+# file is not there, and the directory is new at every start: so is the
+# code. It is read with `sudo cat /run/evo/pairing-code`.
+Environment=EVO_PAIR_PRESEED_FILE=/run/evo/pairing-code
+
+Restart=on-failure
+RestartSec=5s
+
+# Stopping is the steward's to drive: it alone is told, and what it
+# started is ended with it only when the time is up.
+KillMode=mixed
+TimeoutStopSec=30s
+
+# /run/evo for the client socket, /var/lib/evo for what the steward
+# keeps, /etc/evo for its configuration, which it only reads.
+RuntimeDirectory=evo
+RuntimeDirectoryMode=0755
+StateDirectory=evo
+StateDirectoryMode=0750
+ConfigurationDirectory=evo
+ConfigurationDirectoryMode=0755
+UMask=0077
+
+# evo-core's tested baseline.
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+
+# The usher's own: a steward that hands out vouchers needs no privilege,
+# no device, and no more of the kernel than a network service does.
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateDevices=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictRealtime=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

@@ -114,6 +114,26 @@ impl Steward {
 
     /// Start the steward on `dir`, with its UI root or with none.
     pub fn start_with(dir: &Path, face: bool) -> Self {
+        let code = dir.join("pairing-code");
+        if !code.exists() {
+            fs::write(&code, PAIRING_CODE).unwrap();
+        }
+        Self::start_as_found(dir, face)
+    }
+
+    /// Start the steward on `dir` as an installed unit is started: given
+    /// no pairing code, only the name of the file it takes one from.
+    pub fn start_given_no_code(dir: &Path) -> Self {
+        Self::start_as_found(dir, true)
+    }
+
+    /// The pairing code the unit has, as its operator reads it.
+    pub fn pairing_code(&self) -> String {
+        fs::read_to_string(self.dir.join("pairing-code")).unwrap()
+    }
+
+    /// Start the steward on `dir` and on whatever pairing code is there.
+    fn start_as_found(dir: &Path, face: bool) -> Self {
         let socket = dir.join("evo.sock");
         let config = dir.join("evo.toml");
         let catalogue =
@@ -176,9 +196,6 @@ discovery_enabled = false
         .unwrap();
         fs::create_dir_all(dir.join("state")).unwrap();
         let code = dir.join("pairing-code");
-        if !code.exists() {
-            fs::write(&code, PAIRING_CODE).unwrap();
-        }
         let port = free_port();
         let mut command = Command::new(env!("CARGO_BIN_EXE_evo-usher-steward"));
         command
