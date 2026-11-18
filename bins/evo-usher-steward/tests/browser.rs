@@ -457,13 +457,27 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
     );
     assert_eq!(simulated.held(), 2, "one press, one voucher");
 
-    // The controller's list on the screen has it, unasked.
+    // The controller's list on the screen has it, unasked, as handed
+    // out: it is that guest's, and is not offered for handing out again.
+    let row_of = |code: &str| {
+        format!(
+            r#"[...widget("usher.vouchers").querySelectorAll("tbody tr")].find((row) => row.innerText.includes({code}))"#,
+            code = json!(code),
+        )
+    };
     browser.wait(
         "the list with the voucher handed out",
         &format!(
-            r#"widget("usher.vouchers").innerText.includes({code}) && widget("usher.vouchers").innerText.includes("2 valid, 0 expired, on the controller.")"#,
-            code = json!(code),
+            r#"widget("usher.vouchers").innerText.includes("2 valid, 0 expired, on the controller.") && {row}?.querySelectorAll("td")[1].textContent.startsWith("handed out")"#,
+            row = row_of(&code),
         ),
+    );
+    assert_eq!(
+        browser.look(&format!(
+            r#"return [...{row}.querySelectorAll("button")].map((b) => b.textContent);"#,
+            row = row_of(&code),
+        )),
+        json!(["Revoke"])
     );
 
     // A voucher the controller has already, and no guest has used, is
@@ -549,6 +563,13 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
         "those held on this unit"
     );
     assert_eq!(simulated.held(), 4, "nothing was minted for it");
+    browser.wait(
+        "the list to say it was handed out",
+        &format!(
+            r#"{row}?.querySelectorAll("td")[1].textContent.startsWith("handed out")"#,
+            row = row_of(&walk_in[0]),
+        ),
+    );
     browser.wait(
         "none held any more",
         &format!(r#"{walk_in_button} === "2 hours; one guest""#),

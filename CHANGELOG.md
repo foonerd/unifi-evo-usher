@@ -2,6 +2,12 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## [0.3.5] - 2026-11-18
+
+- The counter writes every voucher it hands out down: which, of which type, when, and whether it was held or minted for the asking. `issue.counter` takes `handed`, which tells the hand-outs of the vouchers asked about, or the newest hundred; `hand` says when; `assign` refuses a voucher that was handed out here. The record is kept through a restart
+- The list of the controller's vouchers shows a voucher handed out as handed out, with the moment, until its guest uses it, and does not offer it for handing out
+- The list shows the answer to what was asked for last, where it is asked for from several places at once
+
 ## [0.3.4] - 2026-11-18
 
 - A caller on the same network who presents nothing is refused what lets guests on, as a caller from beyond the network is. The steward withholds the privilege evo otherwise gives a caller on the LAN; pairing is still open to one, and a paired browser is answered. How many vouchers are held is still told to anyone

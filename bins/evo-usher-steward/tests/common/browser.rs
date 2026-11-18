@@ -335,7 +335,7 @@ impl Browser {
             if Instant::now() > until {
                 let page = self
                     .once(
-                        "return document.body?.innerText.slice(0, 800)",
+                        "return document.body?.innerText.slice(0, 8000)",
                         PATIENCE,
                     )
                     .unwrap_or(Value::Null);

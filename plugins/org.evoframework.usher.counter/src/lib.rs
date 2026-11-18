@@ -10,7 +10,10 @@
 //! held and `access.controller` to mint, and knows nothing of the plugins
 //! that stock them.
 //!
-//! It answers five requests, each with a JSON payload:
+//! Every voucher it hands out it writes down: which, of which type,
+//! when, and whether it was held or minted.
+//!
+//! It answers six requests, each with a JSON payload:
 //!
 //! - `types`: answers `{"types": [type]}`, a type being `{"name",
 //!   "minutes", "guests", "megabytes", "down_kbps", "up_kbps"}` with null
@@ -20,17 +23,23 @@
 //!   `{"type": type}`.
 //! - `drop_type`: `{"name": "..."}` answers `{"dropped": bool}`.
 //! - `hand`: `{"type": "..."}` answers `{"voucher": {"id", "code"},
-//!   "type": type, "network": "...", "held": bool}`: the voucher, the
-//!   terms of its type, the name of the wireless network it is for, and
-//!   whether it was held or minted for the asking.
+//!   "type": type, "network": "...", "held": bool, "at": n}`: the
+//!   voucher, the terms of its type, the name of the wireless network it
+//!   is for, whether it was held or minted for the asking, and when it
+//!   was handed out, in seconds since 1970.
 //! - `assign`: `{"site": "...", "id": "..."}` assigns a voucher the
 //!   controller has, and that no guest has used, for handing out: it is
 //!   held for the type its note names, which is kept on the voucher's
 //!   terms where no type of that name is. Answers `{"type": type}`.
+//! - `handed`: `{"ids": ["..."]}` answers `{"handed": [{"id", "type",
+//!   "at", "held"}]}`: the hand-out of each of those vouchers that was
+//!   handed out here; with no `ids`, the newest hundred, the newest
+//!   first.
 
 #![forbid(unsafe_code)]
 
 mod counter;
+mod handed;
 mod types;
 
 use std::future::Future;
@@ -47,14 +56,15 @@ use serde_json::Value;
 pub use counter::{
     Asked, Counter, Refusal, Shelves, CONTROLLER, NETWORKS, RESERVE,
 };
+pub use handed::{HandOut, Handed, MOST_HANDED};
 pub use types::{Types, VoucherType, LONGEST_NAME, MOST};
 
 /// The plugin's name, as its manifest has it.
 pub const NAME: &str = "org.evoframework.usher.counter";
 
 /// The requests the plugin takes.
-pub const REQUESTS: [&str; 5] =
-    ["types", "put_type", "drop_type", "hand", "assign"];
+pub const REQUESTS: [&str; 6] =
+    ["types", "put_type", "drop_type", "hand", "assign", "handed"];
 
 /// The plugin's manifest.
 pub const MANIFEST_TOML: &str = include_str!("../manifest.toml");

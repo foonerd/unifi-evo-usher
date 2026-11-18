@@ -181,6 +181,7 @@ fn what_lets_guests_on_is_asked_only_with_a_credential() {
         ("issue.counter", "drop_type"),
         ("issue.counter", "hand"),
         ("issue.counter", "assign"),
+        ("issue.counter", "handed"),
     ] {
         let refused = steward.ask_as(&beyond, shelf, request, json!({}));
         assert_eq!(
@@ -280,6 +281,7 @@ fn a_caller_on_the_lan_is_asked_for_a_credential_too() {
             ("issue.counter", "drop_type"),
             ("issue.counter", "hand"),
             ("issue.counter", "assign"),
+            ("issue.counter", "handed"),
         ] {
             let (status, refused) = steward.op(
                 "request",

@@ -3,7 +3,7 @@ name = "org.evoframework.usher.controller.unifi"
 # The crate's version, which is the workspace's. The steward refuses a
 # plugin that says another version than its manifest; a test holds the two
 # together.
-version = "0.3.4"
+version = "0.3.5"
 contract = 1
 
 # Two shelves from the one line to the controller: minting on it, and

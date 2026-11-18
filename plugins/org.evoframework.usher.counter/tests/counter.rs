@@ -132,6 +132,24 @@ async fn ask(
         .await
 }
 
+/// An answer to `hand` without the moment it was given, which is the
+/// clock's; that there is one is held here.
+fn without_when(mut handed: Value) -> Value {
+    let at = handed.as_object_mut().unwrap().remove("at");
+    assert!(
+        at.as_ref().and_then(Value::as_u64).is_some_and(|at| at > 0),
+        "{at:?}"
+    );
+    handed
+}
+
+fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
+
 fn pairs(asked: &[(&str, &str)]) -> Vec<(String, String)> {
     asked
         .iter()
@@ -222,7 +240,7 @@ async fn with_none_held_a_voucher_is_minted_on_the_terms_of_its_type() {
         .await
         .unwrap();
     assert_eq!(
-        handed,
+        without_when(handed),
         json!({
             "voucher": { "id": "v-1", "code": "0123456789" },
             "type": house_guests(),
@@ -324,9 +342,11 @@ async fn a_voucher_assigned_is_held_for_its_type_and_goes_first() {
     // What is held goes first, the oldest first, and nothing is minted.
     for (id, code) in [("old-1", "1111111111"), ("old-2", "2222222222")] {
         assert_eq!(
-            ask(&counter, "hand", json!({ "type": "House guests" }))
-                .await
-                .unwrap(),
+            without_when(
+                ask(&counter, "hand", json!({ "type": "House guests" }))
+                    .await
+                    .unwrap()
+            ),
             json!({
                 "voucher": { "id": id, "code": code },
                 "type": house_guests(),
@@ -472,4 +492,85 @@ async fn what_the_minting_shelf_refuses_is_refused_as_it_was() {
             "{minted}: {said:?}"
         );
     }
+}
+
+#[tokio::test]
+async fn every_hand_out_is_written_down_and_its_voucher_not_assigned() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut stand = Stand::working();
+    stand.listed =
+        json!([listed("old-1", "1111111111"), listed("v-1", "0123456789")]);
+    let stand = Arc::new(stand);
+    let counter = Counter::open(dir.path(), Some(stand.clone())).unwrap();
+    assert_eq!(
+        ask(&counter, "handed", json!({})).await.unwrap(),
+        json!({ "handed": [] })
+    );
+
+    // One held and one minted are handed out.
+    let before = now();
+    ask(
+        &counter,
+        "assign",
+        json!({ "site": "site-1", "id": "old-1" }),
+    )
+    .await
+    .unwrap();
+    for held in [true, false] {
+        let handed = ask(&counter, "hand", json!({ "type": "House guests" }))
+            .await
+            .unwrap();
+        assert_eq!(handed["held"], held, "{handed}");
+    }
+    let after = now();
+
+    // Each is written down: asked about by its voucher, in the order
+    // asked, and nothing is said of a voucher that was not handed out.
+    let told = ask(
+        &counter,
+        "handed",
+        json!({ "ids": ["v-1", "no-such", "old-1"] }),
+    )
+    .await
+    .unwrap();
+    let told = told["handed"].as_array().unwrap();
+    assert_eq!(told.len(), 2, "{told:?}");
+    for (hand_out, id, held) in
+        [(&told[0], "v-1", false), (&told[1], "old-1", true)]
+    {
+        assert_eq!(hand_out["id"], id);
+        assert_eq!(hand_out["type"], "House guests");
+        assert_eq!(hand_out["held"], held);
+        let at = hand_out["at"].as_u64().unwrap();
+        assert!((before..=after).contains(&at), "{at}");
+    }
+
+    // Asked about none in particular: the newest first.
+    let newest = ask(&counter, "handed", json!({})).await.unwrap();
+    let newest: Vec<&str> = newest["handed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|hand_out| hand_out["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(newest, ["v-1", "old-1"]);
+
+    // A voucher a guest was handed is not assigned, held before or
+    // minted.
+    for id in ["v-1", "old-1"] {
+        let refused =
+            ask(&counter, "assign", json!({ "site": "site-1", "id": id }))
+                .await;
+        assert!(
+            matches!(&refused, Err(Refusal::AsAsked(why)) if why.contains("handed out here before")),
+            "{id}: {refused:?}"
+        );
+    }
+
+    // The record is there when the plugin is started again.
+    let again = Counter::open(dir.path(), None).unwrap();
+    let kept = ask(&again, "handed", json!({ "ids": ["old-1"] }))
+        .await
+        .unwrap();
+    assert_eq!(kept["handed"][0]["id"], "old-1", "{kept}");
 }

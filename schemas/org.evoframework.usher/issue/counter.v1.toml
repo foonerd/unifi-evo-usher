@@ -19,6 +19,12 @@ goes first: it is held for its type on the shelf `stock.reserve`. With
 none held, one is minted for the asking on the shelf
 `access.controller`. The counter asks those shelves as any caller does.
 
+Every voucher handed out is written down: which, of which type, when,
+and whether it was held or minted. A hand-out is `{ id: string, type:
+string, at: integer, held: bool }`, `at` in seconds since
+1970-01-01T00:00:00Z. The record is kept through a restart, and keeps
+the newest ten thousand.
+
 A type is `{ name: string, minutes: integer, guests: integer | null,
 megabytes: integer | null, down_kbps: integer | null, up_kbps: integer |
 null }`: its name, which is also the note its vouchers carry on the
@@ -71,10 +77,10 @@ request_type = "hand"
 description = """
 Hand out one voucher of a type. Payload `{ type: string }`, the type by
 its name. Returns `{ voucher: { id: string, code: string }, type: type,
-network: string, held: bool }`: the voucher, by the controller's
-identifier of it and the code a guest types; the terms of its type; the
-name of the wireless network it is for; and whether it was held for the
-type or minted for the asking.
+network: string, held: bool, at: integer }`: the voucher, by the
+controller's identifier of it and the code a guest types; the terms of
+its type; the name of the wireless network it is for; whether it was
+held for the type or minted for the asking; and when it was handed out.
 
 A voucher held for the type is handed out before one is minted, the
 oldest first, and is handed out while the controller is away. Where the
@@ -102,6 +108,18 @@ Refused as permanent for a voucher the controller does not have on that
 site, one that has expired, one a guest has used, one with no note, one
 of which the controller does not say how long it lasts, and one that is
 held already or was handed out here before.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "handed"
+description = """
+What was handed out here. Payload `{ ids: [string] }`, the vouchers
+asked about by the controller's identifiers of them; optional. Returns
+`{ handed: [hand-out] }`: with `ids`, the hand-out of each of those
+vouchers that was handed out here, in the order asked; with none, the
+newest hundred hand-outs, the newest first.
 """
 payload_in = "json"
 payload_out = "json"
@@ -166,4 +184,20 @@ detail = """
 `assign` of a voucher that has expired, that a guest has used, that the
 controller does not have, or whose terms are not those of the kept type
 its note names, is refused as permanent and holds nothing.
+"""
+
+[[acceptance]]
+name = "a-hand-out-is-written-down"
+detail = """
+After `hand` returned a voucher, `handed` with its identifier returns
+its hand-out, with the type it was handed out as and whether it was
+held, and does so after a restart of the plugin. `handed` with the
+identifier of a voucher that was not handed out here returns none.
+"""
+
+[[acceptance]]
+name = "a-voucher-handed-out-is-not-assigned"
+detail = """
+`assign` of a voucher that `hand` returned, held or minted, is refused
+as permanent.
 """

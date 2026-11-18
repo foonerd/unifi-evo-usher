@@ -247,6 +247,18 @@ fn a_guest_is_handed_a_voucher_minted_for_the_asking() {
     assert_eq!(listed[0]["down_kbps"], 7200);
     assert_eq!(listed[0]["up_kbps"], 1200);
 
+    // The hand-out is written down: which voucher, as which type, when,
+    // and that it was minted for the asking.
+    let asked_about = json!({ "ids": [handed["voucher"]["id"]] });
+    let written = steward.ask("issue.counter", "handed", asked_about.clone());
+    assert_eq!(
+        written["handed"][0]["id"], handed["voucher"]["id"],
+        "{written}"
+    );
+    assert_eq!(written["handed"][0]["type"], "Day guest");
+    assert_eq!(written["handed"][0]["held"], false);
+    assert_eq!(written["handed"][0]["at"], handed["at"]);
+
     // What the controller would refuse is said in the controller
     // plugin's words, and a type that is not kept in the counter's.
     steward.ask(
@@ -273,6 +285,11 @@ fn a_guest_is_handed_a_voucher_minted_for_the_asking() {
     let steward = Steward::start(dir.path());
     let types = steward.ask("issue.counter", "types", json!({}));
     assert_eq!(types["types"][0], day, "{types}");
+    assert_eq!(
+        steward.ask("issue.counter", "handed", asked_about),
+        written,
+        "the record is kept"
+    );
     let again = hand(&steward, "Day guest");
     assert_ne!(
         again["voucher"]["code"], handed["voucher"]["code"],

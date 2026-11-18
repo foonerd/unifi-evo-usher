@@ -7,12 +7,17 @@ use std::io;
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::handed::{HandOut, Handed};
 use crate::types::{Types, VoucherType, MOST};
+
+/// The most hand-outs told where none is asked for by its voucher.
+const NEWEST: usize = 100;
 
 /// The shelf asked for the wireless network vouchers are for.
 pub const NETWORKS: &str = "networks.directory";
@@ -61,7 +66,7 @@ struct Network {
 /// tells it; the rest of what there is to say of it is the type's, which
 /// the counter has.
 #[derive(Debug, Deserialize)]
-struct Handed {
+struct Given {
     id: String,
     code: String,
 }
@@ -112,6 +117,13 @@ struct Assigning {
     id: String,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Looking {
+    #[serde(default)]
+    ids: Option<Vec<String>>,
+}
+
 fn asked<T: DeserializeOwned>(payload: &[u8]) -> Result<T, Refusal> {
     serde_json::from_slice(payload).map_err(|e| {
         Refusal::AsAsked(format!("not what this request takes: {e}"))
@@ -126,6 +138,7 @@ fn unkept(e: io::Error) -> Refusal {
 /// shelves.
 pub struct Counter {
     types: Mutex<Types>,
+    handed: Mutex<Handed>,
     shelves: Option<Arc<dyn Shelves>>,
 }
 
@@ -133,22 +146,61 @@ impl fmt::Debug for Counter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Counter")
             .field("types", &self.types)
+            .field("handed", &self.handed)
             .field("shelves", &self.shelves.is_some())
             .finish()
     }
 }
 
 impl Counter {
-    /// Open the counter on the types kept in `state`. With no shelves to
-    /// ask, the types are kept and told, and no voucher is handed out.
+    /// Open the counter on the types and the record of hand-outs kept in
+    /// `state`. With no shelves to ask, the types are kept and told, and
+    /// no voucher is handed out.
     pub fn open(
         state: &Path,
         shelves: Option<Arc<dyn Shelves>>,
     ) -> io::Result<Self> {
+        let handed = Handed::open(state)?;
+        if handed.unread() > 0 {
+            tracing::warn!(
+                lines = handed.unread(),
+                "lines of the record of hand-outs were no hand-out, and \
+                 were let go"
+            );
+        }
         Ok(Self {
             types: Mutex::new(Types::open(state)?),
+            handed: Mutex::new(handed),
             shelves,
         })
+    }
+
+    /// Write a hand-out down, and say when it was. The guest has the
+    /// voucher whether it is written down or not, so a record that
+    /// cannot be written is said in the log and holds nothing up.
+    fn note(&self, id: &str, kind: &str, held: bool) -> u64 {
+        let at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|since| since.as_secs())
+            .unwrap_or(0);
+        let hand_out = HandOut {
+            id: id.to_string(),
+            kind: kind.to_string(),
+            at,
+            held,
+        };
+        if let Err(e) = self
+            .handed
+            .lock()
+            .expect("the record's lock")
+            .record(hand_out)
+        {
+            tracing::error!(
+                voucher = id,
+                "a voucher was handed out and could not be written down: {e}"
+            );
+        }
+        at
     }
 
     /// Answer one request of the shelf.
@@ -192,6 +244,17 @@ impl Counter {
             "assign" => {
                 let assigning: Assigning = asked(payload)?;
                 self.assign(&assigning.site, &assigning.id).await
+            }
+            "handed" => {
+                let looking: Looking = asked(payload)?;
+                let handed = self.handed.lock().expect("the record's lock");
+                let told: Vec<&HandOut> = match &looking.ids {
+                    Some(ids) => {
+                        ids.iter().filter_map(|id| handed.of(id)).collect()
+                    }
+                    None => handed.newest(NEWEST).collect(),
+                };
+                Ok(json!({ "handed": told }))
             }
             other => {
                 Err(Refusal::AsAsked(format!("unknown request type: {other}")))
@@ -248,7 +311,7 @@ impl Counter {
             .ask(RESERVE, "take", json!({ "type": kind.name }))
             .await
         {
-            Ok(taken) => serde_json::from_value::<Option<Handed>>(
+            Ok(taken) => serde_json::from_value::<Option<Given>>(
                 taken["voucher"].clone(),
             )
             .map_err(|e| {
@@ -265,11 +328,13 @@ impl Counter {
             }
         };
         if let Some(voucher) = held {
+            let at = self.note(&voucher.id, &kind.name, true);
             return Ok(json!({
                 "voucher": { "id": voucher.id, "code": voucher.code },
                 "type": kind,
                 "network": network.name,
                 "held": true,
+                "at": at,
             }));
         }
 
@@ -289,7 +354,7 @@ impl Counter {
                 }),
             )
             .await?;
-        let voucher: Handed = minted["vouchers"]
+        let voucher: Given = minted["vouchers"]
             .get(0)
             .cloned()
             .ok_or_else(|| "no voucher".to_string())
@@ -301,11 +366,13 @@ impl Counter {
                     "{CONTROLLER} minted nothing to hand out: {why}"
                 ))
             })?;
+        let at = self.note(&voucher.id, &kind.name, false);
         Ok(json!({
             "voucher": { "id": voucher.id, "code": voucher.code },
             "type": kind,
             "network": network.name,
             "held": false,
+            "at": at,
         }))
     }
 
@@ -315,6 +382,18 @@ impl Counter {
     /// the voucher's, or the voucher is not of it.
     async fn assign(&self, site: &str, id: &str) -> Result<Value, Refusal> {
         let shelves = self.shelves()?;
+        // A voucher a guest was handed is that guest's, used yet or not.
+        if self
+            .handed
+            .lock()
+            .expect("the record's lock")
+            .of(id)
+            .is_some()
+        {
+            return Err(Refusal::AsAsked(
+                "the voucher was handed out here before".to_string(),
+            ));
+        }
         let listed = shelves
             .ask(CONTROLLER, "list", json!({ "site": site }))
             .await?;

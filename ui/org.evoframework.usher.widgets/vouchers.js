@@ -5,7 +5,8 @@
 //
 // One that no guest has used can be assigned for handing out: the
 // counter then holds it for the voucher type its note names, and hands
-// it out before it has another minted.
+// it out before it has another minted. One the counter handed out is
+// shown as handed out until its guest uses it, and is not assigned.
 
 import { el, id, words } from "./dom.js";
 import { HELD_CHANGED, TYPES_KEPT, VOUCHER_HANDED } from "./events.js";
@@ -121,6 +122,30 @@ export function vouchers(element, context) {
     return byId;
   };
 
+  /** The vouchers listed that were handed out here: identifier, and the hand-out. @type {Map<string, any>} */
+  let handed = new Map();
+
+  /**
+   * Which of these vouchers the counter handed out, and when; none where
+   * the counter does not say.
+   *
+   * @param {string[]} ids
+   * @returns {Promise<Map<string, any>>}
+   */
+  const handedOf = async (ids) => {
+    const byId = new Map();
+    if (ids.length === 0) return byId;
+    try {
+      const said = await context.steward.request(COUNTER, "handed", { ids });
+      for (const out of Array.isArray(said?.handed) ? said.handed : []) {
+        byId.set(String(out?.id), out);
+      }
+    } catch (why) {
+      console.warn("vouchers: what was handed out:", why);
+    }
+    return byId;
+  };
+
   /** The others on the page are told that what is held has changed. */
   const heldChanged = () => document.dispatchEvent(new Event(HELD_CHANGED));
 
@@ -139,6 +164,9 @@ export function vouchers(element, context) {
   const row = (voucher) => {
     const code = written(voucher.code);
     const isHeld = held.has(voucher.id);
+    // Handed out, and its guest has not used it yet: it is that guest's.
+    const out = handed.get(voucher.id);
+    const given = out !== undefined && !isHeld && standing(voucher) === "not used yet";
     const option = el("td", {});
 
     /** Held for handing out, or given up again. */
@@ -163,7 +191,7 @@ export function vouchers(element, context) {
           "Take back",
         );
       }
-      if (voucher.expired === true || standing(voucher) !== "not used yet") return null;
+      if (given || voucher.expired === true || standing(voucher) !== "not used yet") return null;
       return el(
         "button",
         {
@@ -247,7 +275,15 @@ export function vouchers(element, context) {
       "tr",
       {},
       el("td", { class: "usher-code" }, code),
-      el("td", {}, isHeld ? "for hand-out" : standing(voucher)),
+      el(
+        "td",
+        {},
+        ...(isHeld
+          ? ["for hand-out"]
+          : given
+            ? ["handed out", el("br"), at(new Date(Number(out.at) * 1000).toISOString())]
+            : [standing(voucher)]),
+      ),
       el("td", {}, at(voucher.created)),
       el("td", {}, lasts(voucher.minutes)),
       el("td", {}, limits(voucher)),
@@ -288,12 +324,20 @@ export function vouchers(element, context) {
     return parts;
   };
 
+  /** How many times the vouchers were asked for. */
+  let looks = 0;
+
   /** @param {string} [then] what is said once the vouchers are shown */
   const look = async (then = "") => {
+    // The list is asked for from several places, and an answer may come
+    // after one asked for later: only the last asked for is shown.
+    looks += 1;
+    const mine = looks;
+    const late = () => gone || mine !== looks;
     say("Asking the controller.");
     try {
       const sites = (await ask("sites"))?.sites ?? [];
-      if (gone) return;
+      if (late()) return;
       if (sites.length === 0) {
         body.replaceChildren();
         say("The controller has no site.");
@@ -305,10 +349,15 @@ export function vouchers(element, context) {
         .sort((/** @type {any} */ a, /** @type {any} */ b) =>
           String(b.created ?? "").localeCompare(String(a.created ?? "")),
         );
-      held = await heldNow();
-      if (gone) return;
+      const heldThen = await heldNow();
       const valid = listed.filter((/** @type {any} */ voucher) => voucher.expired !== true);
       const expired = listed.filter((/** @type {any} */ voucher) => voucher.expired === true);
+      const handedThen = await handedOf(
+        valid.slice(0, SHOWN).map((/** @type {any} */ voucher) => String(voucher.id)),
+      );
+      if (late()) return;
+      held = heldThen;
+      handed = handedThen;
       const parts = [];
       // A voucher held for handing out that the controller no longer has,
       // or that has been used or has expired, would let no guest in. With
@@ -385,7 +434,7 @@ export function vouchers(element, context) {
       body.replaceChildren(...parts);
       say(then);
     } catch (why) {
-      if (gone) return;
+      if (late()) return;
       body.replaceChildren();
       say(words(why));
     }
