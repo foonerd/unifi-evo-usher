@@ -49,24 +49,15 @@ export function takes(accepts, kind) {
  */
 
 /**
- * The shelves to show, each with its stockings in the steward's order. A
- * shelf nothing stands on is not shown. The shelves a shell names stand
- * first, in the order it names them; the others follow in the steward's
- * order.
+ * The shelves to show, in the steward's order, each with its stockings in
+ * the steward's order. A shelf nothing stands on is not shown. Which page
+ * of the face a shelf stands on is said in `pages.js`.
  *
  * @param {any} snapshot the answer to `describe_ui_stockings`
- * @param {string[]} [first] the shelves that stand first, by their ids
  * @returns {Shown[]}
  */
-export function compose(snapshot, first = []) {
-  const listed = Array.isArray(snapshot?.shelves) ? snapshot.shelves : [];
-  /** @param {any} shelf where it stands among those named, or after them */
-  const place = (shelf) => {
-    const named = first.indexOf(shelf?.id);
-    return named === -1 ? first.length : named;
-  };
-  // A stable sort: shelves of one place keep the steward's order.
-  const shelves = [...listed].sort((a, b) => place(a) - place(b));
+export function compose(snapshot) {
+  const shelves = Array.isArray(snapshot?.shelves) ? snapshot.shelves : [];
   const kinds = new Map(
     (Array.isArray(snapshot?.widget_kinds) ? snapshot.widget_kinds : [])
       .filter((/** @type {any} */ kind) => typeof kind?.id === "string")

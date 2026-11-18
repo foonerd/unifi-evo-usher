@@ -30,6 +30,8 @@ fn the_steward_serves_the_door_the_shell_and_the_widget_pack() {
         format!("/{SHELL}/shell.js"),
         format!("/{SHELL}/steward.js"),
         format!("/{SHELL}/compose.js"),
+        format!("/{SHELL}/pages.js"),
+        format!("/{SHELL}/brand.js"),
         format!("/{SHELL}/theme.js"),
         format!("/{WIDGETS}/index.js"),
         format!("/{WIDGETS}/controller.js"),
@@ -66,13 +68,49 @@ fn the_steward_serves_the_door_the_shell_and_the_widget_pack() {
     assert!(shell.contains(&theme), "{shell}");
     assert!(door.contains(&theme), "{door}");
 
-    let (status, _, order) = steward.file(&format!("/{SHELL}/order.json"));
+    // The pages of the face, and what stands on each: every UI shelf the
+    // steward declares, with every widget it is drawn with, on a page.
+    let (status, _, pages) = steward.file(&format!("/{SHELL}/pages.json"));
     assert_eq!(status, 200);
+    let pages: Value = serde_json::from_str(&pages).unwrap();
+    let pages = pages.as_array().expect("a list of pages");
+    let called: Vec<(&str, &str)> = pages
+        .iter()
+        .map(|page| {
+            (
+                page["id"].as_str().unwrap(),
+                page["label"].as_str().unwrap(),
+            )
+        })
+        .collect();
     assert_eq!(
-        serde_json::from_str::<Value>(&order).unwrap(),
-        json!(["issue.counter"]),
-        "what is done most stands first on the screen"
+        called,
+        [
+            ("counter", "Counter"),
+            ("vouchers", "Vouchers"),
+            ("types", "Voucher types"),
+            ("network", "Network"),
+            ("controller", "Controller"),
+        ],
+        "what is done most stands first"
     );
+    let (_, said) =
+        steward.op("describe_ui_stockings", json!({}), &Caller::here());
+    for entry in said["entries"].as_array().unwrap() {
+        let on: Vec<&str> = pages
+            .iter()
+            .filter(|page| {
+                page["shelves"].as_array().unwrap().iter().any(|stand| {
+                    stand["shelf"] == entry["ui_shelf"]
+                        && stand["widgets"].as_array().is_none_or(|kinds| {
+                            kinds.contains(&entry["widget"])
+                        })
+                })
+            })
+            .map(|page| page["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(on.len(), 1, "{entry} stands on {on:?}");
+    }
     assert_eq!(steward.stop(), Some(0));
 }
 

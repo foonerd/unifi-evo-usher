@@ -1,0 +1,30 @@
+[
+  {
+    "id": "counter",
+    "label": "Counter",
+    "shelves": [{ "shelf": "issue.counter", "widgets": ["usher.counter"] }]
+  },
+  {
+    "id": "vouchers",
+    "label": "Vouchers",
+    "shelves": [
+      { "shelf": "access.controller", "widgets": ["usher.vouchers"] },
+      { "shelf": "stock.reserve" }
+    ]
+  },
+  {
+    "id": "types",
+    "label": "Voucher types",
+    "shelves": [{ "shelf": "issue.counter", "widgets": ["usher.types"] }]
+  },
+  {
+    "id": "network",
+    "label": "Network",
+    "shelves": [{ "shelf": "networks.directory" }]
+  },
+  {
+    "id": "controller",
+    "label": "Controller",
+    "shelves": [{ "shelf": "access.controller", "widgets": ["usher.controller"] }]
+  }
+]

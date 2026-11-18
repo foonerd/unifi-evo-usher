@@ -5,6 +5,7 @@ mod common;
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use common::browser::Browser;
@@ -26,11 +27,59 @@ fn press_listed(browser: &mut Browser, label: &str) {
     browser.act(&format!("{button}.click();"));
 }
 
+/// Go to a page of the face by its entry in the menu, as a person does,
+/// and wait until it is the one shown.
+fn go_to(browser: &mut Browser, label: &str) {
+    let label = json!(label);
+    browser.wait(
+        "the entry in the menu",
+        &format!("menuEntry({label}) !== undefined"),
+    );
+    browser.act(&format!("menuEntry({label}).click();"));
+    browser.wait(
+        "the page",
+        &format!(
+            r#"menuCurrent() === {label} && document.querySelector(".page:not([hidden]) > h2")?.textContent === {label}"#
+        ),
+    );
+}
+
+/// Where a picture of the face goes, where one is asked for: the file
+/// `USHER_PICTURE` names, or, for one of several, a file beside it with
+/// `-` and what it is of before its extension.
+fn picture_of(of: Option<&str>) -> Option<PathBuf> {
+    let named = PathBuf::from(std::env::var_os("USHER_PICTURE")?);
+    let Some(of) = of else {
+        return Some(named);
+    };
+    let stem = named.file_stem()?.to_string_lossy().into_owned();
+    let extension = named
+        .extension()
+        .map(|extension| extension.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "png".to_string());
+    Some(named.with_file_name(format!("{stem}-{of}.{extension}")))
+}
+
+/// The pages of the face: what the menu calls each, its address, and the
+/// widgets that stand on it.
+const PAGES: [(&str, &str, &[&str]); 5] = [
+    ("Counter", "#/counter", &["usher.counter"]),
+    (
+        "Vouchers",
+        "#/vouchers",
+        &["usher.vouchers", "usher.reserve"],
+    ),
+    ("Voucher types", "#/types", &["usher.types"]),
+    ("Network", "#/network", &["usher.networks"]),
+    ("Controller", "#/controller", &["usher.controller"]),
+];
+
 #[test]
 fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
     let Some(mut browser) = Browser::open() else {
         return;
     };
+    browser.size(1280, 900);
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -60,22 +109,54 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
         return {
           path: location.pathname,
           widgets: [...document.querySelectorAll("[data-widget]")].map((w) => w.dataset.widget),
+          shown: widgetsOnScreen(),
           reserve: widget("usher.reserve").innerText,
         };
         "#,
     );
     assert_eq!(opened["path"], format!("/{SHELL}/"));
+    // Everything stocked is drawn, page by page, and the first page is
+    // the one shown: the counter.
     assert_eq!(
         opened["widgets"],
         json!([
             "usher.counter",
-            "usher.types",
-            "usher.controller",
             "usher.vouchers",
+            "usher.reserve",
+            "usher.types",
             "usher.networks",
-            "usher.reserve"
+            "usher.controller"
         ])
     );
+    assert_eq!(opened["shown"], json!(["usher.counter"]));
+
+    // The face wears the usher's mark and name: in the bar, and on the
+    // pairing screen, which is all there is to see of an usher until a
+    // browser is paired. It is the one mark in both places.
+    let brand = browser.look(
+        r##"
+        const [bar, pairing] = [".bar .brand", "#pairing .brand"].map((place) =>
+          document.querySelector(place));
+        return {
+          bar: [onScreen(bar.querySelector("svg.mark")), bar.textContent],
+          pairing: [onScreen(pairing.querySelector("svg.mark")), pairing.textContent],
+          same: bar.innerHTML === pairing.innerHTML,
+          slip: getComputedStyle(pairing.querySelector(".mark-slip")).fill,
+          primary: getComputedStyle(document.querySelector('#pairing button[type="submit"]'))
+            .backgroundColor,
+        };
+        "##,
+    );
+    assert_eq!(brand["bar"], json!([true, "Usher"]), "{brand}");
+    assert_eq!(brand["pairing"], json!([true, "Usher"]), "{brand}");
+    assert_eq!(brand["same"], true, "{brand}");
+    assert_eq!(
+        brand["slip"], brand["primary"],
+        "the mark is drawn in the theme's own colour: {brand}"
+    );
+    if let Some(to) = picture_of(Some("pairing")) {
+        browser.picture(&to);
+    }
     assert!(
         opened["reserve"]
             .as_str()
@@ -122,6 +203,7 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
         "the dialog to close",
         r#"document.getElementById("pairing").open === false"#,
     );
+    go_to(&mut browser, "Controller");
     browser.wait(
         "the address field",
         r#"widget("usher.controller").querySelector('input[type="url"]') !== null"#,
@@ -207,6 +289,7 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
 
     // With the controller set, the screen lists its wireless networks,
     // each with what the controller says of it, and none is chosen yet.
+    go_to(&mut browser, "Network");
     browser.wait(
         "the wireless networks",
         r#"widget("usher.networks").innerText.includes("Roaming")"#,
@@ -278,6 +361,7 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
         let minted = steward.ask("access.controller", "mint", terms);
         assert_eq!(minted["vouchers"].as_array().unwrap().len(), 1, "{minted}");
     }
+    go_to(&mut browser, "Vouchers");
     browser.act(
         r#"[...widget("usher.vouchers").querySelectorAll("button")].find((b) => b.textContent === "Ask again").click();"#,
     );
@@ -340,11 +424,13 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
 
     // A voucher type is kept from the screen: what it is called, how long
     // a voucher of it lasts and what it is limited to. A rate is typed in
-    // megabits, with the comma many use for the point.
+    // megabits, with the comma many use for the point. The counter is on
+    // another page, and offers what is kept here all the same.
     browser.wait(
         "a counter with nothing on offer",
         r#"widget("usher.counter").innerText.includes("No voucher type is on offer yet.")"#,
     );
+    go_to(&mut browser, "Voucher types");
     let keep = |name: &str,
                 lasts: &str,
                 unit: &str,
@@ -369,7 +455,7 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
             }),
         )
     };
-    let offered = r#"[...widget("usher.counter").querySelectorAll("button.usher-type")].map((b) => b.innerText.split("\n"))"#;
+    let offered = r#"[...widget("usher.counter").querySelectorAll("button.usher-type")].map((b) => [...b.children].map((part) => part.textContent))"#;
     browser.act(&keep(
         " House Guests ",
         "1",
@@ -427,6 +513,14 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
 
     // One press, one voucher: minted there and then, and shown with the
     // network it is for and what it gives.
+    go_to(&mut browser, "Counter");
+    assert_eq!(
+        browser.look(&format!("return {offered};")),
+        json!([[
+            "House Guests",
+            "1 day; one guest; down 7.2 Mbit/s, up 1.2 Mbit/s, 6000 MB"
+        ]])
+    );
     browser.act(r#"widget("usher.counter").querySelector("button.usher-type").click();"#);
     browser.wait(
         "the voucher",
@@ -490,8 +584,13 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
         r#"widget("usher.counter").querySelector("dialog.usher-guest") === null"#,
     );
 
-    // The controller's list on the screen has it, unasked, as handed
-    // out: it is that guest's, and is not offered for handing out again.
+    // The controller's list has it, unasked, as handed out: it is that
+    // guest's, and is not offered for handing out again. The list stands
+    // on another page, and hears of the hand-out there.
+    assert_eq!(
+        browser.look("return widgetsOnScreen();"),
+        json!(["usher.counter"])
+    );
     let row_of = |code: &str| {
         format!(
             r#"[...widget("usher.vouchers").querySelectorAll("tbody tr")].find((row) => row.innerText.includes({code}))"#,
@@ -533,7 +632,8 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
             format!("{}-{}", &code[..5], &code[5..])
         })
         .collect();
-    let walk_in_button = r#"[...widget("usher.counter").querySelectorAll("button.usher-type")].find((b) => b.innerText.startsWith("Walk-in"))?.innerText.split("\n")[1]"#;
+    let walk_in_button = r#"[...widget("usher.counter").querySelectorAll("button.usher-type")].find((b) => b.firstElementChild.textContent === "Walk-in")?.lastElementChild.textContent"#;
+    go_to(&mut browser, "Vouchers");
     browser.act(
         r#"[...widget("usher.vouchers").querySelectorAll("button")].find((b) => b.textContent === "Ask again").click();"#,
     );
@@ -576,6 +676,7 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
 
     // The one held goes first: the press hands out that very voucher,
     // and the controller is asked for none.
+    go_to(&mut browser, "Counter");
     browser.act(
         r#"
         [...widget("usher.counter").querySelectorAll("button")].find((b) => b.textContent === "Done").click();
@@ -630,11 +731,24 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
     );
     assert_eq!(worn["text"], true, "{worn}");
 
-    // For the eye: a picture of the face as it now stands, where one is
+    // Every other page is gone to and come back from, and what stands
+    // on the counter is as it was left: the voucher is still shown. For
+    // the eye, a picture of each page as it now stands, where one is
     // asked for.
-    if let Some(to) = std::env::var_os("USHER_PICTURE") {
-        browser.picture(std::path::Path::new(&to));
+    let shown_code = r#"widget("usher.counter").querySelector(".usher-voucher")?.textContent"#;
+    let left = browser.look(&format!("return {shown_code};"));
+    assert_eq!(left, json!(walk_in[0]));
+    if let Some(to) = picture_of(None) {
+        browser.picture(&to);
     }
+    for (label, fragment, _) in &PAGES[1..] {
+        go_to(&mut browser, label);
+        if let Some(to) = picture_of(Some(&fragment[2..])) {
+            browser.picture(&to);
+        }
+    }
+    go_to(&mut browser, "Counter");
+    assert_eq!(browser.look(&format!("return {shown_code};")), left);
 
     // The voucher is taken off the screen when the guest has it.
     browser.act(
@@ -672,6 +786,285 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
     browser.wait(
         "the line",
         r#"document.getElementById("line").textContent === "Joined to the steward.""#,
+    );
+    assert_eq!(steward.stop(), Some(0));
+}
+
+#[test]
+fn the_menu_leads_from_page_to_page() {
+    let Some(mut browser) = Browser::open() else {
+        return;
+    };
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+    browser.size(1280, 900);
+
+    // A browser that holds a bearer already, so that nothing stands
+    // before the face: on a page of the steward's that starts nothing,
+    // it is given the operator's.
+    browser.go(&format!("{}/door.css", steward.address()));
+    browser.act(&format!(
+        r#"localStorage.setItem("evoBearer", {bearer});"#,
+        bearer = json!(steward.operator()),
+    ));
+    browser.go(&format!("{}/", steward.address()));
+    browser.wait(
+        "the menu",
+        "menuEntries().length > 0 && menuCurrent() !== null",
+    );
+
+    // What a person at a page sees of where they are.
+    let stands = r#"
+        return {
+          fragment: location.hash,
+          shown: widgetsOnScreen(),
+          marked: menuEntries()
+            .filter((a) => a.hasAttribute("aria-current"))
+            .map((a) => [a.textContent, a.getAttribute("aria-current")]),
+          headed: [...document.querySelectorAll(".page > h2")].filter(onScreen).map((h) => h.textContent),
+          title: document.title,
+        };
+    "#;
+    let standing = |label: &str, fragment: &str, widgets: &[&str]| {
+        json!({
+            "fragment": fragment,
+            "shown": widgets,
+            "marked": [[label, "page"]],
+            "headed": [label],
+            "title": format!("{label} - Usher"),
+        })
+    };
+
+    // The menu offers the pages, in their order, each by its address;
+    // the first is shown, and it is the counter.
+    let menu = browser.look(
+        r#"
+        return {
+          entries: menuEntries().map((a) => [a.textContent, a.getAttribute("href")]),
+          named: document.getElementById("menu").getAttribute("aria-label"),
+          folded: onScreen(document.getElementById("menu-button")),
+        };
+        "#,
+    );
+    let entries: Vec<Value> = PAGES
+        .iter()
+        .map(|(label, fragment, _)| json!([label, fragment]))
+        .collect();
+    assert_eq!(
+        menu,
+        json!({ "entries": entries, "named": "Pages", "folded": false })
+    );
+    let (first, _, on_first) = PAGES[0];
+    assert_eq!(browser.look(stands), standing(first, "", on_first));
+
+    // An entry chosen shows its page and none of the others, marks
+    // itself as the page that is shown, and puts the person at the
+    // page's heading. A page with more than one shelf names each.
+    for (label, fragment, widgets) in PAGES.iter().skip(1).chain(&PAGES[..1]) {
+        go_to(&mut browser, label);
+        assert_eq!(
+            browser.look(stands),
+            standing(label, fragment, widgets),
+            "{label}"
+        );
+        assert_eq!(
+            browser.look(
+                r#"
+                const at = document.activeElement;
+                return [at?.tagName, at?.textContent, scrollY];
+                "#
+            ),
+            json!(["H2", label, 0]),
+            "{label}"
+        );
+        let named = browser.look(
+            r#"return [...document.querySelectorAll(".shelf-name")].filter(onScreen).map((n) => n.textContent);"#,
+        );
+        let several: &[&str] = if *label == "Vouchers" {
+            &["Controller", "Reserve"]
+        } else {
+            &[]
+        };
+        assert_eq!(named, json!(several), "{label}");
+    }
+
+    // Back and forward go the way that was come.
+    let at = |browser: &mut Browser, label: &str| {
+        let (_, fragment, widgets) = PAGES
+            .iter()
+            .find(|(named, _, _)| *named == label)
+            .expect("a page");
+        browser.wait(
+            label,
+            &format!(
+                "location.hash === {fragment} && menuCurrent() === {label} && JSON.stringify(widgetsOnScreen()) === {widgets}",
+                fragment = json!(fragment),
+                label = json!(label),
+                widgets = json!(json!(widgets).to_string()),
+            ),
+        );
+    };
+    browser.act("history.back();");
+    at(&mut browser, "Controller");
+    browser.act("history.back();");
+    at(&mut browser, "Network");
+    browser.act("history.forward();");
+    at(&mut browser, "Controller");
+
+    // The page loaded again is the page that was shown.
+    browser.reload();
+    at(&mut browser, "Controller");
+    assert_eq!(
+        browser.look(stands),
+        standing("Controller", "#/controller", &["usher.controller"])
+    );
+
+    // An address that names no page shows the first, and one that names
+    // a page shows that page, also as the address the browser is sent to.
+    browser.act(r##"location.hash = "#/no-such-page";"##);
+    browser.wait(
+        "the first page",
+        r#"menuCurrent() === "Counter" && JSON.stringify(widgetsOnScreen()) === '["usher.counter"]'"#,
+    );
+    browser.go(&format!("{}/{SHELL}/#/vouchers", steward.address()));
+    at(&mut browser, "Vouchers");
+    browser.go(&format!("{}/{SHELL}/#/", steward.address()));
+    browser.wait(
+        "the first page",
+        r#"menuCurrent() === "Counter" && JSON.stringify(widgetsOnScreen()) === '["usher.counter"]'"#,
+    );
+
+    // What is typed on a page is there when the page is come back to.
+    go_to(&mut browser, "Voucher types");
+    browser.act(
+        r#"type(widget("usher.types").querySelector('[name="name"]'), "Half typed");"#,
+    );
+    go_to(&mut browser, "Network");
+    go_to(&mut browser, "Voucher types");
+    assert_eq!(
+        browser.look(
+            r#"return widget("usher.types").querySelector('[name="name"]').value;"#
+        ),
+        "Half typed"
+    );
+
+    // By the keyboard alone: the entries are the first things the Tab
+    // key comes to, the one it stands on is ringed, and Enter goes there.
+    browser.reload();
+    at(&mut browser, "Voucher types");
+    browser.press("Tab", false);
+    browser.press("Tab", false);
+    let ringed = browser.look(
+        r#"
+        const at = document.activeElement;
+        const ring = getComputedStyle(at);
+        return [at.tagName, at.textContent, ring.outlineStyle, ring.outlineWidth];
+        "#,
+    );
+    assert_eq!(ringed, json!(["A", "Vouchers", "solid", "3px"]));
+    browser.press("Enter", false);
+    at(&mut browser, "Vouchers");
+    assert_eq!(
+        browser
+            .look("return [document.activeElement.tagName, document.activeElement.textContent];"),
+        json!(["H2", "Vouchers"])
+    );
+
+    // What changes when it is pointed at fades into it, and does not for
+    // a reader who asks for stillness.
+    let fades = r#"return getComputedStyle(menuEntry("Counter")).transitionDuration.split(", ");"#;
+    browser.prefers("prefers-reduced-motion", "no-preference");
+    assert!(
+        browser
+            .look(fades)
+            .as_array()
+            .unwrap()
+            .contains(&json!("0.14s")),
+        "an entry fades into its state"
+    );
+    browser.prefers("prefers-reduced-motion", "reduce");
+    assert_eq!(browser.look(fades), json!(["0s"]));
+    browser.prefers("prefers-reduced-motion", "no-preference");
+
+    // On a narrow screen the menu folds into a button, the first thing
+    // the Tab key comes to. Pressed, it unfolds; an entry chosen folds
+    // it again, and so does Escape. Nothing runs off the side.
+    go_to(&mut browser, "Counter");
+    browser.size(400, 800);
+    browser.reload();
+    browser.wait(
+        "the button",
+        r#"onScreen(document.getElementById("menu-button")) && menuCurrent() === "Counter""#,
+    );
+    let folded = r#"
+        const button = document.getElementById("menu-button");
+        return {
+          button: onScreen(button),
+          says: button.textContent,
+          expanded: button.getAttribute("aria-expanded"),
+          opens: button.getAttribute("aria-controls"),
+          entries: menuEntries().filter(onScreen).length,
+          sideways: document.documentElement.scrollWidth > innerWidth,
+        };
+    "#;
+    let narrow = |expanded: bool| {
+        json!({
+            "button": true, "says": "Menu",
+            "expanded": if expanded { "true" } else { "false" },
+            "opens": "menu",
+            "entries": if expanded { PAGES.len() } else { 0 },
+            "sideways": false,
+        })
+    };
+    assert_eq!(browser.look(folded), narrow(false));
+    browser.press("Tab", false);
+    assert_eq!(
+        browser.look("return document.activeElement.id;"),
+        "menu-button"
+    );
+    browser.press("Enter", false);
+    browser.wait(
+        "the menu unfolded",
+        r#"document.getElementById("menu-button").getAttribute("aria-expanded") === "true""#,
+    );
+    assert_eq!(browser.look(folded), narrow(true));
+    browser.press("Tab", false);
+    assert_eq!(
+        browser.look(
+            "return [document.activeElement.textContent, onScreen(document.activeElement)];"
+        ),
+        json!(["Counter", true]),
+        "the entries follow the button"
+    );
+    if let Some(to) = picture_of(Some("narrow")) {
+        browser.picture(&to);
+    }
+    go_to(&mut browser, "Network");
+    assert_eq!(browser.look(folded), narrow(false));
+    assert_eq!(
+        browser.look("return widgetsOnScreen();"),
+        json!(["usher.networks"])
+    );
+    // The entry of the page that is shown folds it too.
+    browser.act(r#"document.getElementById("menu-button").click();"#);
+    assert_eq!(browser.look(folded), narrow(true));
+    browser.act(r#"menuEntry("Network").click();"#);
+    assert_eq!(browser.look(folded), narrow(false));
+    browser.act(r#"document.getElementById("menu-button").click();"#);
+    assert_eq!(browser.look(folded), narrow(true));
+    browser.press("Escape", false);
+    assert_eq!(browser.look(folded), narrow(false));
+    assert_eq!(
+        browser.look("return document.activeElement.id;"),
+        "menu-button",
+        "Escape leaves the person at the button"
+    );
+
+    // Wide again, the entries stand in the bar and there is no button.
+    browser.size(1280, 900);
+    browser.wait(
+        "the menu in the bar",
+        r#"!onScreen(document.getElementById("menu-button")) && menuEntries().every(onScreen)"#,
     );
     assert_eq!(steward.stop(), Some(0));
 }

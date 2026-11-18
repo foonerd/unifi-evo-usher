@@ -2,9 +2,14 @@
 // shelf, and draws each stocking with the widget pack that provides its
 // kind. It knows no plugin and no widget: what is on the screen is what
 // the steward says is there, in the theme the steward says is active.
+//
+// What is stocked stands on pages, one shown at a time, each with an
+// entry in the menu and an address of its own: the fragment `#/` and the
+// page's id. Which shelf stands on which page is said in `pages.json`.
 
 import * as steward from "./steward.js";
-import { compose } from "./compose.js";
+import { NAME as USHER, wearBrand } from "./brand.js";
+import { fragmentOf, pageOf, paginate } from "./pages.js";
 import { themeAddress } from "./theme.js";
 
 /** A plugin's name, as evo writes one. */
@@ -36,6 +41,9 @@ const mounted = new Map();
 
 const line = /** @type {HTMLElement} */ (document.getElementById("line"));
 const shelves = /** @type {HTMLElement} */ (document.getElementById("shelves"));
+const menu = /** @type {HTMLElement} */ (document.getElementById("menu"));
+const menuList = /** @type {HTMLElement} */ (menu.querySelector("ul"));
+const menuButton = /** @type {HTMLButtonElement} */ (document.getElementById("menu-button"));
 const pairing = /** @type {HTMLDialogElement} */ (document.getElementById("pairing"));
 const pairingForm = /** @type {HTMLFormElement} */ (document.getElementById("pairing-form"));
 const pairingCode = /** @type {HTMLInputElement} */ (document.getElementById("pairing-code"));
@@ -150,17 +158,17 @@ async function loadPacks() {
   }
 }
 
-/** The shelves that stand first on the screen, as the shell's `order.json` names them. @type {string[]} */
-let first = [];
+/** The pages of the face, as the shell's `pages.json` names them. */
+let named = [];
 
-/** Load the order of the shelves; with none, the steward's order stands. */
-async function loadOrder() {
+/** Load the pages; with none named, everything stands on one. */
+async function loadPages() {
   try {
-    const listed = await fetch("order.json", { cache: "no-store" });
-    const named = listed.ok ? await listed.json() : [];
-    first = Array.isArray(named) ? named.filter((id) => typeof id === "string") : [];
+    const listed = await fetch("pages.json", { cache: "no-store" });
+    const said = listed.ok ? await listed.json() : [];
+    named = Array.isArray(said) ? said : [];
   } catch (why) {
-    console.warn("shell: the order of the shelves:", why);
+    console.warn("shell: the pages of the face:", why);
   }
 }
 
@@ -172,80 +180,201 @@ function notice(words) {
   return said;
 }
 
+/** The pages on offer, as they were last drawn. @type {Array<{ id: string, label: string }>} */
+let offered = [];
+
+/** Fold the menu away, where the screen is too narrow to keep it open. */
+function fold() {
+  menu.classList.remove("open");
+  menuButton.setAttribute("aria-expanded", "false");
+}
+
+menuButton.addEventListener("click", () => {
+  const open = !menu.classList.contains("open");
+  menu.classList.toggle("open", open);
+  menuButton.setAttribute("aria-expanded", String(open));
+});
+// An entry that was chosen has done its work, also the one of the page
+// that is shown already.
+menuList.addEventListener("click", (event) => {
+  if (event.target instanceof Element && event.target.closest("a")) fold();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && menu.classList.contains("open")) {
+    fold();
+    menuButton.focus();
+  }
+});
+
 /**
- * Draw what the steward says is stocked. What is already on the screen
- * and still stocked is left as it is, so nothing typed is lost.
+ * Offer the pages in the menu. With one page there is nowhere to go, and
+ * no menu.
+ *
+ * @param {Array<{ id: string, label: string }>} pages
+ */
+function offer(pages) {
+  const same =
+    pages.length === offered.length &&
+    pages.every((page, at) => page.id === offered[at].id && page.label === offered[at].label);
+  offered = pages.map(({ id, label }) => ({ id, label }));
+  if (same) return;
+  menuList.replaceChildren(
+    ...offered.map((page) => {
+      const entry = document.createElement("a");
+      entry.href = fragmentOf(page.id);
+      entry.dataset.page = page.id;
+      entry.textContent = page.label;
+      const item = document.createElement("li");
+      item.append(entry);
+      return item;
+    }),
+  );
+  menu.hidden = offered.length < 2;
+  menuButton.hidden = offered.length < 2;
+  if (menu.hidden) fold();
+}
+
+/**
+ * Show the page the address asks for, and none of the others. What
+ * stands on a page that is not shown stays as it is.
+ *
+ * @param {boolean} arrived whether a person has just come to the page:
+ *   they then stand at its heading, at the top of it
+ */
+function show(arrived) {
+  const id = pageOf(location.hash, offered);
+  let heading = null;
+  for (const page of shelves.querySelectorAll(":scope > .page")) {
+    const shown = /** @type {HTMLElement} */ (page).dataset.page === id;
+    /** @type {HTMLElement} */ (page).hidden = !shown;
+    if (shown) heading = page.querySelector(":scope > h2");
+  }
+  for (const entry of menuList.querySelectorAll("a")) {
+    if (/** @type {HTMLElement} */ (entry).dataset.page === id) {
+      entry.setAttribute("aria-current", "page");
+    } else {
+      entry.removeAttribute("aria-current");
+    }
+  }
+  const label = offered.length > 1 ? offered.find((page) => page.id === id)?.label : undefined;
+  document.title = label === undefined ? USHER : `${label} - ${USHER}`;
+  if (arrived) {
+    fold();
+    window.scrollTo(0, 0);
+    if (heading instanceof HTMLElement) heading.focus({ preventScroll: true });
+  }
+}
+
+window.addEventListener("hashchange", () => show(true));
+
+/** What was drawn last, so that the same is not drawn a second time. */
+let drawnAs = "";
+
+/**
+ * Draw what the steward says is stocked, page by page. What is already on
+ * the screen and still stocked is left as it is, so nothing typed is
+ * lost; and where the steward says what it said before, nothing is
+ * touched at all.
  *
  * @param {any} snapshot the answer to `describe_ui_stockings`
  */
 function draw(snapshot) {
-  const shown = compose(snapshot, first);
+  const pages = paginate(snapshot, named);
+  const as = JSON.stringify(pages);
+  if (as === drawnAs) return;
+  drawnAs = as;
+
   const kept = new Set();
-  const sections = [];
-
-  for (const shelf of shown) {
+  const drawn = [];
+  for (const page of pages) {
     const section = document.createElement("section");
-    section.className = "shelf";
-    section.dataset.shelf = shelf.id;
-    const heading = document.createElement("h2");
-    heading.id = `shelf-${shelf.id}`;
-    heading.textContent = shelf.label;
-    section.setAttribute("aria-labelledby", heading.id);
-    const row = document.createElement("div");
-    row.className = `stockings layout-${shelf.layout}`;
-    section.append(heading, row);
-
-    for (const stocking of shelf.stockings) {
-      kept.add(stocking.key);
-      let drawn = mounted.get(stocking.key);
-      if (drawn === undefined) {
-        const element = document.createElement("div");
-        element.className = `stocking size-${stocking.size}`;
-        element.dataset.widget = stocking.widget;
-        element.dataset.plugin = stocking.plugin;
-        let unmount = () => {};
-        const pack = drawnBy.get(stocking.widget);
-        if (stocking.refused !== null) {
-          element.append(notice(`Not drawn: ${stocking.refused}.`));
-        } else if (pack === undefined) {
-          element.append(
-            notice(`Nothing here draws ${stocking.widget}. It comes with a widget pack.`),
-          );
-        } else {
-          try {
-            unmount = pack.mount(stocking.widget, element, {
-              stocking: {
-                plugin: stocking.plugin,
-                shelf: stocking.shelf,
-                widget: stocking.widget,
-                size: stocking.size,
-                mode: stocking.mode,
-              },
-              steward: asked,
-            });
-          } catch (why) {
-            console.warn(`shell: drawing ${stocking.widget}:`, why);
-            element.replaceChildren(notice(`${stocking.widget} could not be drawn.`));
-          }
-        }
-        drawn = { element, unmount };
-        mounted.set(stocking.key, drawn);
-      }
-      row.append(drawn.element);
+    section.className = "page";
+    section.dataset.page = page.id;
+    // With one page there is nowhere else to be, and nothing to head.
+    if (pages.length > 1) {
+      const heading = document.createElement("h2");
+      heading.id = `page-${page.id}`;
+      // Where a person stands when they come to the page.
+      heading.tabIndex = -1;
+      heading.textContent = page.label;
+      section.setAttribute("aria-labelledby", heading.id);
+      section.append(heading);
     }
-    sections.push(section);
+
+    page.shelves.forEach((shelf, at) => {
+      const part = document.createElement("div");
+      part.className = "shelf";
+      part.dataset.shelf = shelf.id;
+      // A shelf that shares its page with another is named, in the
+      // steward's words for it.
+      if (page.shelves.length > 1) {
+        const name = document.createElement("p");
+        name.className = "shelf-name";
+        name.id = `shelf-${page.id}-${at}`;
+        name.textContent = shelf.label;
+        part.setAttribute("role", "group");
+        part.setAttribute("aria-labelledby", name.id);
+        part.append(name);
+      }
+      const row = document.createElement("div");
+      row.className = `stockings layout-${shelf.layout}`;
+      part.append(row);
+
+      for (const stocking of shelf.stockings) {
+        kept.add(stocking.key);
+        let standing = mounted.get(stocking.key);
+        if (standing === undefined) {
+          const element = document.createElement("div");
+          element.className = `stocking size-${stocking.size}`;
+          element.dataset.widget = stocking.widget;
+          element.dataset.plugin = stocking.plugin;
+          let unmount = () => {};
+          const pack = drawnBy.get(stocking.widget);
+          if (stocking.refused !== null) {
+            element.append(notice(`Not drawn: ${stocking.refused}.`));
+          } else if (pack === undefined) {
+            element.append(
+              notice(`Nothing here draws ${stocking.widget}. It comes with a widget pack.`),
+            );
+          } else {
+            try {
+              unmount = pack.mount(stocking.widget, element, {
+                stocking: {
+                  plugin: stocking.plugin,
+                  shelf: stocking.shelf,
+                  widget: stocking.widget,
+                  size: stocking.size,
+                  mode: stocking.mode,
+                },
+                steward: asked,
+              });
+            } catch (why) {
+              console.warn(`shell: drawing ${stocking.widget}:`, why);
+              element.replaceChildren(notice(`${stocking.widget} could not be drawn.`));
+            }
+          }
+          standing = { element, unmount };
+          mounted.set(stocking.key, standing);
+        }
+        row.append(standing.element);
+      }
+      section.append(part);
+    });
+    drawn.push(section);
   }
 
-  for (const [key, drawn] of mounted) {
+  for (const [key, standing] of mounted) {
     if (!kept.has(key)) {
-      drawn.unmount();
+      standing.unmount();
       mounted.delete(key);
     }
   }
-  if (sections.length === 0) {
-    sections.push(notice("The steward has nothing stocked that has a face."));
+  if (drawn.length === 0) {
+    drawn.push(notice("The steward has nothing stocked that has a face."));
   }
-  shelves.replaceChildren(...sections);
+  shelves.replaceChildren(...drawn);
+  offer(pages);
+  show(false);
 }
 
 const themeLink = /** @type {HTMLLinkElement} */ (document.getElementById("theme"));
@@ -308,8 +437,9 @@ function lineIs(joined) {
   if (joined) look();
 }
 
+wearBrand();
 await loadTheme();
 await loadPacks();
-await loadOrder();
+await loadPages();
 await look();
 steward.watch(happened, lineIs);

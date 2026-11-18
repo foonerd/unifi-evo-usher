@@ -10,14 +10,17 @@
 </head>
 <body>
 <header class="bar">
-  <h1>Usher</h1>
+  <h1 class="brand" data-brand>Usher</h1>
+  <button type="button" id="menu-button" class="quiet" aria-expanded="false" aria-controls="menu" hidden>Menu</button>
+  <nav id="menu" aria-label="Pages" hidden><ul></ul></nav>
   <p id="line" role="status">Asking the steward.</p>
 </header>
 
-<main id="shelves" aria-live="polite"></main>
+<main id="shelves"></main>
 
 <dialog id="pairing" aria-labelledby="pairing-title">
   <form id="pairing-form" method="dialog">
+    <p class="brand" data-brand>Usher</p>
     <h2 id="pairing-title">Pair this browser</h2>
     <p>The steward asks who is asking. Type the pairing code the unit was given before it was first started. A code pairs one browser, once, and a wrong guess spends it: look it over before it is sent.</p>
     <label for="pairing-code">Pairing code</label>

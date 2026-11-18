@@ -12,14 +12,26 @@ use serde_json::{json, Value};
 use tungstenite::{Message, WebSocket};
 
 /// What every script run in a page can use.
-const HELPERS: &str = r#"
+const HELPERS: &str = r##"
 const type = (field, text) => {
   field.focus();
   field.value = text;
   field.dispatchEvent(new Event("input", { bubbles: true }));
 };
 const widget = (kind) => document.querySelector(`[data-widget="${kind}"]`);
-"#;
+// Whether an element is on the screen: neither it nor anything it stands
+// in is hidden.
+const onScreen = (element) => element != null && element.getClientRects().length > 0;
+// The widgets on the screen, in the order they stand in.
+const widgetsOnScreen = () =>
+  [...document.querySelectorAll("[data-widget]")].filter(onScreen).map((w) => w.dataset.widget);
+// The entries of the menu, one of them by what it says, and what the one
+// of the page that is shown says.
+const menuEntries = () => [...document.querySelectorAll("#menu a")];
+const menuEntry = (label) => menuEntries().find((a) => a.textContent === label);
+const menuCurrent = () =>
+  document.querySelector('#menu a[aria-current="page"]')?.textContent ?? null;
+"##;
 
 /// How long the browser is given to answer a look at the page. A look
 /// waits for nothing inside the page, so an answer that does not come was
@@ -171,6 +183,12 @@ impl Browser {
             "Security.setIgnoreCertificateErrors",
             json!({"ignore": true}),
         );
+        // A page without a window is still the one a person is at: a key
+        // pressed goes to it.
+        browser.tell(
+            "Emulation.setFocusEmulationEnabled",
+            json!({"enabled": true}),
+        );
         // A browser without a window asks for a light page. One that is
         // told to asks for a dark one, as a reader's own may.
         if let Ok(scheme) = std::env::var("USHER_SCHEME") {
@@ -298,6 +316,63 @@ impl Browser {
         }
         self.wait(
             &format!("{address} to load"),
+            r#"document.readyState === "complete""#,
+        );
+    }
+
+    /// Give the page a window of this size, in CSS pixels.
+    pub fn size(&mut self, width: u32, height: u32) {
+        self.tell(
+            "Emulation.setDeviceMetricsOverride",
+            json!({
+                "width": width, "height": height,
+                "deviceScaleFactor": 1, "mobile": false,
+            }),
+        );
+    }
+
+    /// Press a key, as a person at a keyboard does: `Tab`, `Enter` or
+    /// `Escape`, with Shift held where `shift` says so.
+    pub fn press(&mut self, key: &str, shift: bool) {
+        let (code, text) = match key {
+            "Tab" => (9, None),
+            "Enter" => (13, Some("\r")),
+            "Escape" => (27, None),
+            other => panic!("no such key here: {other}"),
+        };
+        let mut down = json!({
+            "type": "rawKeyDown", "key": key, "code": key,
+            "windowsVirtualKeyCode": code, "nativeVirtualKeyCode": code,
+            "modifiers": if shift { 8 } else { 0 },
+        });
+        self.tell("Input.dispatchKeyEvent", down.clone());
+        if let Some(text) = text {
+            self.tell(
+                "Input.dispatchKeyEvent",
+                json!({"type": "char", "text": text}),
+            );
+        }
+        down["type"] = json!("keyUp");
+        self.tell("Input.dispatchKeyEvent", down);
+    }
+
+    /// Have the page's reader ask something of it, as a setting of their
+    /// own does: `prefers-reduced-motion` to be `reduce`, say. What
+    /// `USHER_SCHEME` asks for stands beside it.
+    pub fn prefers(&mut self, feature: &str, value: &str) {
+        let mut features = vec![json!({"name": feature, "value": value})];
+        if let Ok(scheme) = std::env::var("USHER_SCHEME") {
+            features
+                .push(json!({"name": "prefers-color-scheme", "value": scheme}));
+        }
+        self.tell("Emulation.setEmulatedMedia", json!({"features": features}));
+    }
+
+    /// Load the page again, as it is addressed now.
+    pub fn reload(&mut self) {
+        self.tell("Page.reload", json!({}));
+        self.wait(
+            "the page to load again",
             r#"document.readyState === "complete""#,
         );
     }

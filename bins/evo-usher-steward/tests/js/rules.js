@@ -52,11 +52,6 @@ const snapshot = {
 };
 const shown = compose(snapshot);
 hold("a shelf with nothing on it is not shown", shown.map((s) => s.id), ["a.first", "c.last"]);
-hold(
-  "the shelves a shell names stand first",
-  compose(snapshot, ["z.unknown", "c.last"]).map((s) => s.id),
-  ["c.last", "a.first"],
-);
 hold("the shelf's own label", shown[0].label, "First");
 hold(
   "a stocking at the size it asked for",
@@ -84,6 +79,87 @@ hold(
   "k.wide cannot be drawn at a size the shelf takes",
 );
 hold("nothing said, nothing shown", compose(undefined), []);
+
+// Which page of the face a stocking stands on.
+const { paginate, pageOf, fragmentOf, REST } = await import(
+  "/org.evoframework.usher.shell/pages.js"
+);
+/** A page as its id, and each of its shelves with the kinds on it. */
+const laid = (pages) =>
+  pages.map((page) => [
+    page.id,
+    page.shelves.map((s) => [s.id, s.stockings.map((stocking) => stocking.widget)]),
+  ]);
+const named = [
+  { id: "one", label: "One", shelves: [{ shelf: "c.last", widgets: ["k.two"] }] },
+  { id: "none", label: "None", shelves: [{ shelf: "b.empty" }, { shelf: "z.unknown" }] },
+  {
+    id: "two",
+    label: "Two",
+    shelves: [{ shelf: "a.first" }, { shelf: "c.last", widgets: ["k.two", "k.gone"] }],
+  },
+];
+const pages = paginate(snapshot, named);
+hold(
+  "a page carries the shelves it names, and of a shelf the kinds it names",
+  laid(pages).slice(0, 2),
+  [
+    ["one", [["c.last", ["k.two"]]]],
+    // What stands on an earlier page does not stand on a later one too.
+    ["two", [["a.first", ["k.one", "k.two"]], ["c.last", ["k.gone"]]]],
+  ],
+);
+hold("a page with nothing stocked is not offered", pages.map((page) => page.id), ["one", "two", REST.id]);
+hold("what no page names stands on a last one", laid(pages)[2], [REST.id, [["c.last", ["k.wide"]]]]);
+hold("a page is called what it is named", pages.map((page) => page.label), ["One", "Two", REST.label]);
+hold(
+  "with no page named, all of it stands on one",
+  laid(paginate(snapshot)),
+  [[REST.id, [["a.first", ["k.one", "k.two"]], ["c.last", ["k.two", "k.gone", "k.wide"]]]]],
+);
+hold(
+  "what is no page is passed over",
+  laid(
+    paginate(snapshot, [
+      { id: "Not An Id", label: "x", shelves: [{ shelf: "a.first" }] },
+      { id: REST.id, label: "x", shelves: [{ shelf: "a.first" }] },
+      { id: "unnamed", shelves: [{ shelf: "a.first" }] },
+      { id: "one", label: "One", shelves: [{ shelf: "a.first" }] },
+      { id: "one", label: "Again", shelves: [{ shelf: "c.last" }] },
+    ]),
+  ).map(([id]) => id),
+  ["one", REST.id],
+);
+hold("a list that is none", laid(paginate(snapshot, { id: "one" })).map(([id]) => id), [REST.id]);
+hold("nothing stocked, no page", paginate(undefined, named), []);
+
+// Which page an address asks for.
+hold("a page's address", fragmentOf("two"), "#/two");
+hold("the page named", pageOf("#/two", pages), "two");
+hold("no fragment, the first page", pageOf("", pages), "one");
+hold("a page that is not offered, the first", pageOf("#/none", pages), "one");
+hold("something that is no page's address, the first", pageOf("#/two/", pages), "one");
+hold("no page at all", pageOf("#/two", []), null);
+
+// What the face wears: the mark, and the name beside it, in every place
+// that asks for them.
+const { mark, wearBrand, NAME } = await import("/org.evoframework.usher.shell/brand.js");
+hold("the mark's room", mark().getAttribute("viewBox"), "0 0 32 32");
+hold("the mark says nothing to a reader of the screen", mark().getAttribute("aria-hidden"), "true");
+const places = document.createElement("div");
+for (const tag of ["h1", "p", "span"]) {
+  const place = document.createElement(tag);
+  if (tag !== "span") place.setAttribute("data-brand", "");
+  place.textContent = "before";
+  places.append(place);
+}
+wearBrand(places);
+hold(
+  "every place that asks wears the mark and the name, and no other",
+  [...places.children].map((place) => [place.firstElementChild?.tagName ?? null, place.textContent]),
+  [["svg", NAME], ["svg", NAME], [null, "before"]],
+);
+hold("the same mark in every place", places.children[0].innerHTML, places.children[1].innerHTML);
 
 // The method an operation is asked on.
 hold("a description is read", methodOf("describe_ui_stockings"), "GET");

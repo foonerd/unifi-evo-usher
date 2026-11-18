@@ -38,6 +38,12 @@
   box-sizing: border-box;
 }
 
+/* What is hidden is not shown, whatever else is said of it: a page that
+   is not the one asked for, a menu with nowhere to go. */
+[hidden] {
+  display: none !important;
+}
+
 /* The backdrop: the page's colour, with a glow at two corners. Where the
    glow is strongest it is the theme's `backdrop-glow` and no lighter. */
 body {
@@ -72,8 +78,11 @@ body {
   backdrop-filter: blur(var(--blur, 14px));
 }
 
-.bar h1 {
-  display: flex;
+/* Whose face this is: the mark, and the name beside it. The mark is a
+   voucher in the theme's own colour, the signal on it in the colour the
+   theme writes on that. */
+.brand {
+  display: inline-flex;
   align-items: center;
   gap: 0.625rem;
   margin: 0;
@@ -82,18 +91,62 @@ body {
   letter-spacing: 0.01em;
 }
 
-/* The usher's mark: a square of the theme's own colour. */
-.bar h1::before {
-  content: "";
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: 0.5rem;
-  background: linear-gradient(
-    140deg,
-    var(--primary),
-    color-mix(in oklab, var(--primary) 50%, var(--background))
-  );
-  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--foreground) 30%, transparent);
+.mark {
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+}
+
+.mark-slip {
+  fill: var(--primary);
+}
+
+.mark-signal {
+  fill: none;
+  stroke: var(--primary-foreground);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.mark-point {
+  fill: var(--primary-foreground);
+}
+
+/* The menu: an entry for each page, in a row beside the name. */
+#menu ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+#menu a {
+  display: flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0 0.875rem;
+  border-radius: calc(var(--radius, 0.75rem) - 2px);
+  color: var(--evo-text);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+#menu a:hover {
+  background: var(--evo-hover);
+}
+
+/* The page that is shown: lit, and marked by a line under it, so that it
+   is told from the others by more than its colour. */
+#menu a[aria-current="page"] {
+  background: var(--evo-lit);
+  box-shadow: inset 0 -3px 0 var(--primary);
+}
+
+/* The button the menu folds into where the screen is narrow. */
+#menu-button {
+  display: none;
 }
 
 /* How the line to the steward stands: a word, and a light before it. */
@@ -101,9 +154,38 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  margin: 0;
+  margin: 0 0 0 auto;
   color: var(--evo-text-muted);
   font-size: 0.875rem;
+}
+
+/* A narrow screen: the name and the button, the line to the steward
+   under them, and under that the menu while it is open, an entry to a
+   row. */
+@media (max-width: 47.99rem) {
+  #menu-button {
+    display: inline-flex;
+    align-items: center;
+    margin-left: auto;
+  }
+
+  #menu,
+  .bar p {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+
+  #menu {
+    order: 1;
+  }
+
+  #menu:not(.open) {
+    display: none;
+  }
+
+  #menu ul {
+    flex-direction: column;
+  }
 }
 
 .bar p::before {
@@ -133,12 +215,28 @@ main {
   padding: calc(1.5 * var(--evo-gap)) var(--evo-gap) calc(3 * var(--evo-gap));
 }
 
+/* A page is headed by what the menu calls it. */
+.page > h2 {
+  margin: 0 0 var(--evo-gap) 0.25rem;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+/* A person who comes to a page stands at its heading. It is nothing to
+   press, so it wears no ring: the entry in the menu says which page it
+   is. */
+.page > h2:focus {
+  outline: none;
+}
+
 .shelf {
   margin-bottom: calc(2 * var(--evo-gap));
 }
 
-/* A shelf is named in small capitals, on the page itself. */
-.shelf h2 {
+/* A shelf that shares its page with another is named in small capitals,
+   on the page itself. */
+.shelf-name {
   margin: 0 0 0.625rem 0.25rem;
   color: var(--evo-text-muted);
   font-size: 0.75rem;
@@ -310,6 +408,10 @@ dialog p {
   margin: 0 0 0.5rem;
 }
 
+dialog .brand {
+  margin-bottom: 1rem;
+}
+
 [role="alert"] {
   min-height: 1.5rem;
   color: var(--destructive);
@@ -322,7 +424,8 @@ dialog p {
   button,
   input,
   select,
-  label {
+  label,
+  #menu a {
     transition:
       background-color 140ms ease,
       border-color 140ms ease,
