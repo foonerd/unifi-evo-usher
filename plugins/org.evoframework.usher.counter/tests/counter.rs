@@ -591,11 +591,35 @@ async fn a_front_desk_is_offered_the_enabled_types_and_told_the_default() {
         );
     }
 
+    // The administrator says in which order the types stand at the
+    // counter; an order names every type.
+    let order = json!(["Week guest", "Contractor", "House guests"]);
+    assert_eq!(
+        ask(&counter, "order_types", json!({ "names": order }))
+            .await
+            .unwrap(),
+        json!({ "order": order })
+    );
+    let refused = ask(
+        &counter,
+        "order_types",
+        json!({ "names": ["House guests", "Week guest"] }),
+    )
+    .await;
+    assert!(
+        matches!(&refused, Err(Refusal::AsAsked(why)) if why.contains("names every voucher type")),
+        "{refused:?}"
+    );
+    let offered =
+        json!({ "types": [week, house_guests()], "default": "Week guest" });
+    assert_eq!(ask(&counter, "offered", json!({})).await.unwrap(), offered);
+
     // What was set is there when the plugin is started again.
     let again = Counter::open(dir.path(), None).unwrap();
+    assert_eq!(ask(&again, "offered", json!({})).await.unwrap(), offered);
     assert_eq!(
-        ask(&again, "offered", json!({})).await.unwrap(),
-        json!({ "types": [house_guests(), week], "default": "Week guest" })
+        ask(&again, "types", json!({})).await.unwrap()["types"],
+        json!([week, contractor, house_guests()])
     );
 }
 

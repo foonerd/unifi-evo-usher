@@ -20,12 +20,13 @@
 //! point of issue with a single button issues, which therefore has
 //! nothing to choose and is enabled.
 //!
-//! It answers nine requests, each with a JSON payload:
+//! It answers ten requests, each with a JSON payload:
 //!
 //! - `types`: answers `{"types": [type], "default": "..." or null,
 //!   "disabled": ["..."]}`: every type in the order they were first
-//!   defined, the name of the default, and the names of the types that
-//!   are not enabled for the front desk. A type is `{"name", "minutes",
+//!   defined, or the order the administrator put them in, the name of
+//!   the default, and the names of the types that are not enabled for
+//!   the front desk. A type is `{"name", "minutes",
 //!   "guests", "megabytes", "down_kbps", "up_kbps"}` with null where it
 //!   sets no such limit, and with `"up_to_days": true` or
 //!   `"up_to_guests": true` where the days or the devices are chosen:
@@ -41,6 +42,9 @@
 //!   "default"}`.
 //! - `set_default`: `{"name": "..."}` makes a type the default and
 //!   answers `{"default": "..."}`.
+//! - `order_types`: `{"names": ["..."]}`, every type named once, puts the
+//!   types in that order, the one they stand in at the counter, and
+//!   answers `{"order": ["..."]}`.
 //! - `hand`: `{"type": "..."}`, with `"days"` and `"guests"` where the
 //!   type has them chosen, answers `{"voucher": {"id", "code"},
 //!   "type": type, "network": "...", "join": {...}, "held": bool, "at":
@@ -87,13 +91,14 @@ pub use types::{Types, Unkept, VoucherType, DAY, LONGEST_NAME, MOST};
 pub const NAME: &str = "org.evoframework.usher.counter";
 
 /// The requests the plugin takes.
-pub const REQUESTS: [&str; 9] = [
+pub const REQUESTS: [&str; 10] = [
     "types",
     "offered",
     "put_type",
     "drop_type",
     "enable_type",
     "set_default",
+    "order_types",
     "hand",
     "assign",
     "handed",

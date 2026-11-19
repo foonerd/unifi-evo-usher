@@ -8,6 +8,10 @@
 //! So the default is a type with nothing to choose, and one that is
 //! enabled.
 //!
+//! The types stand in an order, the one they are offered in at the
+//! counter: the order they were defined in, until the administrator
+//! says another.
+//!
 //! The types are kept in a file that is replaced whole and synced before
 //! a change is answered.
 
@@ -394,6 +398,36 @@ impl Types {
         self.keep(next.settled(" and cannot be disabled")?)
     }
 
+    /// Put the types in the order of `names`, which is the order they
+    /// stand in at the counter. Every type is named, and once.
+    pub fn reorder(&mut self, names: &[String]) -> Result<(), Unkept> {
+        let mut next = self.kept.clone();
+        let mut ordered = Vec::with_capacity(next.types.len());
+        for name in names {
+            if ordered.iter().any(|kind: &VoucherType| kind.name == *name) {
+                return Err(Unkept::Rule(format!(
+                    "'{name}' is named twice in the order"
+                )));
+            }
+            let Some(kind) = self.find(name) else {
+                return Err(Unkept::Rule(format!(
+                    "there is no voucher type '{name}'"
+                )));
+            };
+            ordered.push(kind.clone());
+        }
+        if ordered.len() != next.types.len() {
+            return Err(Unkept::Rule(format!(
+                "an order names every voucher type: there are {}, and {} \
+                 were named",
+                next.types.len(),
+                ordered.len()
+            )));
+        }
+        next.types = ordered;
+        self.keep(next)
+    }
+
     /// Make the type of that name the default. Only a type with nothing
     /// to choose, enabled for the front desk, can be it.
     pub fn set_default(&mut self, name: &str) -> Result<(), Unkept> {
@@ -682,6 +716,66 @@ mod tests {
         assert!(types.drop_named("Contractor").unwrap());
         types.put(up_to("Contractor", 30)).unwrap();
         assert!(types.is_enabled("Contractor"));
+    }
+
+    #[test]
+    fn the_types_stand_in_the_order_the_administrator_says() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut types = Types::open(dir.path()).unwrap();
+        for name in ["Day guest", "Week guest", "Contractor"] {
+            types.put(kind(name, DAY)).unwrap();
+        }
+        types.enable("Week guest", false).unwrap();
+        let order = |names: &[&str]| -> Vec<String> {
+            names.iter().map(|name| name.to_string()).collect()
+        };
+        let names = |types: &Types| -> Vec<String> {
+            types.all().iter().map(|kind| kind.name.clone()).collect()
+        };
+
+        types
+            .reorder(&order(&["Contractor", "Week guest", "Day guest"]))
+            .unwrap();
+        assert_eq!(names(&types), ["Contractor", "Week guest", "Day guest"]);
+        // What a front desk is offered follows it; the default and what
+        // is disabled are the same types as before.
+        let offered: Vec<_> = types
+            .offered()
+            .iter()
+            .map(|kind| kind.name.clone())
+            .collect();
+        assert_eq!(offered, ["Contractor", "Day guest"]);
+        assert_eq!(types.default(), Some("Day guest"));
+        assert_eq!(types.disabled(), ["Week guest"]);
+        // The order is kept, and a type defined later stands last.
+        let mut types = Types::open(dir.path()).unwrap();
+        assert_eq!(names(&types), ["Contractor", "Week guest", "Day guest"]);
+        types.put(kind("Walk-in", 120)).unwrap();
+        assert_eq!(names(&types).last().unwrap(), "Walk-in");
+
+        // An order that leaves a type out, names one twice or names one
+        // that is not there is refused, and nothing changes.
+        for (refused, said) in [
+            (
+                order(&["Contractor", "Day guest"]),
+                "names every voucher type",
+            ),
+            (
+                order(&["Contractor", "Contractor", "Day guest", "Walk-in"]),
+                "named twice",
+            ),
+            (
+                order(&["Contractor", "Week guest", "Day guest", "No such"]),
+                "no voucher type 'No such'",
+            ),
+        ] {
+            let why = rule(types.reorder(&refused));
+            assert!(why.contains(said), "{why}");
+        }
+        assert_eq!(
+            names(&types),
+            ["Contractor", "Week guest", "Day guest", "Walk-in"]
+        );
     }
 
     #[test]

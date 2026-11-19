@@ -901,11 +901,11 @@ fn an_administrator_defines_the_voucher_types_the_front_desk_is_offered() {
     let a_row = |name: &str, gives: &str, default: &str| {
         json!({
             "name": name, "gives": gives, "enabled": true, "says": "Enabled",
-            "default": default, "can": ["Edit", "Delete"],
+            "default": default, "can": ["Up", "Down", "Edit", "Delete"],
         })
     };
     let with_default = |mut row: Value| {
-        row["can"] = json!(["Make default", "Edit", "Delete"]);
+        row["can"] = json!(["Make default", "Up", "Down", "Edit", "Delete"]);
         row
     };
 
@@ -963,7 +963,7 @@ fn an_administrator_defines_the_voucher_types_the_front_desk_is_offered() {
             return [onScreen(types.querySelector("form")), [...types.querySelectorAll("button")].filter(onScreen).map((b) => b.textContent)];
             "#
         ),
-        json!([false, ["Add a voucher type", "Edit", "Delete"]])
+        json!([false, ["Add a voucher type", "Up", "Down", "Edit", "Delete"]])
     );
     browser.act(&type_form(
         json!({
@@ -1108,7 +1108,7 @@ fn an_administrator_defines_the_voucher_types_the_front_desk_is_offered() {
         json!({
             "name": "Contractor", "gives": "up to 30 days; up to 4 devices",
             "enabled": false, "says": "Disabled", "default": "",
-            "can": ["Edit", "Delete"],
+            "can": ["Up", "Down", "Edit", "Delete"],
         })
     );
     assert_eq!(
@@ -1142,15 +1142,18 @@ fn an_administrator_defines_the_voucher_types_the_front_desk_is_offered() {
         const ring = getComputedStyle(at);
         return [at.getAttribute("aria-label"), ring.outlineStyle, ring.outlineWidth];
     "#;
-    browser.press("Tab", false);
-    assert_eq!(browser.look(at), json!(["Edit Contractor", "solid", "3px"]));
-    browser.press("Tab", false);
-    assert_eq!(
-        browser.look(at),
-        json!(["Delete Contractor", "solid", "3px"])
-    );
-    browser.press("Tab", true);
-    browser.press("Tab", true);
+    for label in [
+        "Move Contractor up",
+        "Move Contractor down",
+        "Edit Contractor",
+        "Delete Contractor",
+    ] {
+        browser.press("Tab", false);
+        assert_eq!(browser.look(at), json!([label, "solid", "3px"]));
+    }
+    for _ in 0..4 {
+        browser.press("Tab", true);
+    }
     assert_eq!(
         browser.look(at),
         json!(["Contractor, enabled for the front desk", "solid", "3px"])
@@ -1171,6 +1174,97 @@ fn an_administrator_defines_the_voucher_types_the_front_desk_is_offered() {
             "Contractor is enabled: the front desk is offered it.",
             false
         ])
+    );
+
+    // The types stand at the counter in the order of the list, and the
+    // administrator moves one up or down it. The first cannot go up and
+    // the last cannot go down.
+    let names = r#"return [...widget("usher.types").querySelectorAll("tbody tr")].map((row) => row.cells[0].textContent);"#;
+    let ends = r#"
+        const rows = [...widget("usher.types").querySelectorAll("tbody tr")];
+        const off = (row, way) => row.querySelector(`[data-key^="${way} "]`).disabled;
+        return rows.map((row) => [off(row, "up"), off(row, "down")]);
+    "#;
+    assert_eq!(
+        browser.look(names),
+        json!(["Day guest", "Contractor", "Week guest"])
+    );
+    assert_eq!(
+        browser.look(ends),
+        json!([[true, false], [false, false], [false, true]])
+    );
+    browser.act(
+        r#"widget("usher.types").querySelector(`[aria-label="Move Week guest up"]`).focus();"#,
+    );
+    browser.press("Enter", false);
+    browser.wait(
+        "the type one place up",
+        r#"widget("usher.types").querySelectorAll("tbody tr")[1].cells[0].textContent === "Week guest""#,
+    );
+    assert_eq!(
+        browser.look(said),
+        json!(["Week guest is moved up.", false])
+    );
+    // Whoever moved it is still at its button, and moves it again.
+    assert_eq!(
+        browser.look(at),
+        json!(["Move Week guest up", "solid", "3px"])
+    );
+    browser.press("Enter", false);
+    browser.wait(
+        "the type first",
+        r#"widget("usher.types").querySelectorAll("tbody tr")[0].cells[0].textContent === "Week guest""#,
+    );
+    assert_eq!(
+        browser.look(names),
+        json!(["Week guest", "Day guest", "Contractor"])
+    );
+    assert_eq!(
+        browser.look(ends),
+        json!([[true, false], [false, false], [false, true]])
+    );
+    // At the top it can go no further up: whoever moved it is at the
+    // button that moves it down.
+    assert_eq!(
+        browser.look(at),
+        json!(["Move Week guest down", "solid", "3px"])
+    );
+    // The counter follows, and so does what a front desk is offered.
+    browser.wait(
+        "the counter in the new order",
+        r#"widget("usher.counter").querySelector("button.usher-type strong")?.textContent === "Week guest""#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"return [...widget("usher.counter").querySelectorAll("button.usher-type strong")].map((name) => name.textContent);"#
+        ),
+        json!(["Week guest", "Day guest", "Contractor"])
+    );
+    let front_desk = steward.ask("issue.counter", "offered", json!({}));
+    assert_eq!(
+        front_desk["types"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|kind| kind["name"].clone())
+            .collect::<Vec<_>>(),
+        ["Week guest", "Day guest", "Contractor"],
+        "{front_desk}"
+    );
+    // Back where it was, for what follows.
+    browser.act(&press("Move Week guest down"));
+    browser.wait(
+        "the type one place down",
+        r#"widget("usher.types").querySelectorAll("tbody tr")[1].cells[0].textContent === "Week guest""#,
+    );
+    browser.act(&press("Move Week guest down"));
+    browser.wait(
+        "the type last again",
+        r#"widget("usher.types").querySelectorAll("tbody tr")[2].cells[0].textContent === "Week guest""#,
+    );
+    browser.wait(
+        "the counter in the first order",
+        r#"widget("usher.counter").querySelector("button.usher-type strong")?.textContent === "Day guest""#,
     );
 
     // A type is edited: the form opens with what the type is, its name

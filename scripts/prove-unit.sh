@@ -152,7 +152,8 @@ answered | jq -e '.types == [] and .default == null and .disabled == []' > /dev/
 [ "$(counter enable_type '{"name":"Stay","enabled":false}')" = 200 ] || fail "a voucher type is not disabled: $(cat "$work/answer")"
 [ "$(counter offered '{}')" = 200 ] || fail "what a front desk is offered is not told: $(cat "$work/answer")"
 answered | jq -e '(.types | map(.name)) == ["Day"] and .default == "Day"' > /dev/null || fail "a front desk is not offered the enabled types and the default: $(answered)"
-echo "  ok    a new unit has no voucher type; its administrator defines them, and a front desk is offered the enabled ones"
+[ "$(counter order_types '{"names":["Stay","Day"]}')" = 200 ] || fail "the voucher types are not put in an order: $(cat "$work/answer")"
+echo "  ok    a new unit has no voucher type; its administrator defines them and their order, and a front desk is offered the enabled ones"
 
 echo "prove-unit: what is kept"
 systemctl restart evo.service
@@ -162,7 +163,7 @@ up
 [ "$(ask pair_complete "$(jq -cn --arg code "$code" '{pair_id: "bootstrap", code: $code}')")" = 403 ] || fail "the code of the last start still pairs: $(cat "$work/answer")"
 echo "  ok    started again, the unit has a new code and takes the old one no more"
 [ "$(ask request "$(request issue.counter types '{}')" "$bearer")" = 200 ] || fail "the paired browser is refused after a restart: $(cat "$work/answer")"
-answered | jq -e '(.types | map(.name)) == ["Day", "Stay"] and .default == "Day" and .disabled == ["Stay"]' > /dev/null || fail "the voucher types, the default and what is disabled were not kept through a restart: $(answered)"
+answered | jq -e '(.types | map(.name)) == ["Stay", "Day"] and .default == "Day" and .disabled == ["Stay"]' > /dev/null || fail "the voucher types, their order, the default and what is disabled were not kept through a restart: $(answered)"
 echo "  ok    the paired browser is still answered, and the voucher types are kept as they were defined"
 
 echo "prove-unit: the protections"

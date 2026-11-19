@@ -47,6 +47,9 @@ type is the default, the first that can be becomes it. The default is
 not deleted, disabled or given a choice while another type could be the
 default: another is made the default first.
 
+The types stand in an order: the one they were defined in, until
+`order_types` says another.
+
 A request that may succeed if asked again (the controller was not
 reached, or a shelf did not answer) is refused as transient; one that
 will not succeed as asked, as permanent.
@@ -118,6 +121,18 @@ description = """
 Make a voucher type the default. Payload `{ name: string }`. Returns `{
 default: string }`. Refused for a type with days or devices to choose,
 and for one that is disabled.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "order_types"
+description = """
+Put the voucher types in an order: the one they stand in at the counter
+and in what `types` and `offered` return. Payload `{ names: [string] }`,
+every type named once. Returns `{ order: [string] }`. A type defined
+later stands last. Refused for an order that leaves a type out, names
+one twice, or names one that is not there.
 """
 payload_in = "json"
 payload_out = "json"

@@ -481,6 +481,15 @@ fn an_administrator_defines_the_voucher_types_a_front_desk_is_offered() {
             "{request}: {refused}"
         );
     }
+    // The types stand at the counter in the order the administrator
+    // says.
+    let order = json!(["Week guest", "Contractor", "Day guest"]);
+    assert_eq!(
+        ask(&steward, "order_types", json!({ "names": order })),
+        json!({ "order": order })
+    );
+    let offered = json!({ "types": [week, day], "default": "Week guest" });
+    assert_eq!(ask(&steward, "offered", json!({})), offered);
     assert_eq!(steward.stop(), Some(0));
 
     // All of it is kept through a restart.
@@ -489,7 +498,7 @@ fn an_administrator_defines_the_voucher_types_a_front_desk_is_offered() {
     assert_eq!(
         ask(&steward, "types", json!({})),
         json!({
-            "types": [contractor, day, week],
+            "types": [week, contractor, day],
             "default": "Week guest",
             "disabled": ["Contractor"],
         })

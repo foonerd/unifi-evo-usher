@@ -155,6 +155,12 @@ struct Handing {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct Ordering {
+    names: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Enabling {
     name: String,
     enabled: bool,
@@ -312,6 +318,12 @@ impl Counter {
                     "enabled": enabling.enabled,
                     "default": types.default(),
                 }))
+            }
+            "order_types" => {
+                let ordering: Ordering = asked(payload)?;
+                let mut types = self.types.lock().expect("the types' lock");
+                types.reorder(&ordering.names).map_err(unkept)?;
+                Ok(json!({ "order": ordering.names }))
             }
             "set_default" => {
                 let naming: Naming = asked(payload)?;

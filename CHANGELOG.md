@@ -2,6 +2,11 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## [0.3.11] - 2026-11-19
+
+- The administrator says in which order the voucher types stand at the counter: "Up" and "Down" move a type in the list on the Voucher types page, and the counter follows at once. `issue.counter` takes `order_types`, which names every type once; `types` and `offered` return the types in that order, and a type defined later stands last. The order is kept through a restart
+- Whoever moves a type by the keyboard stays at its button, and at the button for the other way where the type has reached an end of the list
+
 ## [0.3.10] - 2026-11-19
 
 - The voucher types are the administrator's to define, on the Voucher types page. A unit comes with none. The configuration file of predefined types that 0.3.9 read, and the three types its package brought, are gone: a file left under `/etc/evo/plugins.d/` is read no more

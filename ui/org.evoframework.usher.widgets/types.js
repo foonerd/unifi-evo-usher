@@ -376,14 +376,36 @@ export function types(element, context) {
   );
 
   /**
+   * Move a type one place in the order the types stand in, here and at
+   * the front desk.
+   *
+   * @param {string} called
+   * @param {-1 | 1} by up the list, or down it
+   */
+  const move = (called, by) => {
+    const names = [...known];
+    const from = names.indexOf(called);
+    const to = from + by;
+    if (from < 0 || to < 0 || to >= names.length) return;
+    [names[from], names[to]] = [names[to], names[from]];
+    change(
+      "order_types",
+      { names },
+      by < 0 ? `${called} is moved up.` : `${called} is moved down.`,
+    );
+  };
+
+  /**
    * One type in the list: what it is, whether the front desk is offered
    * it, whether it is the default, and what can be done with it.
    *
    * @param {any} type
    * @param {boolean} enabled
    * @param {boolean} standard whether it is the default
+   * @param {number} place where it stands in the list, from 0
+   * @param {number} count how many types the list has
    */
-  const row = (type, enabled, standard) => {
+  const row = (type, enabled, standard, place, count) => {
     const called = String(type.name);
     const fixed = type.up_to_days !== true && type.up_to_guests !== true;
     const offered = /** @type {HTMLInputElement} */ (
@@ -445,6 +467,30 @@ export function types(element, context) {
         el(
           "div",
           { class: "usher-options" },
+          el(
+            "button",
+            {
+              type: "button",
+              class: "quiet",
+              "data-key": `up ${called}`,
+              "aria-label": `Move ${called} up`,
+              disabled: place === 0,
+              onclick: () => move(called, -1),
+            },
+            "Up",
+          ),
+          el(
+            "button",
+            {
+              type: "button",
+              class: "quiet",
+              "data-key": `down ${called}`,
+              "aria-label": `Move ${called} down`,
+              disabled: place === count - 1,
+              onclick: () => move(called, 1),
+            },
+            "Down",
+          ),
           el(
             "button",
             {
@@ -519,8 +565,14 @@ export function types(element, context) {
             el(
               "tbody",
               {},
-              ...all.map((/** @type {any} */ type) =>
-                row(type, !disabled.has(String(type.name)), type.name === standard),
+              ...all.map((/** @type {any} */ type, /** @type {number} */ place) =>
+                row(
+                  type,
+                  !disabled.has(String(type.name)),
+                  type.name === standard,
+                  place,
+                  all.length,
+                ),
               ),
             ),
           ),
@@ -528,15 +580,23 @@ export function types(element, context) {
         el(
           "p",
           { class: "usher-hint" },
-          "The front desk is offered the enabled types. The default is the type a point of issue with one button issues, so it has nothing to choose.",
+          "The front desk is offered the enabled types, in the order of this list. The default is the type a point of issue with one button issues, so it has nothing to choose.",
         ),
       );
       if (at !== undefined) {
-        for (const control of body.querySelectorAll("[data-key]")) {
-          if (/** @type {HTMLElement} */ (control).dataset.key === at) {
-            /** @type {HTMLElement} */ (control).focus();
-          }
-        }
+        // A type moved to an end of the list can go no further that
+        // way: whoever moved it is then at the button for the other.
+        const other = at.startsWith("up ")
+          ? `down ${at.slice(3)}`
+          : at.startsWith("down ")
+            ? `up ${at.slice(5)}`
+            : at;
+        const controls = /** @type {HTMLButtonElement[]} */ ([
+          ...body.querySelectorAll("[data-key]"),
+        ]);
+        const there = (/** @type {string} */ key) =>
+          controls.find((control) => control.dataset.key === key && !control.disabled);
+        (there(at) ?? there(other))?.focus();
       }
     } catch (why) {
       if (gone) return;
