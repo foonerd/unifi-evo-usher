@@ -601,7 +601,8 @@ impl Counter {
             .await?;
         if put["added"] != 1 {
             return Err(Refusal::AsAsked(
-                "the voucher is held for handing out already, or was                  handed out here before"
+                "the voucher is held for handing out already, or was \
+                 handed out here before"
                     .to_string(),
             ));
         }

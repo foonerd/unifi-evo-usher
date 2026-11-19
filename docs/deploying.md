@@ -17,7 +17,7 @@ Every command and setting here is marked with where it comes from:
 
 ## In Docker
 
-The image is `ghcr.io/foonerd/unifi-evo-usher:<version>`, for `amd64` and `arm64`. No tag but the version is published: a unit runs the version it is told to.
+A release of this repository publishes the image as `ghcr.io/foonerd/unifi-evo-usher:<version>`, for `amd64` and `arm64`, under the version and no other tag: a unit runs the version it is told to. A version that is not among the repository's releases has no published image; `scripts/image.sh --here` makes one on the machine it is run on.
 
 `packaging/docker/compose.yaml` runs the unit by itself. **Proven.**
 

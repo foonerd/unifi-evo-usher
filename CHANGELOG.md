@@ -12,6 +12,8 @@ All notable changes to unifi-evo-usher are recorded here. The format follows Kee
 - An example for each of nginx, Apache httpd, Caddy and Traefik under `packaging/proxy/`: the proxy holds the site's certificate, speaks HTTPS to the unit, believes it by the unit's own authority, and passes the WebSocket on
 - `scripts/prove-proxy.sh` proves the Compose file and the four examples as they stand, and CI runs it on every push
 - `scripts/wiki-pictures.sh` makes the pictures of the face the manual shows, from the face itself
+- The refusal of a voucher that is held or was handed out already is written without the run of blanks it had
+- The guide says that the image is published by a release of the repository, and how one is made from a checkout
 
 ## [0.3.11] - 2026-11-19
 
