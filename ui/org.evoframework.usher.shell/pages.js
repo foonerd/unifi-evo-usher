@@ -26,7 +26,11 @@ import { compose } from "./compose.js";
 /** What a page's id is made of. */
 const ID = /^[a-z][a-z0-9-]*$/;
 
-/** The page for what is stocked and named by no page. */
+/**
+ * The page for what is stocked and named by no page. What a page is
+ * called on the screen is said by the words, under the page's id; the
+ * label here is what it is called where they have no text for it.
+ */
 export const REST = { id: "more", label: "More" };
 
 /**

@@ -1,14 +1,16 @@
-// The controller: which controller the vouchers are minted on, looked at
-// and set from a screen.
+// The controller: which controller makes the vouchers, looked at and set
+// from a screen.
 //
 // Setting one takes two steps, as the shelf has them. First the address:
-// the plugin shakes hands with what stands there and says which
-// certificate it presents, sending it nothing. Then the key: it is sent
-// only to a controller that is believed, on the public authorities' word
-// or on the fingerprint the operator has compared.
+// what stands there is connected to, and its certificate is shown,
+// while nothing is sent to it. Then the key: it is sent only to a
+// controller that is trusted, because a public certificate authority
+// confirms its certificate or because the operator has compared its
+// fingerprint.
 
 import { el, id, words } from "./dom.js";
 import { CONTROLLER_SET } from "./networks.js";
+import { say, sayOf } from "./words.js";
 
 /**
  * A fingerprint as it is compared by eye: pairs of digits, colons between.
@@ -41,7 +43,7 @@ export function controller(element, context) {
   };
 
   /** @param {string} text @param {boolean} [trouble] */
-  const say = (text, trouble = false) => {
+  const tell = (text, trouble = false) => {
     if (gone) return;
     said.textContent = text;
     said.classList.toggle("usher-trouble", trouble);
@@ -56,11 +58,11 @@ export function controller(element, context) {
    */
   const during = async (button, waiting, run) => {
     if (button) button.disabled = true;
-    say(waiting);
+    tell(waiting);
     try {
       await run();
     } catch (why) {
-      say(words(why), true);
+      tell(words(why), true);
     } finally {
       if (button) button.disabled = false;
     }
@@ -68,53 +70,59 @@ export function controller(element, context) {
 
   /** The controller that is set. @param {any} info */
   const showSet = (info) => {
-    const sites = el("dd", {}, "Asking.");
+    const sites = el("dd", {}, say("controller.asking"));
     show(
       el(
         "dl",
         {},
-        el("dt", {}, "Address"),
+        el("dt", {}, say("controller.address")),
         el("dd", { class: "usher-address" }, String(info.base)),
-        el("dt", {}, "Version"),
-        el("dd", {}, info.version ? String(info.version) : "It does not answer."),
-        el("dt", {}, "Believed on"),
-        el(
-          "dd",
-          {},
-          info.held
-            ? "the one certificate it is held to"
-            : "the word of the public authorities",
-        ),
-        el("dt", {}, "Sites"),
+        el("dt", {}, say("controller.version")),
+        el("dd", {}, info.version ? String(info.version) : say("controller.no_answer")),
+        el("dt", {}, say("controller.trusted")),
+        el("dd", {}, info.held ? say("controller.trusted_compared") : say("controller.trusted_public")),
+        el("dt", {}, say("controller.sites")),
         sites,
       ),
       el(
         "div",
         { class: "row" },
-        el("button", { type: "button", class: "quiet", onclick: () => load() }, "Ask again"),
+        el(
+          "button",
+          { type: "button", class: "quiet", onclick: () => load() },
+          say("common.ask_again"),
+        ),
         el(
           "button",
           { type: "button", class: "quiet", onclick: () => showAddress(String(info.base)) },
-          "Set another",
+          say("controller.set_another"),
         ),
       ),
     );
     if (info.trouble) {
-      say(String(info.trouble), true);
-      sites.textContent = "Not known while it does not answer.";
+      // Why it does not answer, under its code where the language has
+      // words for it, and in the controller plugin's own where not.
+      const why = String(info.trouble);
+      tell(
+        (typeof info.trouble_code === "string"
+          ? sayOf("refusal", info.trouble_code, { words: why })
+          : null) ?? why,
+        true,
+      );
+      sites.textContent = say("controller.sites_unknown_silent");
       return;
     }
-    say("");
+    tell("");
     ask("sites")
       .then((answer) => {
         if (gone) return;
         const names = (answer?.sites ?? []).map((/** @type {any} */ site) => String(site.name));
-        sites.textContent = names.length > 0 ? names.join(", ") : "It has none.";
+        sites.textContent = names.length > 0 ? names.join(", ") : say("controller.sites_none");
       })
       .catch((why) => {
         if (gone) return;
-        sites.textContent = "Not known.";
-        say(words(why), true);
+        sites.textContent = say("controller.sites_unknown");
+        tell(words(why), true);
       });
   };
 
@@ -134,7 +142,7 @@ export function controller(element, context) {
       })
     );
     const look = /** @type {HTMLButtonElement} */ (
-      el("button", { type: "submit" }, "Look at what stands there")
+      el("button", { type: "submit" }, say("controller.check"))
     );
     show(
       el(
@@ -143,24 +151,20 @@ export function controller(element, context) {
           onsubmit: (event) => {
             event.preventDefault();
             const asked = field.value.trim();
-            during(look, "Shaking hands. Nothing is sent to it.", async () => {
+            during(look, say("controller.checking"), async () => {
               const presented = await ask("probe", { base: asked });
-              say("");
+              tell("");
               showKey(asked, presented);
             });
           },
         },
-        el("label", { for: address }, "Address of the controller's API"),
+        el("label", { for: address }, say("controller.api_address")),
         field,
-        el(
-          "p",
-          { class: "usher-hint" },
-          "On a console this is https://, the console's name or address, then /proxy/network/integration.",
-        ),
+        el("p", { class: "usher-hint" }, say("controller.api_address_hint")),
         el("div", { class: "row" }, look),
       ),
     );
-    say("");
+    tell("");
   };
 
   /**
@@ -182,14 +186,16 @@ export function controller(element, context) {
         spellcheck: "false",
       })
     );
-    const set = /** @type {HTMLButtonElement} */ (el("button", { type: "submit" }, "Set"));
+    const set = /** @type {HTMLButtonElement} */ (
+      el("button", { type: "submit" }, say("controller.set"))
+    );
     show(
       el(
         "form",
         {
           onsubmit: (event) => {
             event.preventDefault();
-            during(set, "Asking the controller.", async () => {
+            during(set, say("common.asking_controller"), async () => {
               /** @type {Record<string, string>} */
               const asked = { base, key: field.value };
               // A certificate nobody vouches for is held to its fingerprint.
@@ -204,37 +210,34 @@ export function controller(element, context) {
           },
         },
         el("p", { class: "usher-address" }, base),
-        el("p", {}, "It presents a certificate with this SHA-256 fingerprint:"),
+        el("p", {}, say("controller.fingerprint")),
         el("p", {}, el("code", { class: "usher-fingerprint" }, paired(presented.fingerprint))),
         presented.vouched
-          ? el("p", {}, "The public authorities vouch for it.")
+          ? el("p", {}, say("controller.confirmed"))
           : el(
               "div",
               {},
-              el(
-                "p",
-                { class: "usher-trouble" },
-                "Nobody vouches for this certificate. Compare the fingerprint with the controller's own before going on.",
-              ),
+              el("p", { class: "usher-trouble" }, say("controller.not_confirmed")),
               el(
                 "label",
                 { class: "usher-check", for: compared },
                 el("input", { id: compared, type: "checkbox", required: true }),
-                " I have compared it, and it is the controller's.",
+                " ",
+                say("controller.compared"),
               ),
             ),
-        el("label", { for: key }, "Key"),
+        el("label", { for: key }, say("controller.key")),
         field,
-        el(
-          "p",
-          { class: "usher-hint" },
-          "Made in the controller, under Settings, Control Plane, Integrations. It is sent to the usher and kept there; this page keeps none of it.",
-        ),
+        el("p", { class: "usher-hint" }, say("controller.key_hint")),
         el(
           "div",
           { class: "row" },
           set,
-          el("button", { type: "button", class: "quiet", onclick: () => showAddress(base) }, "Start again"),
+          el(
+            "button",
+            { type: "button", class: "quiet", onclick: () => showAddress(base) },
+            say("controller.start_again"),
+          ),
         ),
       ),
     );
@@ -242,8 +245,8 @@ export function controller(element, context) {
   };
 
   const load = async () => {
-    show(el("p", {}, "Loading..."));
-    say("");
+    show(el("p", {}, say("common.loading")));
+    tell("");
     try {
       const info = await ask("info");
       if (info?.set) {
@@ -256,16 +259,16 @@ export function controller(element, context) {
         el(
           "div",
           { class: "row" },
-          el("button", { type: "button", onclick: () => load() }, "Ask again"),
+          el("button", { type: "button", onclick: () => load() }, say("common.ask_again")),
         ),
       );
-      say(words(why), true);
+      tell(words(why), true);
     }
   };
 
   element.setAttribute("role", "region");
   element.setAttribute("aria-labelledby", title);
-  element.replaceChildren(el("h3", { id: title }, "Where vouchers are minted"), body, said);
+  element.replaceChildren(el("h3", { id: title }, say("controller.title")), body, said);
   load();
 
   return () => {

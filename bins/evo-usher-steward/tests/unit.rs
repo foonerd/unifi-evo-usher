@@ -213,6 +213,54 @@ fn the_env_example_names_every_variable_the_compose_files_read() {
 }
 
 #[test]
+fn a_unit_may_have_as_many_files_open_however_it_is_started() {
+    // What the steward asks for itself when it starts.
+    let source = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/files.rs"),
+    )
+    .unwrap();
+    let enough = source
+        .lines()
+        .find_map(|line| line.strip_prefix("pub const ENOUGH: u64 = "))
+        .expect("the steward says how many open files it asks for")
+        .trim_end_matches(';')
+        .replace('_', "");
+    assert_eq!(enough, "65536");
+    // The service may change no limit of its own: its file sets it.
+    let unit =
+        fs::read_to_string(packaging().join("systemd/evo.service")).unwrap();
+    assert!(
+        unit.lines()
+            .any(|line| line == format!("LimitNOFILE={enough}")),
+        "the service is given another limit than the steward asks for"
+    );
+    // A container is allowed as many, so that the steward's own raise
+    // reaches it.
+    let mut files = vec![packaging().join("docker/compose.yaml")];
+    for proxy in fs::read_dir(packaging().join("proxy")).unwrap() {
+        files.push(proxy.unwrap().path().join("compose.yaml"));
+    }
+    for file in files {
+        let text = fs::read_to_string(&file).unwrap();
+        let lines: Vec<&str> = text.lines().map(str::trim).collect();
+        let at = lines
+            .iter()
+            .position(|line| *line == "ulimits:")
+            .unwrap_or_else(|| panic!("{}: no ulimits", file.display()));
+        assert_eq!(
+            lines[at + 1..at + 4],
+            [
+                "nofile:".to_string(),
+                format!("soft: {enough}"),
+                format!("hard: {enough}")
+            ],
+            "{}",
+            file.display()
+        );
+    }
+}
+
+#[test]
 fn a_container_is_asked_whether_it_is_up_and_stopped_as_the_service_is() {
     let asked = r#"["/opt/evo/bin/evo-usher-steward", "--healthy"]"#;
     // The image asks the usher's own program, and so does every Compose

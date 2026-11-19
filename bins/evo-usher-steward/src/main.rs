@@ -10,6 +10,7 @@
 
 mod code;
 mod face;
+mod files;
 mod gate;
 mod healthy;
 mod people;
@@ -63,6 +64,14 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
     let args = evo::cli::Args::parse();
+    // Every screen joined to the unit holds a connection: the steward
+    // asks for as many open files as a large venue takes. Where it may
+    // not, it says so and starts with what it has.
+    if args.command.is_none() {
+        if let Err(why) = files::raise() {
+            eprintln!("{PROGRAM}: {why}");
+        }
+    }
     // How strict the usher is, is said when it is started. A level that
     // is mistyped stops the start: it is not taken for the laxer one.
     let named = std::env::var(people::Level::NAMED_BY).ok();

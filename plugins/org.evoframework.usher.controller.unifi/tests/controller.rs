@@ -161,8 +161,12 @@ async fn a_controller_that_is_not_believed_or_refuses_the_key_is_not_set() {
     .await;
     match refused {
         Err(Refusal::AsAsked(why)) => {
-            assert!(why.contains("refused the key"), "{why}");
-            assert!(!why.contains("another-key"), "the key is in no message");
+            assert_eq!(why.code, "controller_refused_key");
+            assert!(why.words.contains("refused the key"), "{why}");
+            assert!(
+                !why.words.contains("another-key"),
+                "the key is in no message"
+            );
         }
         other => panic!("{other:?}"),
     }
@@ -417,7 +421,9 @@ async fn what_the_controller_would_refuse_is_refused_before_it_is_asked() {
     )
     .await;
     match unknown {
-        Err(Refusal::AsAsked(why)) => assert!(why.contains("404"), "{why}"),
+        Err(Refusal::AsAsked(why)) => {
+            assert!(why.words.contains("404"), "{why}")
+        }
         other => panic!("{other:?}"),
     }
 }

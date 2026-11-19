@@ -151,12 +151,17 @@ grep -q '^NoNewPrivs:[[:space:]]*1$' "/proc/$pid/status" || fail "the steward ma
 grep -q '^CapBnd:[[:space:]]*0000000000000000$' "/proc/$pid/status" || fail "the steward has capabilities within reach"
 grep -q '^Seccomp:[[:space:]]*2$' "/proc/$pid/status" || fail "the steward's system calls are not filtered"
 echo "  ok    no privilege to gain, no capability, its system calls filtered"
+# Every screen joined to the unit holds a connection, and a connection is
+# an open file: the service is given as many as a large venue takes.
+files=$(awk '/^Max open files/ { print $4 }' "/proc/$pid/limits")
+[ "$files" = 65536 ] || fail "the steward may have $files files open, not 65536"
+echo "  ok    as many open files as a large venue takes: $files"
 
 echo "prove-unit: the face"
 curl --silent --cacert "$AUTHORITY" --max-time 10 "$FACE/" | grep -q 'door.js' || fail "the door is not served"
 [ "$(ask describe_active_ui_selection)" = 200 ] || fail "the door is not told which shell is active: $(cat "$work/answer")"
 echo "  ok    the door is served, and is told which shell to open"
-for part in org.evoframework.usher.shell/index.html org.evoframework.usher.shell/shell.css org.evoframework.usher.theme.frost/theme.css; do
+for part in org.evoframework.usher.shell/index.html org.evoframework.usher.shell/shell.css org.evoframework.usher.theme.frost/theme.css org.evoframework.usher.shell/lang/languages.json; do
   [ "$(curl --silent --cacert "$AUTHORITY" --max-time 10 --output /dev/null --write-out '%{http_code}' "$FACE/$part")" = 200 ] || fail "$part is not served"
 done
 # Every module a browser loads for the face is served: the shell's and
@@ -181,7 +186,14 @@ for pack in org.evoframework.usher.shell/shell.js org.evoframework.usher.widgets
   done
 done
 [ "$modules" -ge 12 ] || fail "the face is made of $modules modules; it was not walked"
-echo "  ok    the shell, the widgets and the theme are served, every one of the $modules modules the face loads among them"
+# The words the face says: a file of texts for every language it lists,
+# English the first of them.
+spoken=$(curl --silent --cacert "$AUTHORITY" --max-time 10 "$FACE/org.evoframework.usher.shell/lang/languages.json" | jq -r 'map(.tag) | join(" ")')
+[ "${spoken%% *}" = en ] || fail "the face's languages are $spoken, and English is not the first"
+for language in $spoken; do
+  curl --silent --cacert "$AUTHORITY" --max-time 10 "$FACE/org.evoframework.usher.shell/lang/$language.json" | jq -e '."common.save" | type == "string"' > /dev/null || fail "the texts of $language are not served"
+done
+echo "  ok    the shell, the widgets and the theme are served, every one of the $modules modules the face loads among them, and the texts of every language it speaks: $spoken"
 
 echo "prove-unit: who may ask"
 info=$(request access.controller info '{}')
@@ -196,7 +208,7 @@ echo "  ok    a caller who presents nothing is refused, and no bearer is made fo
 echo "prove-unit: setting up and signing in"
 [ "$(usher state)" = 200 ] || fail "the unit does not say what state it is in: $(cat "$work/answer")"
 jq -e '.set_up == false and .level == "standard" and .least_password == 12 and .keeps == true' "$work/answer" > /dev/null || fail "a new unit says of itself: $(cat "$work/answer")"
-jq -e '.site == {name: "", logo: null}' "$work/answer" > /dev/null || fail "a new unit says of its site: $(cat "$work/answer")"
+jq -e '.site == {name: "", logo: null, language: "en", follows_browser: true}' "$work/answer" > /dev/null || fail "a new unit says of its site: $(cat "$work/answer")"
 [ ! -e "$CODE" ] || fail "a unit of the ordinary level made a code, which it asks nobody for"
 echo "  ok    a new unit says that nobody has set it up, and at the ordinary level it makes no code"
 [ "$(usher sign_in "$(named "$NAME" "$PASSWORD")")" = 409 ] || fail "a unit nobody set up signs someone in: $(cat "$work/answer")"
@@ -247,31 +259,34 @@ echo "prove-unit: the site"
 # Ask the site's shelf as a browser someone is signed in at does.
 site() { ask request "$(request site.settings "$1" "$2")" "$bearer"; }
 [ "$(site get '{}')" = 200 ] || fail "the site is not told: $(cat "$work/answer")"
-answered | jq -e '.name == "" and .time_zone == null and .logo == null and .set_here == false' > /dev/null || fail "a new unit has a site nobody set: $(answered)"
-# A unit is given its site's name and time zone where it is started, as
-# its service file says how: in a drop-in.
+answered | jq -e '.name == "" and .time_zone == null and .logo == null and .set_here == false and .language == "en" and .follows_browser == true and .language_set_here == false' > /dev/null || fail "a new unit has a site nobody set: $(answered)"
+# A unit is given its site's name, time zone and language where it is
+# started, as its service file says how: in a drop-in.
 service=$(systemctl show -p FragmentPath --value evo.service)
 grep -q '^#Environment="USHER_SITE_NAME=Parish Hall"$' "$service" || fail "the service file does not say how a unit is given its site's name"
 grep -q '^#Environment=USHER_TIME_ZONE=Europe/Warsaw$' "$service" || fail "the service file does not say how a unit is given its site's time zone"
+grep -q '^#Environment=USHER_LANGUAGE=de$' "$service" || fail "the service file does not say how a unit is given its site's language"
 mkdir -p "$(dirname "$GIVEN")"
-printf '[Service]\nEnvironment="USHER_SITE_NAME=Parish Hall"\nEnvironment=USHER_TIME_ZONE=Europe/Warsaw\n' > "$GIVEN"
+printf '[Service]\nEnvironment="USHER_SITE_NAME=Parish Hall"\nEnvironment=USHER_TIME_ZONE=Europe/Warsaw\nEnvironment=USHER_LANGUAGE=de\n' > "$GIVEN"
 systemctl daemon-reload
 start restart
 [ "$(site get '{}')" = 200 ] || fail "the site is not told: $(cat "$work/answer")"
-answered | jq -e '.name == "Parish Hall" and .time_zone == "Europe/Warsaw" and .set_here == false' > /dev/null || fail "the unit does not go by the name and the time zone it was started with: $(answered)"
+answered | jq -e '.name == "Parish Hall" and .time_zone == "Europe/Warsaw" and .set_here == false and .language == "de" and .follows_browser == true and .language_set_here == false' > /dev/null || fail "the unit does not go by the name, the time zone and the language it was started with: $(answered)"
 # Anyone is told the name, for the form a person signs in by to wear,
-# and nothing else of the site.
+# and the language the form speaks, and nothing else of the site.
 [ "$(usher state)" = 200 ] || fail "the unit does not say what state it is in: $(cat "$work/answer")"
-jq -e '.site == {name: "Parish Hall", logo: null}' "$work/answer" > /dev/null || fail "before anyone has signed in, the unit says of its site: $(cat "$work/answer")"
-echo "  ok    given a name and a time zone where it is started, the unit goes by them, and anyone is told the name"
+jq -e '.site == {name: "Parish Hall", logo: null, language: "de", follows_browser: true}' "$work/answer" > /dev/null || fail "before anyone has signed in, the unit says of its site: $(cat "$work/answer")"
+echo "  ok    given a name, a time zone and a language where it is started, the unit goes by them, and anyone is told the name and the language"
 [ "$(ask request "$(request site.settings set '{"name":"Mallory","time_zone":null}')" "")" = 401 ] || fail "a caller who has not signed in sets the site: $(cat "$work/answer")"
 [ "$(site set '{"name":"Hall of St Mary","time_zone":"London time"}')" != 200 ] || fail "a time zone that is none is taken: $(cat "$work/answer")"
-[ "$(site set '{"name":" Hall of St Mary ","time_zone":"Europe/London"}')" = 200 ] || fail "the site's name and time zone are not set: $(cat "$work/answer")"
-answered | jq -e '.name == "Hall of St Mary" and .time_zone == "Europe/London"' > /dev/null || fail "the site was set as: $(answered)"
+[ "$(site set '{"name":"Hall of St Mary","language":"German"}')" != 200 ] || fail "a language that is none is taken: $(cat "$work/answer")"
+jq -e '.error.details.subclass == "language_not_one"' "$work/answer" > /dev/null || fail "a language that is none is refused as: $(cat "$work/answer")"
+[ "$(site set '{"name":" Hall of St Mary ","time_zone":"Europe/London","language":"en","follows_browser":false}')" = 200 ] || fail "the site's name, time zone and language are not set: $(cat "$work/answer")"
+answered | jq -e '.name == "Hall of St Mary" and .time_zone == "Europe/London" and .language == "en" and .follows_browser == false' > /dev/null || fail "the site was set as: $(answered)"
 [ "$(stat -c '%U %a' "$SITE" 2> /dev/null)" = "evo 600" ] || fail "the site is kept as $(stat -c '%U %a' "$SITE" 2>&1), not in $SITE for the steward alone"
 [ "$(usher state)" = 200 ] || fail "the unit does not say what state it is in: $(cat "$work/answer")"
-jq -e '.site == {name: "Hall of St Mary", logo: null}' "$work/answer" > /dev/null || fail "its site set, the unit says of it: $(cat "$work/answer")"
-echo "  ok    its administrator sets another name and time zone, kept for the steward alone; nobody who has not signed in sets them"
+jq -e '.site == {name: "Hall of St Mary", logo: null, language: "en", follows_browser: false}' "$work/answer" > /dev/null || fail "its site set, the unit says of it: $(cat "$work/answer")"
+echo "  ok    its administrator sets another name, time zone and language, kept for the steward alone; nobody who has not signed in sets them"
 
 echo "prove-unit: what is kept"
 start restart
@@ -282,10 +297,10 @@ answered | jq -e '(.types | map(.name)) == ["Stay", "Day"] and .default == "Day"
 [ "$(usher people '' "$second")" = 401 ] || fail "a session that was signed out of is answered after a restart: $(cat "$work/answer")"
 [ "$(site get '{}')" = 200 ] || fail "the site is not told after a restart: $(cat "$work/answer")"
 # What was set of the site stands, though the unit is started with the
-# first name and time zone as before.
-answered | jq -e '.name == "Hall of St Mary" and .time_zone == "Europe/London" and .set_here == true' > /dev/null || fail "the site's name and time zone were not kept through a restart: $(answered)"
+# first name, time zone and language as before.
+answered | jq -e '.name == "Hall of St Mary" and .time_zone == "Europe/London" and .set_here == true and .language == "en" and .follows_browser == false and .language_set_here == true' > /dev/null || fail "the site's name, time zone and language were not kept through a restart: $(answered)"
 [ "$(usher state)" = 200 ] || fail "the unit does not say what state it is in: $(cat "$work/answer")"
-jq -e '.site.name == "Hall of St Mary"' "$work/answer" > /dev/null || fail "started again, the unit says of its site: $(cat "$work/answer")"
+jq -e '.site.name == "Hall of St Mary" and .site.language == "en"' "$work/answer" > /dev/null || fail "started again, the unit says of its site: $(cat "$work/answer")"
 rm "$GIVEN"
 rmdir "$(dirname "$GIVEN")"
 systemctl daemon-reload

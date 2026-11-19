@@ -6,6 +6,7 @@
 
 use std::time::Duration;
 
+use evo_usher_why::{why, Why};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -27,21 +28,29 @@ const SHORT_PAGE: u32 = 200;
 /// The most pages a listing is followed for.
 const PAGES: usize = 100;
 
-/// Why a request was not answered.
+/// Why a request was not answered: under a code, which stays what it
+/// is, and in words.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refusal {
     /// It may be answered if asked again: the controller was not reached,
     /// or failed on its side.
-    ForNow(String),
+    ForNow(Why),
     /// It will not be answered as asked.
-    AsAsked(String),
+    AsAsked(Why),
+}
+
+impl Refusal {
+    /// The refusal itself, whichever way it is one.
+    pub fn why(&self) -> &Why {
+        match self {
+            Refusal::ForNow(why) | Refusal::AsAsked(why) => why,
+        }
+    }
 }
 
 impl std::fmt::Display for Refusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Refusal::ForNow(why) | Refusal::AsAsked(why) => f.write_str(why),
-        }
+        f.write_str(&self.why().words)
     }
 }
 
@@ -117,10 +126,19 @@ impl Terms {
     /// sent.
     pub fn held(&self) -> Result<(), Refusal> {
         let outside = |what: &str, range: &dyn std::fmt::Debug| {
-            Err(Refusal::AsAsked(format!("{what} must be within {range:?}")))
+            Err(Refusal::AsAsked(
+                why(
+                    "terms_outside",
+                    format!("{what} must be within {range:?}"),
+                )
+                .with("term", what),
+            ))
         };
         if self.note.is_empty() {
-            return Err(Refusal::AsAsked("a note is needed".to_string()));
+            return Err(Refusal::AsAsked(why(
+                "note_needed",
+                "a note is needed",
+            )));
         }
         if !MINUTES.contains(&self.minutes) {
             return outside("minutes", &MINUTES);
@@ -130,7 +148,8 @@ impl Terms {
         }
         if self.guests == Some(0) {
             return Err(Refusal::AsAsked(
-                "guests must be at least 1".to_string(),
+                why("terms_outside", "guests must be at least 1")
+                    .with("term", "guests"),
             ));
         }
         if self.megabytes.is_some_and(|m| !MEGABYTES.contains(&m)) {
@@ -449,8 +468,12 @@ fn described<T: DeserializeOwned>(body: &[u8]) -> Result<T, Refusal> {
             how = %how,
             "the controller's answer is not what its API describes"
         );
-        Refusal::AsAsked(format!(
-            "the controller's answer is not what its API describes: {how}"
+        Refusal::AsAsked(why(
+            "controller_answer_unread",
+            format!(
+                "the controller's answer is not what its API describes: \
+                 {how}"
+            ),
         ))
     };
     let answer: serde_json::Value = serde_json::from_slice(body)
@@ -486,8 +509,9 @@ fn in_a_path<'a>(what: &str, id: &'a str) -> Result<&'a str, Refusal> {
     if plain {
         Ok(id)
     } else {
-        Err(Refusal::AsAsked(format!(
-            "'{id}' is not the id of a {what}"
+        Err(Refusal::AsAsked(why(
+            "id_not_one",
+            format!("'{id}' is not the id of a {what}"),
         )))
     }
 }
@@ -510,15 +534,18 @@ impl Line {
         key: &str,
         held: Option<Fingerprint>,
     ) -> Result<Self, Refusal> {
-        let rules = trust::rules(held)
-            .map_err(|e| Refusal::AsAsked(format!("no secure line: {e}")))?;
+        let rules = trust::rules(held).map_err(|e| {
+            Refusal::AsAsked(why("no_line", format!("no secure line: {e}")))
+        })?;
         let client = reqwest::Client::builder()
             .use_preconfigured_tls(rules)
             .https_only(true)
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(25))
             .build()
-            .map_err(|e| Refusal::AsAsked(format!("no line: {e}")))?;
+            .map_err(|e| {
+                Refusal::AsAsked(why("no_line", format!("no line: {e}")))
+            })?;
         Ok(Self {
             client,
             base: base.trim_end_matches('/').to_string(),
@@ -533,9 +560,9 @@ impl Line {
         let unreached = |e: reqwest::Error| {
             // The error's own text names the address; the key is a header
             // and is in no error.
-            Refusal::ForNow(format!(
-                "the controller was not reached: {}",
-                e.without_url()
+            Refusal::ForNow(why(
+                "controller_not_reached",
+                format!("the controller was not reached: {}", e.without_url()),
             ))
         };
         let response = request
@@ -559,13 +586,16 @@ impl Line {
                 (None, None) => None,
             })
             .unwrap_or_else(|| "no reason given".to_string());
-        let why = format!("the controller answered {status}: {words}");
+        let answered = format!("the controller answered {status}: {words}");
         Err(if status.is_server_error() {
-            Refusal::ForNow(why)
+            Refusal::ForNow(why("controller_failed", answered))
         } else if matches!(status.as_u16(), 401 | 403) {
-            Refusal::AsAsked(format!("the controller refused the key; {why}"))
+            Refusal::AsAsked(why(
+                "controller_refused_key",
+                format!("the controller refused the key; {answered}"),
+            ))
         } else {
-            Refusal::AsAsked(why)
+            Refusal::AsAsked(why("controller_refused", answered))
         })
     }
 
@@ -791,6 +821,7 @@ mod tests {
         let Refusal::AsAsked(why) = differs else {
             panic!("{differs:?}")
         };
+        let why = why.words;
         assert_eq!(
             why,
             "the controller's answer is not what its API describes: at \
@@ -804,7 +835,7 @@ mod tests {
         else {
             panic!()
         };
-        assert!(why.contains("it is not JSON"), "{why}");
+        assert!(why.words.contains("it is not JSON"), "{why}");
     }
 
     fn broadcasts(listed: serde_json::Value) -> Vec<Broadcast> {

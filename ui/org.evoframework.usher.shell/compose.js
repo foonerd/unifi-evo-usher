@@ -37,7 +37,9 @@ export function takes(accepts, kind) {
  * @property {string} widget the widget kind it is drawn with
  * @property {string} size the size it is drawn at
  * @property {string | null} mode how it is drawn, where the stocking says
- * @property {string | null} refused why it is not drawn, where it is not
+ * @property {"not_taken" | "not_known" | "no_size" | null} refused why
+ *   it is not drawn, where it is not: its kind is not one the shelf
+ *   takes, or not one the steward knows, or fits no size the shelf takes
  */
 
 /**
@@ -81,12 +83,13 @@ export function compose(snapshot) {
       }
       const kind = kinds.get(entry.widget);
       const sizes = Array.isArray(shelf.accepts_sizes) ? shelf.accepts_sizes : [];
+      /** @type {Placed["refused"]} */
       let refused = null;
       let size = typeof entry.size === "string" ? entry.size : "full";
       if (!takes(shelf.accepts_widgets, entry.widget)) {
-        refused = `the shelf does not take ${entry.widget}`;
+        refused = "not_taken";
       } else if (kind === undefined) {
-        refused = `nothing here can show ${entry.widget}`;
+        refused = "not_known";
       } else {
         const within =
           rank(size) >= rank(kind.min_size) && rank(size) <= rank(kind.max_size);
@@ -96,7 +99,7 @@ export function compose(snapshot) {
           if (sizes.includes(kind.ideal_size)) {
             size = kind.ideal_size;
           } else {
-            refused = `${entry.widget} cannot be drawn at a size the shelf takes`;
+            refused = "no_size";
           }
         }
       }

@@ -8,7 +8,10 @@
 
 import { known } from "./site.js";
 
-/** The name the face goes by, where the site has none of its own. */
+/**
+ * The name the face goes by, where the site has none of its own. It is a
+ * name, and is the same in every language.
+ */
 export const NAME = "Usher";
 
 /** @returns {string} the name the face goes by here */

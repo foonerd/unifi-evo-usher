@@ -16,6 +16,7 @@
 #   USHER_NAME          the name of the container and of the unit (default usher)
 #   USHER_SITE_NAME     what the place is called, until one is saved on the page Site
 #   USHER_TIME_ZONE     the time zone it keeps, as Europe/Warsaw, until one is saved there
+#   USHER_LANGUAGE      the language it speaks, as en or de, until one is saved there
 #   USHER_AUTHORITY     the unit's authority (default ./unit-ca.crt)
 #   SITE_CERT, SITE_KEY the site's certificate and its key (default ./site.crt, ./site.key)
 #   SITE_ADDRESS        the address the proxy is published on (default: every one)
@@ -33,6 +34,7 @@ services:
       USHER_SECURITY: standard
       USHER_SITE_NAME: ${USHER_SITE_NAME:-}
       USHER_TIME_ZONE: ${USHER_TIME_ZONE:-}
+      USHER_LANGUAGE: ${USHER_LANGUAGE:-}
     read_only: true
     cap_drop:
       - ALL
@@ -49,6 +51,10 @@ services:
       retries: 3
       start_period: 20s
     stop_grace_period: 30s
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     logging:
       driver: json-file
       options:

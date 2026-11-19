@@ -12,6 +12,8 @@
 # Whoever opens the face first sets the usher up, with a name and a
 # password. With USHER_SECURITY=extended in the environment it runs at
 # the extended level, where setting it up takes the unit's code as well.
+# USHER_SITE_NAME, USHER_TIME_ZONE and USHER_LANGUAGE in the environment
+# are given to the unit as its first name, time zone and language.
 set -euo pipefail
 ROOT=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
 cd "$ROOT"

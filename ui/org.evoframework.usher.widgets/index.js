@@ -13,6 +13,11 @@ import { reserve } from "./reserve.js";
 import { site } from "./site.js";
 import { types } from "./types.js";
 import { vouchers } from "./vouchers.js";
+import { ready } from "./words.js";
+
+// A widget says nothing before the words are there. Under the usher's
+// own shell they are; under another, they are read here.
+await ready();
 
 /**
  * What a shell hands a widget.

@@ -1,23 +1,28 @@
-//! What the place a unit serves is called, how it looks and what time it
-//! keeps, as a plugin of the evo steward: a singleton respondent on the
-//! `site.settings` shelf.
+//! What the place a unit serves is called, how it looks, what time it
+//! keeps and what language it speaks, as a plugin of the evo steward: a
+//! singleton respondent on the `site.settings` shelf.
 //!
 //! It answers four requests, each with a JSON payload:
 //!
 //! - `get`: answers the site as it stands, `{"name": "...",
-//!   "time_zone": "..." or null, "language": null, "logo": {"png_b64":
-//!   "...", "width": n, "height": n, "bytes": n} or null, "set_here":
-//!   bool, "limits": {...}}`.
-//! - `set`: `{"name": "...", "time_zone": "..." or null}` sets the name
-//!   and the time zone and answers them as kept.
+//!   "time_zone": "..." or null, "language": "...", "follows_browser":
+//!   bool, "logo": {"png_b64": "...", "width": n, "height": n, "bytes":
+//!   n} or null, "set_here": bool, "language_set_here": bool, "limits":
+//!   {...}}`.
+//! - `set`: `{"name": "...", "time_zone": "..." or null}`, with
+//!   `"language": "..."` and `"follows_browser": bool` where they are to
+//!   change, sets them and answers all four as kept.
 //! - `put_logo`: `{"png_b64": "..."}` gives the site a logo, a PNG file
 //!   in base64, and answers `{"width": n, "height": n, "bytes": n}`.
 //! - `remove_logo`: takes the logo away and answers `{"removed": bool}`.
 //!
-//! A unit can be given a name and a time zone where it is started, in
-//! the variables [`NAME_GIVEN_IN`] and [`TIME_ZONE_GIVEN_IN`] of its
-//! environment. They stand until an administrator sets the site; what
-//! was set stands from then on.
+//! A unit can be given a name, a time zone and a language where it is
+//! started, in the variables [`NAME_GIVEN_IN`], [`TIME_ZONE_GIVEN_IN`]
+//! and [`LANGUAGE_GIVEN_IN`] of its environment. They stand until an
+//! administrator sets the site; what was set stands from then on.
+//!
+//! A refusal is given under a code, as its subclass, beside its words:
+//! the code is what a screen finds words of its own language by.
 
 #![forbid(unsafe_code)]
 
@@ -35,12 +40,14 @@ use evo_plugin_sdk::contract::{
     RuntimeCapabilities,
 };
 use evo_plugin_sdk::Manifest;
+use evo_usher_why::{why, Why};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 pub use site::{
-    First, Logo, Site, Unkept, LOGO_BYTES, LOGO_HEIGHT, LOGO_WIDTH,
-    NAME_CHARACTERS, NAME_GIVEN_IN, TIME_ZONE_GIVEN_IN,
+    First, Logo, Site, Unkept, LANGUAGE_GIVEN_IN, LOGO_BYTES, LOGO_HEIGHT,
+    LOGO_WIDTH, NAME_CHARACTERS, NAME_GIVEN_IN, OWN_LANGUAGE,
+    TIME_ZONE_GIVEN_IN,
 };
 
 /// The plugin's name, as its manifest has it.
@@ -90,6 +97,13 @@ struct Set {
     name: String,
     #[serde(default)]
     time_zone: Option<String>,
+    /// The language, where it is to change.
+    #[serde(default)]
+    language: Option<String>,
+    /// Whether a browser's own language goes before the site's, where
+    /// that is to change.
+    #[serde(default)]
+    follows_browser: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -98,24 +112,44 @@ struct PutLogo {
     png_b64: String,
 }
 
-fn refused(why: impl std::fmt::Display) -> PluginError {
-    PluginError::Permanent(why.to_string())
+/// Why a request was refused: one that will not be answered as asked,
+/// or one that may be if asked again.
+#[derive(Debug)]
+enum Refused {
+    AsAsked(Why),
+    ForNow(Why),
 }
 
-/// A payload that is not what the request takes, in words for a screen.
-fn not_as_asked(what: &str, e: serde_json::Error) -> PluginError {
-    refused(format!("This is not what {what} takes: {e}"))
+impl From<Refused> for PluginError {
+    fn from(refused: Refused) -> Self {
+        match refused {
+            Refused::AsAsked(why) => why.as_asked(),
+            Refused::ForNow(why) => why.for_now(),
+        }
+    }
 }
 
-fn unkept(e: Unkept) -> PluginError {
+fn refused(code: &'static str, words: impl Into<String>) -> Refused {
+    Refused::AsAsked(why(code, words))
+}
+
+/// A payload that is not what the request takes.
+fn not_as_asked(what: &str, e: serde_json::Error) -> Refused {
+    refused(
+        "not_as_asked",
+        format!("This is not what {what} takes: {e}"),
+    )
+}
+
+fn unkept(e: Unkept) -> Refused {
     match e {
-        Unkept::Rule(why) => PluginError::Permanent(why),
+        Unkept::Rule(why) => Refused::AsAsked(why),
         Unkept::Disk(e) => {
             tracing::error!(plugin = NAME, "the site was not kept: {e}");
-            PluginError::Transient(
-                "The change could not be written down, and was not made."
-                    .to_string(),
-            )
+            Refused::ForNow(why(
+                "not_kept",
+                "The change could not be written down, and was not made.",
+            ))
         }
     }
 }
@@ -138,6 +172,7 @@ fn answered(site: &Site) -> Value {
         "name": site.name(),
         "time_zone": site.time_zone(),
         "language": site.language(),
+        "follows_browser": site.follows_browser(),
         "logo": site.logo().map(|logo| json!({
             "png_b64": logo.png_b64,
             "width": logo.width,
@@ -145,6 +180,7 @@ fn answered(site: &Site) -> Value {
             "bytes": logo.png.len(),
         })),
         "set_here": site.set_here(),
+        "language_set_here": site.language_set_here(),
         "limits": {
             "name_characters": NAME_CHARACTERS,
             "logo_bytes": LOGO_BYTES,
@@ -202,7 +238,7 @@ impl Plugin for SitePlugin {
                 }
             };
             let site = Site::open(&ctx.state_dir, first).map_err(|e| {
-                refused(format!(
+                PluginError::Permanent(format!(
                     "the site's settings in {} cannot be opened: {e}",
                     ctx.state_dir.display()
                 ))
@@ -239,25 +275,38 @@ fn asked(
     site: &mut Site,
     request: &str,
     payload: &[u8],
-) -> Result<Value, PluginError> {
+) -> Result<Value, Refused> {
     Ok(match request {
         "get" => answered(site),
         "set" => {
             let set: Set = serde_json::from_slice(payload)
                 .map_err(|e| not_as_asked("setting a site", e))?;
-            site.set(&set.name, set.time_zone.as_deref())
-                .map_err(unkept)?;
-            json!({ "name": site.name(), "time_zone": site.time_zone() })
+            site.set_all(
+                &set.name,
+                set.time_zone.as_deref(),
+                set.language.as_deref(),
+                set.follows_browser,
+            )
+            .map_err(unkept)?;
+            json!({
+                "name": site.name(),
+                "time_zone": site.time_zone(),
+                "language": site.language(),
+                "follows_browser": site.follows_browser(),
+            })
         }
         "put_logo" => {
             let put: PutLogo = serde_json::from_slice(payload)
                 .map_err(|e| not_as_asked("a logo", e))?;
             // A file too long is not unpacked to find that out.
             if let Some(why) = site::too_long(carried(&put.png_b64)) {
-                return Err(refused(why));
+                return Err(Refused::AsAsked(why));
             }
             let png = STANDARD.decode(&put.png_b64).map_err(|_| {
-                refused("The file did not arrive whole. Choose it again.")
+                refused(
+                    "logo_not_whole",
+                    "The file did not arrive whole. Choose it again.",
+                )
             })?;
             let logo = site.put_logo(png).map_err(unkept)?;
             json!({
@@ -270,7 +319,12 @@ fn asked(
             let removed = site.remove_logo().map_err(unkept)?;
             json!({ "removed": removed })
         }
-        other => return Err(refused(format!("unknown request type: {other}"))),
+        other => {
+            return Err(refused(
+                "unknown_request",
+                format!("unknown request type: {other}"),
+            ))
+        }
     })
 }
 
@@ -281,11 +335,14 @@ impl Respondent for SitePlugin {
     ) -> impl Future<Output = Result<Response, PluginError>> + Send + 'a {
         async move {
             let mut guard = self.site.lock().expect("the site's lock");
-            let site = guard
-                .as_mut()
-                .ok_or_else(|| refused("the site's settings are not open"))?;
+            let site = guard.as_mut().ok_or_else(|| {
+                PluginError::Permanent(
+                    "the site's settings are not open".to_string(),
+                )
+            })?;
             let answer = asked(site, &req.request_type, &req.payload)?;
-            let payload = serde_json::to_vec(&answer).map_err(refused)?;
+            let payload = serde_json::to_vec(&answer)
+                .map_err(|e| PluginError::Permanent(e.to_string()))?;
             Ok(Response::for_request(req, payload))
         }
     }
@@ -357,10 +414,42 @@ mod tests {
         );
     }
 
-    fn permanent(refusal: PluginError) -> String {
+    /// The words of a refusal that will not be answered as asked, and
+    /// the code it is given under.
+    fn permanent(refusal: Refused) -> (&'static str, String) {
         match refusal {
-            PluginError::Permanent(why) => why,
-            other => panic!("refused otherwise: {other}"),
+            Refused::AsAsked(why) => (why.code, why.words),
+            other => panic!("refused otherwise: {other:?}"),
+        }
+    }
+
+    /// A refusal reaches the steward under its code, in its own words,
+    /// as one that will not be answered as asked or one that may be.
+    #[test]
+    fn a_refusal_is_given_under_its_code() {
+        use evo_plugin_sdk::error_taxonomy::ErrorClass;
+        for (refused, class) in [
+            (
+                refused("logo_not_whole", "The file did not arrive whole."),
+                ErrorClass::ContractViolation,
+            ),
+            (
+                Refused::ForNow(why("not_kept", "It was not kept.")),
+                ErrorClass::Transient,
+            ),
+        ] {
+            let code = match &refused {
+                Refused::AsAsked(why) | Refused::ForNow(why) => why.code,
+            };
+            let PluginError::WithSubclass {
+                class: under,
+                subclass,
+                ..
+            } = PluginError::from(refused)
+            else {
+                panic!("not a refusal under a code");
+            };
+            assert_eq!((under, subclass.as_str()), (class, code));
         }
     }
 
@@ -377,8 +466,10 @@ mod tests {
             assert_eq!(
                 new,
                 json!({
-                    "name": "", "time_zone": null, "language": null,
+                    "name": "", "time_zone": null, "language": "en",
+                    "follows_browser": true,
                     "logo": null, "set_here": false,
+                    "language_set_here": false,
                     "limits": {
                         "name_characters": 64, "logo_bytes": 262144,
                         "logo_width": 1024, "logo_height": 512,
@@ -396,7 +487,23 @@ mod tests {
             .unwrap();
             assert_eq!(
                 set,
-                json!({ "name": "Parish Hall", "time_zone": "Europe/Warsaw" })
+                json!({
+                    "name": "Parish Hall", "time_zone": "Europe/Warsaw",
+                    "language": "en", "follows_browser": true,
+                })
+            );
+            let set = asked(
+                &mut site,
+                "set",
+                br#"{"name": "Parish Hall", "time_zone": "Europe/Warsaw", "language": "de", "follows_browser": false}"#,
+            )
+            .unwrap();
+            assert_eq!(
+                set,
+                json!({
+                    "name": "Parish Hall", "time_zone": "Europe/Warsaw",
+                    "language": "de", "follows_browser": false,
+                })
             );
             let put = asked(&mut site, "put_logo", logo.as_bytes()).unwrap();
             assert_eq!(
@@ -408,7 +515,9 @@ mod tests {
         let kept = asked(&mut site, "get", b"{}").unwrap();
         assert_eq!(kept["name"], "Parish Hall");
         assert_eq!(kept["time_zone"], "Europe/Warsaw");
-        assert_eq!(kept["language"], Value::Null);
+        assert_eq!(kept["language"], "de");
+        assert_eq!(kept["follows_browser"], false);
+        assert_eq!(kept["language_set_here"], true);
         assert_eq!(kept["set_here"], true);
         assert_eq!(kept["logo"]["width"], 300);
         assert_eq!(kept["logo"]["height"], 84);
@@ -423,37 +532,70 @@ mod tests {
 
         // No time zone named is none.
         let set = asked(&mut site, "set", br#"{"name": "The Hall"}"#).unwrap();
-        assert_eq!(set, json!({ "name": "The Hall", "time_zone": null }));
+        assert_eq!(
+            set,
+            json!({
+                "name": "The Hall", "time_zone": null,
+                "language": "de", "follows_browser": false,
+            })
+        );
 
-        // What is not as the request takes it, in words.
-        for (request, payload, why) in [
-            ("set", "{}", "This is not what setting a site takes: "),
+        // What is not as the request takes it: under a code, in words.
+        for (request, payload, code, why) in [
+            (
+                "set",
+                "{}",
+                "not_as_asked",
+                "This is not what setting a site takes: ",
+            ),
             (
                 "set",
                 r#"{"name": 5}"#,
+                "not_as_asked",
                 "This is not what setting a site takes: ",
             ),
             (
                 "set",
                 r#"{"name": "x", "logo": "y"}"#,
+                "not_as_asked",
                 "This is not what setting a site takes: ",
             ),
-            ("put_logo", "{}", "This is not what a logo takes: "),
+            (
+                "set",
+                r#"{"name": "x", "language": "German"}"#,
+                "language_not_one",
+                "German is not a language as one is named.",
+            ),
+            (
+                "set",
+                r#"{"name": "x", "time_zone": "Warsaw time"}"#,
+                "time_zone_not_one",
+                "Warsaw time is not the name of a time zone.",
+            ),
+            (
+                "put_logo",
+                "{}",
+                "not_as_asked",
+                "This is not what a logo takes: ",
+            ),
             (
                 "put_logo",
                 r#"{"png_b64": "not base64!"}"#,
+                "logo_not_whole",
                 "The file did not arrive whole. Choose it again.",
             ),
             (
                 "put_logo",
                 r#"{"png_b64": "R0lGODlhAQABAAAAACw="}"#,
+                "logo_not_png",
                 "This file is not a PNG picture. A logo is a PNG file.",
             ),
-            ("put", "{}", "unknown request type: put"),
+            ("put", "{}", "unknown_request", "unknown request type: put"),
         ] {
-            let refusal = permanent(
+            let (under, refusal) = permanent(
                 asked(&mut site, request, payload.as_bytes()).unwrap_err(),
             );
+            assert_eq!(under, code, "{request} {payload}");
             assert!(refusal.starts_with(why), "{request} {payload}: {refusal}");
         }
         // A file far too long is refused before it is unpacked.
@@ -462,7 +604,10 @@ mod tests {
             permanent(
                 asked(&mut site, "put_logo", long.as_bytes()).unwrap_err()
             ),
-            "This file is 293 KiB. A logo is 256 KiB at most."
+            (
+                "logo_file_too_long",
+                "This file is 293 KiB. A logo is 256 KiB at most.".to_string()
+            )
         );
         // Every refusal left the site as it was.
         let after = asked(&mut site, "get", b"{}").unwrap();

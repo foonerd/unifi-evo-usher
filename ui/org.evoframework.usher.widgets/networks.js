@@ -1,12 +1,13 @@
 // The guest networks: the controller's wireless networks, site by site,
 // and the choice of the one vouchers are for, which is the network a
-// voucher names to the guest it is handed to.
+// voucher tells its guest to join.
 //
-// The choice is the usher's own. The controller holds a voucher to no
+// The choice is the usher's own. The controller ties a voucher to no
 // network: it lets one in on every wireless network that has its hotspot
 // portal.
 
 import { el, id, words } from "./dom.js";
+import { parts as partsOf, say } from "./words.js";
 
 /** What the controller widget says on the page when a controller is set. */
 export const CONTROLLER_SET = "usher:controller-set";
@@ -22,23 +23,27 @@ export function told(network) {
     typeof network.network !== "string"
       ? ""
       : typeof network.vlan === "number"
-        ? `on the network ${network.network}, VLAN ${network.vlan}`
-        : `on the network ${network.network}`;
+        ? say("network.on_vlan", { network: network.network, vlan: network.vlan })
+        : say("network.on", { network: network.network });
   const how =
     network.security === "open"
-      ? "open"
+      ? say("network.open")
       : network.security === "passphrase"
-        ? "joined with a passphrase"
+        ? say("network.passphrase")
         : network.security === "enterprise"
-          ? "joined with an account"
+          ? say("network.account")
           : "";
   return [
     on,
     how,
     // A hotspot of which the controller does not say the kind is still
     // a hotspot.
-    network.portal === true ? "asks for a voucher" : network.portal === null ? "a hotspot" : "",
-    network.enabled === false ? "switched off" : "",
+    network.portal === true
+      ? say("network.asks_voucher")
+      : network.portal === null
+        ? say("network.hotspot")
+        : "",
+    network.enabled === false ? say("network.off") : "",
   ]
     .filter((part) => part !== "")
     .join("; ");
@@ -58,7 +63,7 @@ export function networks(element, context) {
   let gone = false;
 
   /** @param {string} text @param {boolean} [trouble] */
-  const say = (text, trouble = false) => {
+  const tell = (text, trouble = false) => {
     if (gone) return;
     said.textContent = text;
     said.classList.toggle("usher-trouble", trouble);
@@ -76,7 +81,7 @@ export function networks(element, context) {
       const listed = Array.isArray(site?.networks) ? site.networks : [];
       if (sites.length > 1) parts.push(el("h4", {}, String(site.name)));
       if (listed.length === 0) {
-        parts.push(el("p", {}, "This site has no wireless network."));
+        parts.push(el("p", {}, say("network.site_none")));
         continue;
       }
       parts.push(
@@ -115,61 +120,45 @@ export function networks(element, context) {
         ),
       );
     }
-    if (sites.length === 0) parts.push(el("p", {}, "The controller has no site."));
+    if (sites.length === 0) parts.push(el("p", {}, say("common.no_site")));
 
     if (chosen === null) {
-      parts.push(el("p", {}, "No network is chosen. A voucher then names none to the guest."));
+      parts.push(el("p", {}, say("network.none_chosen")));
     } else {
       parts.push(
         el(
           "p",
           {},
-          "A voucher names ",
-          el("strong", {}, String(chosen.name)),
-          " to the guest.",
+          ...partsOf("network.tells", { name: el("strong", {}, String(chosen.name)) }),
         ),
       );
       if (chosenNow === null) {
-        parts.push(
-          el("p", { class: "usher-trouble" }, "The controller no longer has this network."),
-        );
+        parts.push(el("p", { class: "usher-trouble" }, say("network.gone")));
       } else if (chosenNow.enabled === false) {
-        parts.push(el("p", { class: "usher-trouble" }, "This network is switched off."));
+        parts.push(el("p", { class: "usher-trouble" }, say("network.is_off")));
       } else if (chosenNow.portal === false) {
-        parts.push(
-          el(
-            "p",
-            { class: "usher-trouble" },
-            "The controller asks for no voucher on this network. On the controller, a wireless network asks for one once its application is Hotspot, with a captive portal.",
-          ),
-        );
+        parts.push(el("p", { class: "usher-trouble" }, say("network.no_portal")));
       }
     }
-    parts.push(
-      el(
-        "p",
-        { class: "usher-hint" },
-        "The controller lets a voucher in on every wireless network that asks for one, and holds it to none of them. The choice here is the network a voucher names to the guest.",
-      ),
-    );
+    parts.push(el("p", { class: "usher-hint" }, say("network.hint")));
     body.replaceChildren(...parts);
   };
 
   const look = async () => {
-    say("Asking the controller.");
+    tell(say("common.asking_controller"));
     try {
       show(await context.steward.request(shelf, "networks", {}));
-      say("");
+      tell("");
     } catch (why) {
       if (gone) return;
       body.replaceChildren();
-      say(words(why));
+      tell(words(why));
     }
   };
 
   /** @param {string} site @param {string | null} network */
   const choose = async (site, network) => {
-    say("Keeping the choice.");
+    tell(say("network.saving"));
     try {
       await context.steward.request(
         shelf,
@@ -177,27 +166,27 @@ export function networks(element, context) {
         network === null ? { site } : { site, network },
       );
     } catch (why) {
-      say(words(why), true);
+      tell(words(why), true);
     }
     // What is kept is what is shown, whether the choice took or not.
     try {
       show(await context.steward.request(shelf, "networks", {}));
-      if (!said.classList.contains("usher-trouble")) say("");
+      if (!said.classList.contains("usher-trouble")) tell("");
     } catch (why) {
-      say(words(why), true);
+      tell(words(why), true);
     }
   };
 
   element.setAttribute("role", "region");
   element.setAttribute("aria-labelledby", title);
   element.replaceChildren(
-    el("h3", { id: title }, "The network vouchers are for"),
+    el("h3", { id: title }, say("network.title")),
     body,
     said,
     el(
       "div",
       { class: "row" },
-      el("button", { type: "button", class: "quiet", onclick: look }, "Ask again"),
+      el("button", { type: "button", class: "quiet", onclick: look }, say("common.ask_again")),
     ),
   );
 

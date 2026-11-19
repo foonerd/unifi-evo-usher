@@ -49,6 +49,9 @@ face-site-set.png:site.png
 face-site-worn.png:site-worn.png
 face-site-guest.png:site-guest.png
 face-site-sign-in.png:site-sign-in.png
+face-language-sign-in.png:language-sign-in.png
+face-language-german.png:language-german.png
+face-language-site.png:language-site.png
 "
 for pair in $pictures; do
   from=${pair%%:*}

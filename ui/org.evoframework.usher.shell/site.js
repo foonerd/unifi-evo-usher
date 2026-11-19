@@ -2,7 +2,13 @@
 // it looks and what time it keeps. It is asked of the steward and kept
 // here for as long as the page is open. The brand is drawn from it, and
 // every time the face shows is written here, so that a time is written
-// one way wherever it stands.
+// one way wherever it stands: in the language the face speaks, as a
+// clock of the site shows it.
+//
+// What the site says of its language is passed on to the words, which
+// settle what language is spoken.
+
+import { moment, momentParts, siteSpeaks } from "./words.js";
 
 /** The shelf of the catalogue the site's settings are asked of. */
 export const SHELF = "site.settings";
@@ -48,12 +54,14 @@ const logoOf = (told) =>
 
 /**
  * Take what anyone is told of the site, before a person has signed in:
- * its name and its logo. The time zone stays as it is known.
+ * its name, its logo and its language. The time zone stays as it is
+ * known.
  *
  * @param {unknown} told the `site` of the usher's state
  */
 export function learnOpen(told) {
   keep({ ...site, name: nameOf(told), logo: logoOf(told) });
+  siteSpeaks(/** @type {any} */ (told)?.language, /** @type {any} */ (told)?.follows_browser);
 }
 
 /**
@@ -68,6 +76,7 @@ export function learn(told) {
     logo: logoOf(told),
     timeZone: typeof zone === "string" && zone !== "" ? zone : null,
   });
+  siteSpeaks(/** @type {any} */ (told)?.language, /** @type {any} */ (told)?.follows_browser);
 }
 
 /**
@@ -113,16 +122,16 @@ export function written(when, to, zone) {
   const how = to === "day" ? { dateStyle: "medium" } : { dateStyle: "medium", timeStyle: "short" };
   if (zone !== null && zone !== ownZone()) {
     try {
-      const there = new Intl.DateTimeFormat(undefined, { ...how, timeZone: zone }).format(date);
-      const called = new Intl.DateTimeFormat(undefined, { timeZone: zone, timeZoneName: "short" })
-        .formatToParts(date)
-        .find((part) => part.type === "timeZoneName")?.value;
+      const there = moment(date, { ...how, timeZone: zone });
+      const called = momentParts(date, { timeZone: zone, timeZoneName: "short" }).find(
+        (part) => part.type === "timeZoneName",
+      )?.value;
       return called === undefined ? `${there} (${zone})` : `${there} ${called}`;
     } catch {
       // No such zone here.
     }
   }
-  return new Intl.DateTimeFormat(undefined, how).format(date);
+  return moment(date, how);
 }
 
 /**

@@ -4,6 +4,7 @@ members = [
     "crates/about",
     "crates/printer",
     "crates/render",
+    "crates/why",
     "bins/evo-usher-core",
     "bins/evo-usher-station",
     "bins/evo-usher-steward",
@@ -14,7 +15,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.3.16"
+version = "0.3.17"
 edition = "2021"
 license = "MIT"
 publish = false
@@ -45,6 +46,12 @@ unused_qualifications = "warn"
 # out; the rewrite this lint proposes does not satisfy them.
 [workspace.lints.clippy]
 manual_async_fn = "allow"
+
+# A build for development names the file and the line in a backtrace and
+# carries no more of a debugger's information: every test program links
+# the whole steward, and with full information each one is twice the size.
+[profile.dev]
+debug = "line-tables-only"
 
 # Hashing a password is made to cost; built without optimisation it costs
 # more than a test of signing in can wait on.

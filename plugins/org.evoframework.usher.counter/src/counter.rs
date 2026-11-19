@@ -9,12 +9,13 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use evo_usher_why::{why, Why};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::handed::{HandOut, Handed};
-use crate::types::{Types, Unkept, VoucherType, MOST};
+use crate::types::{no_such, Types, Unkept, VoucherType, MOST};
 
 /// The most hand-outs told where none is asked for by its voucher.
 const NEWEST: usize = 100;
@@ -28,14 +29,15 @@ pub const CONTROLLER: &str = "access.controller";
 /// The shelf that holds the vouchers assigned for handing out.
 pub const RESERVE: &str = "stock.reserve";
 
-/// Why a request is refused.
+/// Why a request is refused. A refusal of the counter's own is given
+/// under a code, which stays what it is, and in words.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refusal {
     /// It may succeed if asked again: a shelf did not answer, or what
     /// stands behind it was not reached.
-    ForNow(String),
+    ForNow(Why),
     /// It will not succeed as asked.
-    AsAsked(String),
+    AsAsked(Why),
     /// The steward refused what the counter asked of another shelf, and
     /// named its refusal: whoever asks the counter is refused under the
     /// same name, as they would be asking that shelf themselves.
@@ -182,8 +184,25 @@ struct Looking {
 
 fn asked<T: DeserializeOwned>(payload: &[u8]) -> Result<T, Refusal> {
     serde_json::from_slice(payload).map_err(|e| {
-        Refusal::AsAsked(format!("not what this request takes: {e}"))
+        Refusal::AsAsked(why(
+            "not_as_asked",
+            format!("not what this request takes: {e}"),
+        ))
     })
+}
+
+/// The refusal of one type more than a counter keeps.
+fn too_many() -> Why {
+    why(
+        "too_many_types",
+        format!("a counter offers {MOST} voucher types at most"),
+    )
+    .with("most", MOST)
+}
+
+/// An answer of another shelf that is not what the shelf's shape says.
+fn unread(words: String) -> Refusal {
+    Refusal::ForNow(why("shelf_answer_unread", words))
 }
 
 /// A change to the types that was not made: one against their rules
@@ -191,9 +210,10 @@ fn asked<T: DeserializeOwned>(payload: &[u8]) -> Result<T, Refusal> {
 fn unkept(e: Unkept) -> Refusal {
     match e {
         Unkept::Rule(why) => Refusal::AsAsked(why),
-        Unkept::Disk(e) => {
-            Refusal::ForNow(format!("the voucher types were not kept: {e}"))
-        }
+        Unkept::Disk(e) => Refusal::ForNow(why(
+            "not_kept",
+            format!("the voucher types were not kept: {e}"),
+        )),
     }
 }
 
@@ -294,9 +314,7 @@ impl Counter {
                     .map_err(Refusal::AsAsked)?;
                 let mut types = self.types.lock().expect("the types' lock");
                 if !types.takes(&kind.name) {
-                    return Err(Refusal::AsAsked(format!(
-                        "a counter offers {MOST} voucher types at most"
-                    )));
+                    return Err(Refusal::AsAsked(too_many()));
                 }
                 types.put(kind.clone()).map_err(unkept)?;
                 Ok(json!({ "type": kind }))
@@ -350,18 +368,19 @@ impl Counter {
                 };
                 Ok(json!({ "handed": told }))
             }
-            other => {
-                Err(Refusal::AsAsked(format!("unknown request type: {other}")))
-            }
+            other => Err(Refusal::AsAsked(why(
+                "unknown_request",
+                format!("unknown request type: {other}"),
+            ))),
         }
     }
 
     fn shelves(&self) -> Result<&Arc<dyn Shelves>, Refusal> {
         self.shelves.as_ref().ok_or_else(|| {
-            Refusal::AsAsked(
-                "the steward gave the counter no way to its other shelves"
-                    .to_string(),
-            )
+            Refusal::AsAsked(why(
+                "no_way_to_shelves",
+                "the steward gave the counter no way to its other shelves",
+            ))
         })
     }
 
@@ -385,9 +404,7 @@ impl Counter {
             .expect("the types' lock")
             .find(name)
             .cloned()
-            .ok_or_else(|| {
-                Refusal::AsAsked(format!("there is no voucher type '{name}'"))
-            })?;
+            .ok_or_else(|| Refusal::AsAsked(no_such(name)))?;
         // The terms of this voucher: the type's, with what was chosen.
         let kind = defined.issued(days, guests).map_err(Refusal::AsAsked)?;
         let shelves = self.shelves()?;
@@ -398,14 +415,13 @@ impl Counter {
         let told = shelves.ask(NETWORKS, "chosen", json!({})).await?;
         let network: Option<Network> =
             serde_json::from_value(told["chosen"].clone()).map_err(|e| {
-                Refusal::ForNow(format!(
-                    "{NETWORKS} did not say what was chosen: {e}"
-                ))
+                unread(format!("{NETWORKS} did not say what was chosen: {e}"))
             })?;
         let network = network.ok_or_else(|| {
-            Refusal::AsAsked(
-                "no wireless network is chosen for vouchers".to_string(),
-            )
+            Refusal::AsAsked(why(
+                "no_network_chosen",
+                "no wireless network is chosen for vouchers",
+            ))
         })?;
 
         // What was assigned for handing out takes precedence, and is
@@ -426,9 +442,7 @@ impl Counter {
                 taken["voucher"].clone(),
             )
             .map_err(|e| {
-                Refusal::ForNow(format!(
-                    "{RESERVE} gave what is no voucher: {e}"
-                ))
+                unread(format!("{RESERVE} gave what is no voucher: {e}"))
             })?,
             Err(named @ Refusal::Named { .. }) => return Err(named),
             Err(refused) => {
@@ -474,9 +488,9 @@ impl Counter {
             .and_then(|first| {
                 serde_json::from_value(first).map_err(|e| e.to_string())
             })
-            .map_err(|why| {
-                Refusal::ForNow(format!(
-                    "{CONTROLLER} minted nothing to hand out: {why}"
+            .map_err(|none| {
+                unread(format!(
+                    "{CONTROLLER} minted nothing to hand out: {none}"
                 ))
             })?;
         let at = self.note(&voucher.id, &kind.name, false);
@@ -504,9 +518,10 @@ impl Counter {
             .of(id)
             .is_some()
         {
-            return Err(Refusal::AsAsked(
-                "the voucher was handed out here before".to_string(),
-            ));
+            return Err(Refusal::AsAsked(why(
+                "voucher_handed_before",
+                "the voucher was handed out here before",
+            )));
         }
         let listed = shelves
             .ask(CONTROLLER, "list", json!({ "site": site }))
@@ -516,33 +531,33 @@ impl Counter {
             .and_then(|all| all.iter().find(|voucher| voucher["id"] == id))
             .cloned()
             .ok_or_else(|| {
-                Refusal::AsAsked(
-                    "the controller has no such voucher on that site"
-                        .to_string(),
-                )
+                Refusal::AsAsked(why(
+                    "no_such_voucher",
+                    "the controller has no such voucher on that site",
+                ))
             })?;
         let found: Listed = serde_json::from_value(found).map_err(|e| {
-            Refusal::ForNow(format!(
-                "{CONTROLLER} listed what is no voucher: {e}"
-            ))
+            unread(format!("{CONTROLLER} listed what is no voucher: {e}"))
         })?;
 
         // Only a voucher a guest can still be let in on is handed out.
         if found.expired == Some(true) {
-            return Err(Refusal::AsAsked(
-                "the voucher has expired".to_string(),
-            ));
+            return Err(Refusal::AsAsked(why(
+                "voucher_expired",
+                "the voucher has expired",
+            )));
         }
         if found.guests_used.unwrap_or(0) > 0 || found.activated.is_some() {
-            return Err(Refusal::AsAsked(
-                "the voucher is in use already".to_string(),
-            ));
+            return Err(Refusal::AsAsked(why(
+                "voucher_in_use",
+                "the voucher is in use already",
+            )));
         }
         let minutes = found.minutes.ok_or_else(|| {
-            Refusal::AsAsked(
-                "the controller does not say how long the voucher lasts"
-                    .to_string(),
-            )
+            Refusal::AsAsked(why(
+                "voucher_lasts_unknown",
+                "the controller does not say how long the voucher lasts",
+            ))
         })?;
         let kind = VoucherType {
             name: found.note.unwrap_or_default(),
@@ -555,9 +570,13 @@ impl Counter {
             up_kbps: found.up_kbps,
         }
         .held()
-        .map_err(|why| {
-            Refusal::AsAsked(format!(
-                "the voucher's note and terms make no voucher type: {why}"
+        .map_err(|rule| {
+            Refusal::AsAsked(why(
+                "voucher_makes_no_type",
+                format!(
+                    "the voucher's note and terms make no voucher type: \
+                     {rule}"
+                ),
             ))
         })?;
         {
@@ -565,24 +584,35 @@ impl Counter {
             match types.find(&kind.name) {
                 Some(kept) if *kept == kind => {}
                 Some(kept) if !kept.fixed() => {
-                    return Err(Refusal::AsAsked(format!(
-                        "the voucher type '{}' has days or devices to \
-                         choose, and no voucher is held for such a type",
-                        kind.name
-                    )))
+                    return Err(Refusal::AsAsked(
+                        why(
+                            "type_holds_no_voucher",
+                            format!(
+                                "the voucher type '{}' has days or \
+                                 devices to choose, and no voucher is \
+                                 held for such a type",
+                                kind.name
+                            ),
+                        )
+                        .with("name", kind.name.as_str()),
+                    ))
                 }
                 Some(_) => {
-                    return Err(Refusal::AsAsked(format!(
-                        "the voucher type '{}' is kept on other terms than \
-                         this voucher's",
-                        kind.name
-                    )))
+                    return Err(Refusal::AsAsked(
+                        why(
+                            "type_on_other_terms",
+                            format!(
+                                "the voucher type '{}' is kept on other \
+                                 terms than this voucher's",
+                                kind.name
+                            ),
+                        )
+                        .with("name", kind.name.as_str()),
+                    ))
                 }
                 None => {
                     if !types.takes(&kind.name) {
-                        return Err(Refusal::AsAsked(format!(
-                            "a counter offers {MOST} voucher types at most"
-                        )));
+                        return Err(Refusal::AsAsked(too_many()));
                     }
                     types.put(kind.clone()).map_err(unkept)?;
                 }
@@ -600,11 +630,11 @@ impl Counter {
             )
             .await?;
         if put["added"] != 1 {
-            return Err(Refusal::AsAsked(
+            return Err(Refusal::AsAsked(why(
+                "voucher_held_already",
                 "the voucher is held for handing out already, or was \
-                 handed out here before"
-                    .to_string(),
-            ));
+                 handed out here before",
+            )));
         }
         Ok(json!({ "type": kind }))
     }

@@ -3,15 +3,16 @@
 // what it gives and whether it has been used, and the means to revoke
 // it. What is shown is the controller's, asked for there and then.
 //
-// One that no guest has used can be assigned for handing out: the
-// counter then holds it for the voucher type its note names, and hands
-// it out before it has another minted. One the counter handed out is
-// shown as handed out until its guest uses it, and is not assigned.
+// One that no guest has used can be set aside: the counter then keeps
+// it for the voucher type its note names, and gives it to a guest before
+// it has another made. One the counter handed out is shown as handed out
+// until its guest uses it, and is not set aside.
 
 import { el, id, placeOf, words } from "./dom.js";
 import { HELD_CHANGED, TYPES_KEPT, VOUCHER_HANDED } from "./events.js";
 import { CONTROLLER_SET } from "./networks.js";
 import { COUNTER, RESERVE } from "./shelves.js";
+import { number, say } from "./words.js";
 
 /** The most vouchers of a kind that are put on the screen at once. */
 const SHOWN = 100;
@@ -35,11 +36,9 @@ export function written(code) {
  */
 export function lasts(minutes) {
   if (typeof minutes !== "number" || minutes <= 0) return "";
-  /** @param {number} count @param {string} unit */
-  const of = (count, unit) => `${count} ${unit}${count === 1 ? "" : "s"}`;
-  if (minutes % 1440 === 0) return of(minutes / 1440, "day");
-  if (minutes % 60 === 0) return of(minutes / 60, "hour");
-  return of(minutes, "minute");
+  if (minutes % 1440 === 0) return say("vouchers.lasts_days", { count: minutes / 1440 });
+  if (minutes % 60 === 0) return say("vouchers.lasts_hours", { count: minutes / 60 });
+  return say("vouchers.lasts_minutes", { count: minutes });
 }
 
 /**
@@ -51,30 +50,51 @@ export function lasts(minutes) {
 export function limits(voucher) {
   /** @param {number} kbps */
   const rate = (kbps) =>
-    kbps >= 1000 ? `${Number((kbps / 1000).toFixed(2))} Mbit/s` : `${kbps} kbit/s`;
+    kbps >= 1000
+      ? say("vouchers.rate_mbit", {
+          rate: number(kbps / 1000, { maximumFractionDigits: 2, useGrouping: false }),
+        })
+      : say("vouchers.rate_kbit", { rate: kbps });
   const parts = [];
-  if (typeof voucher?.down_kbps === "number") parts.push(`down ${rate(voucher.down_kbps)}`);
-  if (typeof voucher?.up_kbps === "number") parts.push(`up ${rate(voucher.up_kbps)}`);
-  if (typeof voucher?.megabytes === "number") parts.push(`${voucher.megabytes} MB`);
-  return parts.length > 0 ? parts.join(", ") : "none";
+  if (typeof voucher?.down_kbps === "number") {
+    parts.push(say("vouchers.limit_down", { rate: rate(voucher.down_kbps) }));
+  }
+  if (typeof voucher?.up_kbps === "number") {
+    parts.push(say("vouchers.limit_up", { rate: rate(voucher.up_kbps) }));
+  }
+  if (typeof voucher?.megabytes === "number") {
+    parts.push(say("vouchers.limit_data", { megabytes: voucher.megabytes }));
+  }
+  return parts.length > 0 ? parts.join(", ") : say("vouchers.limits_none");
 }
 
 /**
- * Where a voucher stands.
+ * Where a voucher stands: expired, in use, or not used yet.
  *
  * @param {any} voucher
- * @returns {string}
+ * @returns {"expired" | "in_use" | "unused"}
  */
 export function standing(voucher) {
   if (voucher?.expired === true) return "expired";
   const used =
     (typeof voucher?.guests_used === "number" && voucher.guests_used > 0) ||
     typeof voucher?.activated === "string";
-  return used ? "in use" : "not used yet";
+  return used ? "in_use" : "unused";
+}
+
+/**
+ * Where a voucher stands, in words.
+ *
+ * @param {ReturnType<typeof standing>} stands
+ * @returns {string}
+ */
+function standingSaid(stands) {
+  if (stands === "expired") return say("vouchers.standing_expired");
+  return stands === "in_use" ? say("vouchers.standing_in_use") : say("vouchers.standing_unused");
 }
 
 /** The light a word on a voucher's standing is given. */
-const TONES = { "in use": "good", expired: "spent" };
+const TONES = { in_use: "good", expired: "spent" };
 
 /**
  * A word on how a voucher stands, with a light of its tone before it.
@@ -122,7 +142,7 @@ export function vouchers(element, context) {
   let gone = false;
   /** The site looked at. @type {string | null} */
   let site = null;
-  /** The vouchers held for handing out: identifier, and the type held for. @type {Map<string, string>} */
+  /** The vouchers set aside: identifier, and the type each is kept for. @type {Map<string, string>} */
   let held = new Map();
 
   /**
@@ -174,7 +194,7 @@ export function vouchers(element, context) {
   const heldChanged = () => document.dispatchEvent(new Event(HELD_CHANGED));
 
   /** @param {string} text @param {boolean} [trouble] */
-  const say = (text, trouble = false) => {
+  const tell = (text, trouble = false) => {
     if (gone) return;
     said.textContent = text;
     said.classList.toggle("usher-trouble", trouble);
@@ -190,7 +210,7 @@ export function vouchers(element, context) {
     const isHeld = held.has(voucher.id);
     // Handed out, and its guest has not used it yet: it is that guest's.
     const out = handed.get(voucher.id);
-    const given = out !== undefined && !isHeld && standing(voucher) === "not used yet";
+    const given = out !== undefined && !isHeld && standing(voucher) === "unused";
     const option = el("td", {});
 
     /** Held for handing out, or given up again. */
@@ -201,29 +221,29 @@ export function vouchers(element, context) {
           {
             type: "button",
             class: "quiet",
-            "aria-label": `Take ${code} back`,
+            "aria-label": say("vouchers.take_back_named", { code }),
             onclick: async () => {
               try {
                 await context.steward.request(RESERVE, "release", { id: voucher.id });
                 heldChanged();
-                await look(`${code} is no longer for hand-out.`);
+                await look(say("vouchers.no_longer_aside", { code }));
               } catch (why) {
-                say(words(why), true);
+                tell(words(why), true);
               }
             },
           },
-          "Take back",
+          say("vouchers.take_back"),
         );
       }
-      if (given || voucher.expired === true || standing(voucher) !== "not used yet") return null;
+      if (given || voucher.expired === true || standing(voucher) !== "unused") return null;
       return el(
         "button",
         {
           type: "button",
           class: "quiet",
-          "aria-label": `Assign ${code} for hand-out`,
+          "aria-label": say("vouchers.set_aside_named", { code }),
           onclick: async () => {
-            say(`Assigning ${code}.`);
+            tell(say("vouchers.setting_aside", { code }));
             try {
               const said = await context.steward.request(COUNTER, "assign", {
                 site,
@@ -232,13 +252,18 @@ export function vouchers(element, context) {
               // The voucher may have brought its type with it.
               document.dispatchEvent(new Event(TYPES_KEPT));
               heldChanged();
-              await look(`${code} is assigned for hand-out, as ${said?.type?.name ?? "its type"}.`);
+              const type = said?.type?.name;
+              await look(
+                typeof type === "string"
+                  ? say("vouchers.set_aside_as", { code, type })
+                  : say("vouchers.set_aside_done", { code }),
+              );
             } catch (why) {
-              say(words(why), true);
+              tell(words(why), true);
             }
           },
         },
-        "Assign",
+        say("vouchers.set_aside"),
       );
     };
 
@@ -254,17 +279,17 @@ export function vouchers(element, context) {
             {
               type: "button",
               class: "quiet danger",
-              "aria-label": `Revoke ${code}`,
+              "aria-label": say("vouchers.revoke_named", { code }),
               onclick: () => {
                 option.replaceChildren(
-                  el("span", {}, "Revoke? "),
+                  el("span", {}, say("vouchers.revoke_sure"), " "),
                   el(
                     "button",
                     {
                       type: "button",
                       class: "quiet danger",
                       onclick: async () => {
-                        say(`Revoking ${code}.`);
+                        tell(say("vouchers.revoking", { code }));
                         try {
                           await ask("revoke", { site, id: voucher.id });
                           // Revoked, it lets nobody in: it is not left
@@ -275,21 +300,21 @@ export function vouchers(element, context) {
                               .catch(() => {});
                             heldChanged();
                           }
-                          await look(`${code} is revoked.`);
+                          await look(say("vouchers.revoked", { code }));
                         } catch (why) {
-                          say(words(why), true);
+                          tell(words(why), true);
                           offer();
                         }
                       },
                     },
-                    "Yes",
+                    say("common.yes"),
                   ),
                   " ",
-                  el("button", { type: "button", class: "quiet", onclick: offer }, "No"),
+                  el("button", { type: "button", class: "quiet", onclick: offer }, say("common.no")),
                 );
               },
             },
-            "Revoke",
+            say("vouchers.revoke"),
           ),
           ].filter((part) => part !== null),
         ),
@@ -304,16 +329,16 @@ export function vouchers(element, context) {
         "td",
         {},
         ...(isHeld
-          ? [pill("for hand-out", "lit")]
+          ? [pill(say("vouchers.pill_aside"), "lit")]
           : given
             ? [
-                pill("handed out", "held"),
+                pill(say("vouchers.pill_handed"), "held"),
                 el("br"),
                 el("span", { class: "usher-hint" }, at(Number(out.at))),
               ]
             : [
                 pill(
-                  standing(voucher),
+                  standingSaid(standing(voucher)),
                   TONES[/** @type {keyof typeof TONES} */ (standing(voucher))] ?? "",
                 ),
               ]),
@@ -341,9 +366,15 @@ export function vouchers(element, context) {
             el(
               "tr",
               {},
-              ...["Code", "Status", "Created", "Lasts", "Limits", "Note", ""].map((name) =>
-                el("th", { scope: "col" }, name),
-              ),
+              ...[
+                say("vouchers.col_code"),
+                say("vouchers.col_status"),
+                say("vouchers.col_created"),
+                say("vouchers.col_lasts"),
+                say("vouchers.col_limits"),
+                say("vouchers.col_note"),
+                "",
+              ].map((name) => el("th", { scope: "col" }, name)),
             ),
           ),
           el("tbody", {}, ...listed.slice(0, SHOWN).map(row)),
@@ -352,7 +383,11 @@ export function vouchers(element, context) {
     ];
     if (listed.length > SHOWN) {
       parts.push(
-        el("p", { class: "usher-hint" }, `The newest ${SHOWN} of ${listed.length} are shown.`),
+        el(
+          "p",
+          { class: "usher-hint" },
+          say("vouchers.newest_shown", { shown: SHOWN, all: listed.length }),
+        ),
       );
     }
     return parts;
@@ -368,13 +403,13 @@ export function vouchers(element, context) {
     looks += 1;
     const mine = looks;
     const late = () => gone || mine !== looks;
-    say("Asking the controller.");
+    tell(say("common.asking_controller"));
     try {
       const sites = (await ask("sites"))?.sites ?? [];
       if (late()) return;
       if (sites.length === 0) {
         body.replaceChildren();
-        say("The controller has no site.");
+        tell(say("common.no_site"));
         return;
       }
       if (!sites.some((/** @type {any} */ known) => known.id === site)) site = sites[0].id;
@@ -402,7 +437,7 @@ export function vouchers(element, context) {
               (heldId) =>
                 !valid.some(
                   (/** @type {any} */ voucher) =>
-                    voucher.id === heldId && standing(voucher) === "not used yet",
+                    voucher.id === heldId && standing(voucher) === "unused",
                 ),
             )
           : [];
@@ -411,9 +446,8 @@ export function vouchers(element, context) {
           el(
             "p",
             { class: "usher-trouble" },
-            spent.length === 1
-              ? "One voucher assigned for hand-out is no longer good on the controller: revoked, used or expired. "
-              : `${spent.length} vouchers assigned for hand-out are no longer good on the controller: revoked, used or expired. `,
+            say("vouchers.spent", { count: spent.length }),
+            " ",
             el(
               "button",
               {
@@ -422,13 +456,13 @@ export function vouchers(element, context) {
                   for (const heldId of spent) {
                     await context.steward
                       .request(RESERVE, "release", { id: heldId })
-                      .catch((why) => say(words(why), true));
+                      .catch((why) => tell(words(why), true));
                   }
                   heldChanged();
-                  await look("They are no longer for hand-out.");
+                  await look(say("vouchers.taken_back", { count: spent.length }));
                 },
               },
-              spent.length === 1 ? "Take it back" : "Take them back",
+              say("vouchers.take_them_back", { count: spent.length }),
             ),
           ),
         );
@@ -436,7 +470,7 @@ export function vouchers(element, context) {
       if (sites.length > 1) {
         const choice = id("vouchers-site");
         parts.push(
-          el("label", { for: choice }, "Site"),
+          el("label", { for: choice }, say("vouchers.site")),
           el(
             "select",
             {
@@ -456,34 +490,39 @@ export function vouchers(element, context) {
         el(
           "p",
           {},
-          `${valid.length} valid, ${expired.length} expired, on the controller.`,
+          say("vouchers.counted", { valid: valid.length, expired: expired.length }),
         ),
       );
       if (valid.length > 0) parts.push(...table(valid));
       if (expired.length > 0) {
         parts.push(
-          el("details", {}, el("summary", {}, `Expired (${expired.length})`), ...table(expired)),
+          el(
+            "details",
+            {},
+            el("summary", {}, say("vouchers.expired_count", { count: expired.length })),
+            ...table(expired),
+          ),
         );
       }
       body.replaceChildren(...parts);
-      say(then);
+      tell(then);
     } catch (why) {
       if (late()) return;
       body.replaceChildren();
-      say(words(why));
+      tell(words(why));
     }
   };
 
   element.setAttribute("role", "region");
   element.setAttribute("aria-labelledby", title);
   element.replaceChildren(
-    el("h3", { id: title }, "Vouchers on the controller"),
+    el("h3", { id: title }, say("vouchers.title")),
     body,
     said,
     el(
       "div",
       { class: "row" },
-      el("button", { type: "button", class: "quiet", onclick: () => look() }, "Ask again"),
+      el("button", { type: "button", class: "quiet", onclick: () => look() }, say("common.ask_again")),
     ),
   );
 

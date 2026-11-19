@@ -24,3 +24,9 @@ body {
   border-radius: var(--radius, 0.75rem);
   background: color-mix(in oklab, var(--card) 78%, transparent);
 }
+
+/* Nothing is said before the words are read: no line in one language
+   gives way to the same line in another. */
+html:not([data-spoken]) #door {
+  visibility: hidden;
+}

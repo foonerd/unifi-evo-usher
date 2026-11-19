@@ -8,6 +8,11 @@ const hold = (what, got, wanted) => {
   }
 };
 
+// The words are read before anything is said. The browser these rules
+// run in speaks English.
+const words = await import("/org.evoframework.usher.shell/words.js");
+await words.ready();
+
 const { compose, takes } = await import("/org.evoframework.usher.shell/compose.js");
 const { methodOf } = await import("/org.evoframework.usher.shell/steward.js");
 const { shellAddress, OWN_SHELL } = await import("/door.js");
@@ -61,7 +66,7 @@ hold(
 hold(
   "a kind the shelf does not take is not drawn",
   shown[0].stockings[1].refused,
-  "the shelf does not take k.two",
+  "not_taken",
 );
 hold(
   "a size the shelf does not take gives way to the kind's own",
@@ -71,12 +76,12 @@ hold(
 hold(
   "a kind the steward does not know is not drawn",
   shown[1].stockings[1].refused,
-  "nothing here can show k.gone",
+  "not_known",
 );
 hold(
   "a kind that fits no size of the shelf is not drawn",
   shown[1].stockings[2].refused,
-  "k.wide cannot be drawn at a size the shelf takes",
+  "no_size",
 );
 hold("nothing said, nothing shown", compose(undefined), []);
 
@@ -211,9 +216,9 @@ hold(
   "down 7.2 Mbit/s, up 1.2 Mbit/s, 6000 MB",
 );
 hold("a slow limit", limits({ up_kbps: 512 }), "up 512 kbit/s");
-hold("not used", standing({ expired: false, guests_used: 0, activated: null }), "not used yet");
-hold("in use", standing({ expired: false, guests_used: 1 }), "in use");
-hold("in use, by its first guest", standing({ activated: "2026-01-19T23:50:00Z" }), "in use");
+hold("not used", standing({ expired: false, guests_used: 0, activated: null }), "unused");
+hold("in use", standing({ expired: false, guests_used: 1 }), "in_use");
+hold("in use, by its first guest", standing({ activated: "2026-01-19T23:50:00Z" }), "in_use");
 hold("expired", standing({ expired: true, guests_used: 1 }), "expired");
 
 // What the controller says of a wireless network.
@@ -459,5 +464,108 @@ hold(
     "This picture is 2 by 513 pixels. A logo is 1024 by 512 pixels at most.",
   ],
 );
+
+// Which language is spoken: what a person picked on the browser; else,
+// where the site follows a browser, the first of the browser's own that
+// is on offer; else the site's; else English.
+const offered = [
+  { tag: "en", name: "English" },
+  { tag: "de", name: "Deutsch" },
+  { tag: "pt-BR", name: "Portugues (Brasil)" },
+];
+hold("a language by its tag", words.match("de", offered), "de");
+hold("however it is cased", words.match("DE", offered), "de");
+hold("the language of a country's", words.match("de-AT", offered), "de");
+hold("a country's own, where it is on offer", words.match("pt-br", offered), "pt-BR");
+hold("no country's of another", words.match("pt-PT", offered), null);
+hold("none on offer", words.match("fr", offered), null);
+hold("nothing asked", [words.match(null, offered), words.match("", offered)], [null, null]);
+const speaks = (picked, browser, follows, site) =>
+  words.best({ picked, browser, follows, site }, offered);
+hold("what was picked, before all else", speaks("de", ["en-GB"], true, "en"), "de");
+hold("the browser's own, where the site follows it", speaks(null, ["de-AT", "en"], true, "en"), "de");
+hold("the first of the browser's that is on offer", speaks(null, ["fr", "sv", "de"], true, "en"), "de");
+hold("the site's, where the browser's is not on offer", speaks(null, ["fr-FR", "sv"], true, "de"), "de");
+hold("the site's, where it does not follow a browser", speaks(null, ["de-DE"], false, "en"), "en");
+hold("what was picked, also where the site follows none", speaks("de", ["en"], false, "en"), "de");
+hold("a pick that is not on offer is none", speaks("fr", ["sv"], true, "de"), "de");
+hold("English, where nothing else is on offer", speaks(null, ["fr"], true, "sv"), "en");
+hold("English, where nothing is said", speaks(null, [], true, null), "en");
+
+// What is said: a text by its key, its places taken by values, the
+// words for a count, and a key no language has as itself.
+hold("the language spoken here", words.language(), "en");
+hold("the languages on offer, each under its own name", words.languages(), [
+  { tag: "en", name: "English" },
+  { tag: "de", name: "Deutsch" },
+]);
+hold("a text", words.say("common.save"), "Save");
+hold("a text with a value", words.say("people.remove_named", { name: "Ben" }), "Remove Ben");
+hold("a value that is not given leaves its place", words.say("people.remove_named"), "Remove {name}");
+hold("one of a thing", words.say("vouchers.lasts_days", { count: 1 }), "1 day");
+hold("several of it", words.say("vouchers.lasts_days", { count: 30 }), "30 days");
+hold(
+  "a count under a name of its own",
+  [1, 15].map((minutes) => words.sayOf("refusal", "held", { minutes })),
+  [
+    "Too many wrong tries. Wait 1 minute and try again.",
+    "Too many wrong tries. Wait 15 minutes and try again.",
+  ],
+);
+hold("a key no language has", words.say("no.such.text"), "no.such.text");
+hold("a text of a kind, by its name", words.sayOf("page", "counter"), "Counter");
+hold("none of that name", words.sayOf("page", "elsewhere"), null);
+hold("none, where a value it speaks of is not given", words.sayOf("refusal", "person_exists"), null);
+const strong = document.createElement("strong");
+strong.textContent = "Guests";
+const told_ = words.parts("network.tells", { name: strong });
+hold(
+  "an element in its place among the words",
+  told_.map((part) => (part instanceof Node ? part.outerHTML : part)),
+  ["A voucher tells the guest to join ", "<strong>Guests</strong>", "."],
+);
+hold("a number, as the language writes one", words.number(7.2), "7.2");
+
+// A refusal: by its code where the language has words for it, with the
+// values it carries and those of what was asked; else in the words it
+// came in.
+const refused_ = (reason, message, more = {}) => Object.assign(new Error(message), { reason, ...more });
+hold(
+  "by its code",
+  words.refusal(refused_("wrong_name_or_password", "anything")),
+  "The name or the password is wrong.",
+);
+hold(
+  "with the values it carries",
+  words.refusal(refused_("password_too_short", "x", { values: { least: 12, has: 11 } })),
+  "A password is 12 characters at least; this one has 11. A few words in a row are easy to remember and long enough.",
+);
+hold(
+  "with what was asked",
+  words.refusal(refused_("default_not_deleted", "x", { asked: { name: "Day guest" } })),
+  "Day guest is the default voucher type and cannot be deleted. Make another type the default first.",
+);
+hold(
+  "with the usher's own words in it",
+  words.refusal(refused_("controller_not_reached", "the controller was not reached: refused")),
+  "The controller could not be reached. (the controller was not reached: refused)",
+);
+hold(
+  "a value that did not come: the usher's own words",
+  words.refusal(refused_("person_exists", "There is a person called Ben already.")),
+  "There is a person called Ben already.",
+);
+hold(
+  "a code the language has no words for: the usher's own words",
+  words.refusal(refused_("not_as_asked", "This is not what this takes: no name")),
+  "This is not what this takes: no name",
+);
+hold("no code at all", words.refusal(new Error("as it came")), "as it came");
+hold(
+  "what the steward put before a plugin's words is taken off",
+  words.refusal(new Error("plugin error: permanent error: no such site")),
+  "no such site",
+);
+hold("what is no error", words.refusal("said plainly"), "said plainly");
 
 return failed;

@@ -6,6 +6,9 @@
 // What is stocked stands on pages, one shown at a time, each with an
 // entry in the menu and an address of its own: the fragment `#/` and the
 // page's id. Which shelf stands on which page is said in `pages.json`.
+//
+// Everything it says, it says in the language the face speaks: the
+// words are read before anything is drawn.
 
 import * as steward from "./steward.js";
 import { name as brandName, wearBrand } from "./brand.js";
@@ -13,6 +16,10 @@ import { fragmentOf, pageOf, paginate } from "./pages.js";
 import { advice, amiss, people } from "./people.js";
 import * as site from "./site.js";
 import { themeAddress } from "./theme.js";
+import { offer as offerLanguages, ready, refusal, say, sayOf } from "./words.js";
+
+// Nothing is said before the words are there.
+await ready();
 
 /** A plugin's name, as evo writes one. */
 const NAME = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
@@ -75,6 +82,15 @@ const signOutButton = /** @type {HTMLButtonElement} */ (document.getElementById(
 /** Who is signed in, as the usher names them; null while nobody is. @type {{ name: string | null, unit: boolean, leastPassword: number } | null} */
 let signedIn = null;
 
+/**
+ * Which sitting this is: one more each time a person signs out. What was
+ * asked in a sitting that has ended is not drawn when its answer comes.
+ */
+let sitting = 0;
+
+/** Whether a person is signing out: nothing is drawn until they have. */
+let leaving = false;
+
 /** Those waiting for someone to sign in. @type {Array<() => void>} */
 let waiting = [];
 
@@ -83,8 +99,8 @@ const part = (id) => /** @type {HTMLElement} */ (document.getElementById(id));
 /** @param {string} id @returns {HTMLInputElement} */
 const field = (id) => /** @type {HTMLInputElement} */ (document.getElementById(id));
 
-/** @param {unknown} why @returns {string} */
-const wordsOf = (why) => (why instanceof Error ? why.message : String(why));
+/** What went wrong, in the language the face speaks. @param {unknown} why @returns {string} */
+const wordsOf = (why) => refusal(why);
 
 /**
  * Put a form into the dialog, from its template: the one form a browser
@@ -131,7 +147,7 @@ function setUp(unit) {
     const asksCode = unit.level === "extended";
     part("set-up-code-part").hidden = !asksCode;
     part("set-up-advice").textContent =
-      `${advice(unit.least_password)} Keep it in a password manager, or written down somewhere safe.`;
+      `${advice(unit.least_password)} ${say("entry.keep_safe")}`;
     name.focus();
     let asking = false;
     // What was said of what was typed is said no longer once it is
@@ -144,7 +160,7 @@ function setUp(unit) {
       if (asking) return;
       said.textContent = "";
       if (name.value.trim() === "") {
-        said.textContent = "Type your name.";
+        said.textContent = say("entry.type_name");
         name.focus();
         return;
       }
@@ -155,7 +171,7 @@ function setUp(unit) {
         return;
       }
       if (asksCode && code.value.trim() === "") {
-        said.textContent = "Type the unit's code. It is read on the unit itself.";
+        said.textContent = say("entry.type_code");
         code.focus();
         return;
       }
@@ -208,7 +224,7 @@ function signIn(keeps) {
       if (asking) return;
       said.textContent = "";
       if (name.value.trim() === "" || password.value === "") {
-        said.textContent = "Type your name and your password.";
+        said.textContent = say("entry.type_name_and_password");
         (name.value.trim() === "" ? name : password).focus();
         return;
       }
@@ -249,7 +265,7 @@ function enter() {
     entering = true;
     signedIn = null;
     who.hidden = true;
-    line.textContent = "Not signed in.";
+    line.textContent = say("shell.not_signed_in");
     line.classList.remove("up", "down");
     (async () => {
       for (;;) {
@@ -265,7 +281,7 @@ function enter() {
         }
       }
       entering = false;
-      line.textContent = "Signed in.";
+      line.textContent = say("shell.signed_in");
       await whoIsIn();
       const told = waiting;
       waiting = [];
@@ -286,18 +302,24 @@ entry.addEventListener("close", () => {
 
 /** Ask the usher who is signed in, and say so in the bar. */
 async function whoIsIn() {
+  const at = sitting;
+  /** @type {typeof signedIn} */
+  let found = null;
   try {
     const me = await steward.usher("me");
-    signedIn = {
+    found = {
       name: typeof me.name === "string" ? me.name : null,
       unit: me.unit === true,
       leastPassword: Number(me.least_password) || 12,
     };
   } catch {
-    signedIn = null;
+    found = null;
   }
+  // Who was signed in when this was asked has signed out meanwhile.
+  if (at !== sitting || leaving) return;
+  signedIn = found;
   who.hidden = signedIn === null;
-  whoName.textContent = signedIn === null ? "" : (signedIn.name ?? "The unit's keeper");
+  whoName.textContent = signedIn === null ? "" : (signedIn.name ?? say("shell.unit_keeper"));
   if (signedIn !== null) await peoplePage.look();
 }
 
@@ -319,25 +341,47 @@ async function askUsher(route, carried = null) {
   }
 }
 
+/**
+ * Take everything of a sitting off the screen: what is drawn, the menu,
+ * the people, the name in the bar and the page's in the tab. It is done
+ * at once, with nothing waited for, so that no form to sign in ever
+ * stands over what a person who has signed out could see.
+ */
+function takeDown() {
+  sitting += 1;
+  signedIn = null;
+  who.hidden = true;
+  whoName.textContent = "";
+  for (const standing of mounted.values()) standing.unmount();
+  mounted.clear();
+  drawnAs = "";
+  offered = [];
+  menuList.replaceChildren();
+  menu.hidden = true;
+  menuButton.hidden = true;
+  fold();
+  shelves.replaceChildren();
+  peoplePage.clear();
+  document.title = brandName();
+}
+
 signOutButton.addEventListener("click", async () => {
+  if (leaving) return;
+  leaving = true;
   signOutButton.disabled = true;
+  // The screen first, and only then the usher: whatever else finds the
+  // session ended meanwhile asks a person in over an empty page.
+  takeDown();
   try {
     await steward.signOut();
-    // Nothing of the steward's stays on the screen of who has signed out.
-    for (const standing of mounted.values()) standing.unmount();
-    mounted.clear();
-    drawnAs = "";
-    offered = [];
-    menuList.replaceChildren();
-    menu.hidden = true;
-    menuButton.hidden = true;
-    shelves.replaceChildren();
-    peoplePage.clear();
-    document.title = brandName();
   } finally {
+    leaving = false;
     signOutButton.disabled = false;
   }
-  await enter();
+  // Someone may have signed in while the usher was told: they are in,
+  // and the bar is yet to say who they are.
+  if (!steward.bearer()) await enter();
+  else if (signedIn === null) await whoIsIn();
   await look();
 });
 
@@ -531,6 +575,34 @@ let drawnAs = "";
 /** The page of the people who can sign in. */
 const PEOPLE = { id: "people", label: "People" };
 
+/**
+ * What a page is called on the screen: what the words call the page of
+ * its id, or its own label where they have no name for it.
+ *
+ * @param {{ id: string, label: string }} page
+ * @returns {string}
+ */
+const called = (page) => sayOf("page", page.id) ?? page.label;
+
+/**
+ * What a shelf is called on the screen, where it shares its page with
+ * another: what the words call it, or the steward's label for it.
+ *
+ * @param {{ id: string, label: string }} shelf
+ * @returns {string}
+ */
+const shelfCalled = (shelf) => sayOf("part", shelf.id) ?? shelf.label;
+
+/**
+ * Why a stocking is not drawn, in words.
+ *
+ * @param {string} why the kind of refusal, as `compose.js` names it
+ * @param {string} widget the widget kind
+ * @returns {string}
+ */
+const notShown = (why, widget) =>
+  sayOf("shell", `not_shown_${why}`, { widget }) ?? say("shell.not_shown", { widget });
+
 /** What stands on it: drawn once, and kept while the pages are redrawn. */
 const peoplePane = document.createElement("div");
 peoplePane.className = "shelf";
@@ -551,6 +623,8 @@ function draw(snapshot) {
   if (!pages.some((page) => page.id === PEOPLE.id)) {
     pages.push({ id: PEOPLE.id, label: PEOPLE.label, shelves: [] });
   }
+  // A page is called what the language spoken calls it.
+  for (const page of pages) page.label = called(page);
   const stocked = pages.some((page) => page.shelves.length > 0);
   const as = JSON.stringify(pages);
   if (as === drawnAs) return;
@@ -584,7 +658,7 @@ function draw(snapshot) {
         const name = document.createElement("p");
         name.className = "shelf-name";
         name.id = `shelf-${page.id}-${at}`;
-        name.textContent = shelf.label;
+        name.textContent = shelfCalled(shelf);
         part.setAttribute("role", "group");
         part.setAttribute("aria-labelledby", name.id);
         part.append(name);
@@ -604,11 +678,9 @@ function draw(snapshot) {
           let unmount = () => {};
           const pack = drawnBy.get(stocking.widget);
           if (stocking.refused !== null) {
-            element.append(notice(`Not drawn: ${stocking.refused}.`));
+            element.append(notice(notShown(stocking.refused, stocking.widget)));
           } else if (pack === undefined) {
-            element.append(
-              notice(`Nothing here draws ${stocking.widget}. It comes with a widget pack.`),
-            );
+            element.append(notice(notShown("not_known", stocking.widget)));
           } else {
             try {
               unmount = pack.mount(stocking.widget, element, {
@@ -624,7 +696,7 @@ function draw(snapshot) {
               });
             } catch (why) {
               console.warn(`shell: drawing ${stocking.widget}:`, why);
-              element.replaceChildren(notice(`${stocking.widget} could not be drawn.`));
+              element.replaceChildren(notice(say("shell.not_shown", { widget: stocking.widget })));
             }
           }
           standing = { element, unmount };
@@ -644,7 +716,7 @@ function draw(snapshot) {
     }
   }
   if (!stocked) {
-    drawn.unshift(notice("There is nothing to show yet."));
+    drawn.unshift(notice(say("shell.nothing_yet")));
   }
   shelves.replaceChildren(...drawn);
   offer(pages);
@@ -681,10 +753,15 @@ async function loadTheme() {
  * is at the browser is asked in first.
  */
 async function look() {
+  // Nothing is asked for a person who is signing out.
+  if (leaving) return false;
+  const at = sitting;
   try {
     const stocked = await steward.op("describe_ui_stockings");
     // The place is known before anything is drawn that shows a time.
     await lookAtSite();
+    // What was asked in a sitting that has ended is not drawn.
+    if (at !== sitting || leaving) return false;
     draw(stocked);
     return true;
   } catch (why) {
@@ -712,14 +789,20 @@ function happened(happening) {
 
 /** @param {boolean} joined */
 function lineIs(joined) {
-  line.textContent = joined
-    ? "Connected"
-    : "Connection lost. Trying again.";
+  line.textContent = joined ? say("shell.connected") : say("shell.connection_lost");
   line.classList.toggle("up", joined);
   line.classList.toggle("down", !joined);
   // What was missed while the line was down is looked at afresh.
   if (joined) look();
 }
+
+// The languages to choose from, in the bar and under the form a person
+// comes in by.
+offerLanguages(/** @type {HTMLSelectElement} */ (document.getElementById("language")));
+offerLanguages(
+  /** @type {HTMLSelectElement} */ (document.getElementById("entry-language")),
+  part("entry-language-part"),
+);
 
 wearBrand();
 // A site that is not what it was is worn anew, wherever the brand stands,

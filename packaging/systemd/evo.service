@@ -42,6 +42,12 @@ Environment=EVO_HTTPS_STATIC_DIR=/opt/evo/ui
 #Environment="USHER_SITE_NAME=Parish Hall"
 #Environment=USHER_TIME_ZONE=Europe/Warsaw
 
+# The language the unit speaks, by its tag, as en or de, until one is
+# saved on the page Site. A browser is spoken to in its own language
+# where the usher speaks it, and in this one where it does not. With
+# none given, it is English. Set in a drop-in, or here:
+#Environment=USHER_LANGUAGE=de
+
 # The code a unit of the extended level is set up with. The steward makes
 # one where the file is not there, and the directory is new at every
 # start: so is the code. It is read with `sudo cat /run/evo/unit-code`.
@@ -61,6 +67,11 @@ RestartSec=5s
 # started is ended with it only when the time is up.
 KillMode=mixed
 TimeoutStopSec=30s
+
+# Every screen joined to the unit holds a connection, and a connection is
+# an open file: as many as a large venue takes. The steward raises its
+# own limit where it may; here it may change none, so it is set.
+LimitNOFILE=65536
 
 # /run/evo for the client socket, /var/lib/evo for what the steward
 # keeps, /etc/evo for its configuration, which it only reads.

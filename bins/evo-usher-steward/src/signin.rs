@@ -11,6 +11,11 @@
 //! A new usher has nobody. Whoever opens it first sets it up, by making
 //! its first administrator; in the extended level that takes the code
 //! read on the unit itself.
+//!
+//! What a route refuses, it refuses under a code, the refusal's subclass,
+//! which stays what it is from release to release, with the values it
+//! speaks of beside it and its words in English: a screen says it in
+//! the language it speaks, by the code.
 
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
@@ -31,6 +36,7 @@ use base64::Engine as _;
 use evo_auth_bearer::CapabilitySet;
 use evo_projection_core::WireOpId;
 use evo_runtime_http::{Dispatcher, Principal};
+use evo_usher_why::{why, Why};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -369,13 +375,18 @@ impl Usher {
     }
 
     /// What anyone is told of the site: its name and its logo, which
-    /// the forms a person comes in by wear. It is asked of the site's
-    /// shelf as nobody, so that no more is had here than the shelf tells
-    /// whoever asks; and of what the shelf tells, no more than these two
-    /// is passed on. Where the shelf does not answer, the site has
-    /// neither: nobody is kept from signing in by it.
+    /// the forms a person comes in by wear, and the language those forms
+    /// speak, with whether a browser's own goes before it. It is asked
+    /// of the site's shelf as nobody, so that no more is had here than
+    /// the shelf tells whoever asks; and of what the shelf tells, no
+    /// more than these is passed on. Where the shelf does not answer,
+    /// the site has neither name nor logo and speaks English: nobody is
+    /// kept from signing in by it.
     async fn site(&self) -> Value {
-        let nothing = json!({ "name": "", "logo": null });
+        let nothing = json!({
+            "name": "", "logo": null,
+            "language": evo_usher_site::OWN_LANGUAGE, "follows_browser": true,
+        });
         let Ok(operation) = WireOpId::new(ASK_A_SHELF) else {
             return nothing;
         };
@@ -413,6 +424,10 @@ impl Usher {
             } else {
                 Value::Null
             },
+            "language": site["language"]
+                .as_str()
+                .unwrap_or(evo_usher_site::OWN_LANGUAGE),
+            "follows_browser": site["follows_browser"].as_bool().unwrap_or(true),
         })
     }
 
@@ -646,32 +661,55 @@ fn answer(status: StatusCode, said: &Value) -> Response {
 }
 
 /// A refusal, in the shape of evo's own, so that a client reads the
-/// usher's and evo's alike.
+/// usher's and evo's alike: the code it is given under is its subclass,
+/// and the words are in English.
 pub fn refusal(
     status: StatusCode,
     class: &str,
     subclass: &str,
     words: &str,
 ) -> Response {
+    coded(status, class, subclass, words, None)
+}
+
+/// A refusal with the values it speaks of beside its code, each under a
+/// name, for a screen to say it in words of its own.
+fn refusal_with(status: StatusCode, class: &str, why: &Why) -> Response {
+    coded(status, class, why.code, &why.words, Some(&why.values))
+}
+
+fn coded(
+    status: StatusCode,
+    class: &str,
+    code: &str,
+    words: &str,
+    values: Option<&serde_json::Map<String, Value>>,
+) -> Response {
+    let mut details = json!({ "subclass": code });
+    if let Some(values) = values.filter(|values| !values.is_empty()) {
+        details["values"] = Value::Object(values.clone());
+    }
     answer(
         status,
         &json!({
             "error": {
                 "class": class,
                 "message": words,
-                "details": { "subclass": subclass },
+                "details": details,
             }
         }),
     )
 }
 
-fn not_as_asked(words: &str) -> Response {
-    refusal(
-        StatusCode::BAD_REQUEST,
-        "contract_violation",
-        "not_as_asked",
-        words,
-    )
+/// What was asked is not what the route takes, or breaks a rule of the
+/// people's: refused under the rule's code.
+fn not_as_asked(why: &Why) -> Response {
+    refusal_with(StatusCode::BAD_REQUEST, "contract_violation", why)
+}
+
+/// What was sent is not what the route takes.
+fn not_what_it_takes(words: &str) -> Response {
+    not_as_asked(&why("not_as_asked", words))
 }
 
 fn unkept(e: people::Unkept) -> Response {
@@ -694,10 +732,14 @@ async fn carried<T: DeserializeOwned>(request: Request) -> Result<T, Refused> {
     let bytes = axum::body::to_bytes(request.into_body(), 16 * 1024)
         .await
         .map_err(|_| {
-            not_as_asked("What was sent is too long to be what this takes.")
+            not_what_it_takes(
+                "What was sent is too long to be what this takes.",
+            )
         })?;
     serde_json::from_slice(&bytes).map_err(|e| {
-        Box::new(not_as_asked(&format!("This is not what this takes: {e}")))
+        Box::new(not_what_it_takes(&format!(
+            "This is not what this takes: {e}"
+        )))
     })
 }
 
@@ -720,14 +762,17 @@ fn asking(request: &Request) -> Result<Asking, Refused> {
 
 fn held(left_ms: u64) -> Response {
     let minutes = left_ms.div_ceil(60_000).max(1);
-    refusal(
+    refusal_with(
         StatusCode::TOO_MANY_REQUESTS,
         "permission_denied",
-        "held",
-        &format!(
-            "Too many wrong tries. Wait {minutes} minute{} and try again.",
-            if minutes == 1 { "" } else { "s" }
-        ),
+        &why(
+            "held",
+            format!(
+                "Too many wrong tries. Wait {minutes} minute{} and try again.",
+                if minutes == 1 { "" } else { "s" }
+            ),
+        )
+        .with("minutes", minutes),
     )
 }
 
@@ -862,7 +907,12 @@ async fn set_up(State(usher): State<Arc<Usher>>, request: Request) -> Response {
     .await
     {
         Ok(Ok(hash)) => hash,
-        _ => return not_as_asked("The password could not be kept."),
+        _ => {
+            return not_as_asked(&why(
+                "password_not_kept",
+                "The password could not be kept.",
+            ))
+        }
     };
     {
         let mut people = usher.people();
@@ -1036,7 +1086,12 @@ async fn add_person(
     .await
     {
         Ok(Ok(hash)) => hash,
-        _ => return not_as_asked("The password could not be kept."),
+        _ => {
+            return not_as_asked(&why(
+                "password_not_kept",
+                "The password could not be kept.",
+            ))
+        }
     };
     match usher.people().add(&name, ADMINISTRATOR, hash, now_ms()) {
         Ok(()) => answer(StatusCode::OK, &json!({ "added": name })),
@@ -1057,12 +1112,7 @@ async fn set_password(
     };
     let name = match usher.people().find(&asked.name) {
         Some(person) => person.name.clone(),
-        None => {
-            return not_as_asked(&format!(
-                "There is nobody called {}.",
-                asked.name.trim()
-            ))
-        }
+        None => return not_as_asked(&people::nobody_called(asked.name.trim())),
     };
     if let Err(why) = people::password_held(&asked.password, &name, usher.level)
     {
@@ -1075,7 +1125,12 @@ async fn set_password(
     .await
     {
         Ok(Ok(hash)) => hash,
-        _ => return not_as_asked("The password could not be kept."),
+        _ => {
+            return not_as_asked(&why(
+                "password_not_kept",
+                "The password could not be kept.",
+            ))
+        }
     };
     if let Err(e) = usher.people().set_password(&name, hash) {
         return unkept(e);
@@ -1103,12 +1158,7 @@ async fn remove_person(
     };
     let name = match usher.people().find(&asked.name) {
         Some(person) => person.name.clone(),
-        None => {
-            return not_as_asked(&format!(
-                "There is nobody called {}.",
-                asked.name.trim()
-            ))
-        }
+        None => return not_as_asked(&people::nobody_called(asked.name.trim())),
     };
     if let Err(e) = usher.people().remove(&name) {
         return unkept(e);
@@ -1127,9 +1177,13 @@ async fn change_my_password(
 ) -> Response {
     let (name, session) = match asking(&request) {
         Ok(Asking::Person { name, session }) => (name, session),
-        Ok(Asking::Unit) => return not_as_asked(
-            "The unit's keeper has no password here: set a person's instead.",
-        ),
+        Ok(Asking::Unit) => {
+            return not_as_asked(&why(
+                "unit_has_no_password",
+                "The unit's keeper has no password here: set a person's \
+                 instead.",
+            ))
+        }
         Err(refused) => return *refused,
     };
     let asked: Changing = match carried(request).await {
@@ -1169,7 +1223,12 @@ async fn change_my_password(
     .await
     {
         Ok(Ok(hash)) => hash,
-        _ => return not_as_asked("The password could not be kept."),
+        _ => {
+            return not_as_asked(&why(
+                "password_not_kept",
+                "The password could not be kept.",
+            ))
+        }
     };
     if let Err(e) = usher.people().set_password(&name, hash) {
         return unkept(e);

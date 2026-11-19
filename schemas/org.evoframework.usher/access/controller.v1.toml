@@ -23,7 +23,17 @@ nothing, the key least of all.
 
 A request that may succeed if asked again (the controller was not
 reached, or failed on its side) is refused as transient; one that will
-not succeed as asked, as permanent.
+not succeed as asked, as a contract violation.
+
+A refusal carries a code as its subclass, beside its words in English,
+and the code stays what it is from release to release:
+`address_not_one`, `address_not_https`, `key_needed`,
+`fingerprint_not_one`, `no_line`, `controller_no_handshake`,
+`controller_not_reached`, `controller_failed`, `controller_refused_key`,
+`controller_refused`, `controller_answer_unread`, `no_controller_set`,
+`no_such_site`, `no_such_network`, `terms_outside`, `note_needed`,
+`id_not_one`, `not_as_asked`, `not_kept`, `unknown_request`. The shelf
+`networks.directory` refuses under the same codes.
 """
 
 [[requests]]
@@ -64,9 +74,11 @@ request_type = "info"
 description = """
 The controller that is set. Returns `{ set: false }` where none is, and
 otherwise `{ set: true, base: string, held: bool, version: string |
-null, trouble: string | null }`, the version being asked of the
-controller there and then. A controller that does not answer is still
-the one that is set: `version` is then null and `trouble` says why.
+null, trouble: string | null, trouble_code: string | null }`, the
+version being asked of the controller there and then. A controller that
+does not answer is still the one that is set: `version` is then null,
+`trouble` says why in words, and `trouble_code` is the code a refusal
+for that reason is given under.
 """
 payload_in = "json"
 payload_out = "json"

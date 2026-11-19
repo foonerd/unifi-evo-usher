@@ -18,6 +18,7 @@ evo-usher-controller-unifi = { path = "../../plugins/org.evoframework.usher.cont
 evo-usher-counter = { path = "../../plugins/org.evoframework.usher.counter" }
 evo-usher-site = { path = "../../plugins/org.evoframework.usher.site" }
 evo-usher-stock = { path = "../../plugins/org.evoframework.usher.stock" }
+evo-usher-why = { path = "../../crates/why" }
 anyhow = "1"
 # A password is kept as an Argon2id hash.
 argon2 = "0.5"
@@ -26,6 +27,9 @@ axum = { version = "0.7", default-features = false }
 # What a shelf is asked, and what it answers, travels as base64.
 base64 = "0.22"
 clap = { version = "4", features = ["derive"] }
+# The limit of open files is read and raised through it; evo builds on
+# the same crate.
+nix = { version = "0.30", default-features = false, features = ["resource"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # The unit's code is compared in constant time.

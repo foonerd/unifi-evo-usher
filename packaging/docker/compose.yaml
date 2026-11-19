@@ -18,6 +18,7 @@
 #   USHER_PORT       the port it is published on (default 8443)
 #   USHER_SITE_NAME  what the place is called, until one is saved on the page Site
 #   USHER_TIME_ZONE  the time zone it keeps, as Europe/Warsaw, until one is saved there
+#   USHER_LANGUAGE   the language it speaks, as en or de, until one is saved there
 services:
   usher:
     # The image and the version of it to run. There is no "latest": a
@@ -44,6 +45,11 @@ services:
       # shows a time as its own browser keeps it.
       USHER_SITE_NAME: ${USHER_SITE_NAME:-}
       USHER_TIME_ZONE: ${USHER_TIME_ZONE:-}
+      # The language the unit speaks, by its tag, as en or de, until one
+      # is saved on the page Site. A browser is spoken to in its own
+      # language where the usher speaks it, and in this one where it
+      # does not. Left empty, it is English.
+      USHER_LANGUAGE: ${USHER_LANGUAGE:-}
     # The least privilege: the unit runs as the image's one account,
     # numbered 10001, with a root file system it cannot write to, no
     # capability, and no way to gain a privilege.
@@ -69,6 +75,13 @@ services:
     # Told to stop, the steward is given as long to end as the service
     # of an installed unit is.
     stop_grace_period: 30s
+    # Every screen joined to the unit holds a connection, and a connection
+    # is an open file: as many as a large venue takes. The steward raises
+    # its own limit as far as it is allowed; this is how far that is.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     # What the unit says is kept by Docker, to thirty megabytes at most.
     logging:
       driver: json-file

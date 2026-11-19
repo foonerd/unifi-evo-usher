@@ -6,6 +6,7 @@
 import { gives } from "./counter.js";
 import { el, id, words } from "./dom.js";
 import { TYPES_KEPT } from "./events.js";
+import { say } from "./words.js";
 
 /** The minutes in each unit a person says a time in. */
 const UNITS = { minutes: 1, hours: 60, days: 1440 };
@@ -23,7 +24,7 @@ export function whole(text, what) {
   if (typed === "") return null;
   const number = Number(typed);
   if (!/^\d+$/.test(typed) || number < 1 || !Number.isSafeInteger(number)) {
-    throw new Error(`${what}: a whole number, 1 or more.`);
+    throw new Error(say("types.whole_number", { what }));
   }
   return number;
 }
@@ -42,7 +43,7 @@ export function kbps(text, what) {
   if (typed === "") return null;
   const rate = /^\d+(\.\d+)?$/.test(typed) ? Math.round(Number(typed) * 1000) : 0;
   if (rate < 1 || !Number.isSafeInteger(rate)) {
-    throw new Error(`${what}: megabits per second, as 7.2; empty for no limit.`);
+    throw new Error(say("types.rate", { what }));
   }
   return rate;
 }
@@ -58,31 +59,31 @@ export function kbps(text, what) {
  */
 export function terms(typed) {
   const name = typed.name.trim();
-  if (name === "") throw new Error("A voucher type needs a name.");
-  const count = whole(typed.lasts, "How long it lasts");
+  if (name === "") throw new Error(say("types.needs_name"));
+  const count = whole(typed.lasts, say("types.how_long"));
   const per = UNITS[/** @type {keyof typeof UNITS} */ (typed.unit)];
   if (count === null || per === undefined) {
-    throw new Error("How long it lasts: a whole number, 1 or more.");
+    throw new Error(say("types.whole_number", { what: say("types.how_long") }));
   }
-  const devices = whole(typed.guests, "Devices");
+  const devices = whole(typed.guests, say("types.devices"));
   /** @type {ReturnType<typeof terms>} */
   const type = {
     name,
     minutes: count * per,
     guests: devices,
-    megabytes: whole(typed.megabytes, "Data"),
-    down_kbps: kbps(typed.down, "Download"),
-    up_kbps: kbps(typed.up, "Upload"),
+    megabytes: whole(typed.megabytes, say("types.data")),
+    down_kbps: kbps(typed.down, say("types.download")),
+    up_kbps: kbps(typed.up, say("types.upload")),
   };
   if (typed.upToDays === true) {
     if (typed.unit !== "days" || count < 2) {
-      throw new Error("Days to choose from: counted in days, 2 or more.");
+      throw new Error(say("types.days_to_choose"));
     }
     type.up_to_days = true;
   }
   if (typed.upToGuests === true) {
     if (devices === null || devices < 2) {
-      throw new Error("Devices to choose from: 2 or more.");
+      throw new Error(say("types.devices_to_choose"));
     }
     type.up_to_guests = true;
   }
@@ -136,7 +137,7 @@ export function types(element, context) {
   let editing = /** @type {string | null} */ (null);
 
   /** @param {string} text @param {boolean} [trouble] */
-  const say = (text, trouble = false) => {
+  const tell = (text, trouble = false) => {
     if (gone) return;
     said.textContent = text;
     said.classList.toggle("usher-trouble", trouble);
@@ -183,20 +184,14 @@ export function types(element, context) {
     el(
       "select",
       { id: id("type-unit"), name: "unit" },
-      el("option", { value: "days", selected: true }, "days"),
-      el("option", { value: "hours" }, "hours"),
-      el("option", { value: "minutes" }, "minutes"),
+      el("option", { value: "days", selected: true }, say("types.unit_days")),
+      el("option", { value: "hours" }, say("types.unit_hours")),
+      el("option", { value: "minutes" }, say("types.unit_minutes")),
     )
   );
-  const upToDays = tick(
-    "up_to_days",
-    "Whoever issues the voucher chooses the days, up to this many",
-  );
+  const upToDays = tick("up_to_days", say("types.choose_days"));
   const guests = input("guests", { inputmode: "numeric", value: "1" });
-  const upToGuests = tick(
-    "up_to_guests",
-    "Whoever issues the voucher chooses the devices, up to this many",
-  );
+  const upToGuests = tick("up_to_guests", say("types.choose_devices"));
   const megabytes = input("megabytes", { inputmode: "numeric" });
   const down = input("down", { inputmode: "decimal" });
   const up = input("up", { inputmode: "decimal" });
@@ -231,7 +226,7 @@ export function types(element, context) {
 
   const heading = el("h4", { id: id("type-form") });
   const add = /** @type {HTMLButtonElement} */ (
-    el("button", { type: "button", onclick: () => open(null, true) }, "Add a voucher type")
+    el("button", { type: "button", onclick: () => open(null, true) }, say("types.add"))
   );
 
   /**
@@ -244,7 +239,8 @@ export function types(element, context) {
    */
   const open = (type, asked) => {
     editing = type === null ? null : String(type.name);
-    heading.textContent = editing === null ? "Add a voucher type" : `Edit ${editing}`;
+    heading.textContent =
+      editing === null ? say("types.add") : say("types.edit_named", { name: editing });
     fill(
       type === null
         ? typed({ name: "", minutes: 1440, guests: 1 })
@@ -253,13 +249,10 @@ export function types(element, context) {
     // A type is known by its name, here and on the controller, where its
     // vouchers carry it: the name of a type that is there stays.
     name.readOnly = editing !== null;
-    naming.textContent =
-      editing === null
-        ? "What the type is called at the front desk, and the note its vouchers carry on the controller."
-        : "A type is known by its name, which stays. For another name, add a type and delete this one.";
+    naming.textContent = editing === null ? say("types.name_hint") : say("types.name_stays");
     form.hidden = false;
     add.hidden = true;
-    say("");
+    tell("");
     if (asked) (editing === null ? name : lasts).focus();
   };
 
@@ -290,9 +283,9 @@ export function types(element, context) {
   const change = async (request, payload, done) => {
     try {
       await ask(request, payload);
-      say(done);
+      tell(done);
     } catch (why) {
-      say(words(why), true);
+      tell(words(why), true);
     }
     changed();
   };
@@ -312,11 +305,11 @@ export function types(element, context) {
         upToGuests: upToGuests.box.checked,
       });
     } catch (why) {
-      say(words(why), true);
+      tell(words(why), true);
       return;
     }
     if (editing === null && known.includes(type.name)) {
-      say(`There is a voucher type ${type.name} already. Edit that one, or use another name.`, true);
+      tell(say("types.exists", { name: type.name }), true);
       return;
     }
     const adding = editing === null;
@@ -325,9 +318,9 @@ export function types(element, context) {
       const called = saved?.type?.name ?? type.name;
       known = [...known, called];
       close();
-      say(adding ? `${called} is added.` : `${called} is saved.`);
+      tell(adding ? say("types.added", { name: called }) : say("types.saved", { name: called }));
     } catch (why) {
-      say(words(why), true);
+      tell(words(why), true);
     }
     changed();
   };
@@ -345,33 +338,37 @@ export function types(element, context) {
       // What was said of what was typed is said no longer once it is
       // typed over.
       oninput: () => {
-        if (said.classList.contains("usher-trouble")) say("");
+        if (said.classList.contains("usher-trouble")) tell("");
       },
     },
     heading,
-    field("Name", name),
+    field(say("types.name"), name),
     naming,
     el(
       "div",
       { class: "usher-fields" },
-      field("Lasts", lasts),
-      field("Counted in", unit),
-      field("Devices", guests, "Empty for any number."),
+      field(say("types.lasts"), lasts),
+      field(say("types.counted_in"), unit),
+      field(say("types.devices"), guests, say("types.empty_any")),
     ),
     upToDays.label,
     upToGuests.label,
     el(
       "div",
       { class: "usher-fields" },
-      field("Data, in MB", megabytes, "Empty for no limit."),
-      field("Download, in Mbit/s", down, "Empty for no limit."),
-      field("Upload, in Mbit/s", up, "Empty for no limit."),
+      field(say("types.data_mb"), megabytes, say("types.empty_no_limit")),
+      field(say("types.download_mbit"), down, say("types.empty_no_limit")),
+      field(say("types.upload_mbit"), up, say("types.empty_no_limit")),
     ),
     el(
       "div",
       { class: "row" },
-      el("button", { type: "submit" }, "Save"),
-      el("button", { type: "button", class: "quiet", onclick: () => close() }, "Cancel"),
+      el("button", { type: "submit" }, say("common.save")),
+      el(
+        "button",
+        { type: "button", class: "quiet", onclick: () => close() },
+        say("common.cancel"),
+      ),
     ),
   );
 
@@ -391,7 +388,7 @@ export function types(element, context) {
     change(
       "order_types",
       { names },
-      by < 0 ? `${called} is moved up.` : `${called} is moved down.`,
+      by < 0 ? say("types.moved_up", { name: called }) : say("types.moved_down", { name: called }),
     );
   };
 
@@ -414,15 +411,15 @@ export function types(element, context) {
         type: "checkbox",
         role: "switch",
         "data-key": `enabled ${called}`,
-        "aria-label": `${called}, enabled for the front desk`,
+        "aria-label": say("types.enabled_named", { name: called }),
         checked: enabled,
         onchange: () =>
           change(
             "enable_type",
             { name: called, enabled: offered.checked },
             offered.checked
-              ? `${called} is enabled: the front desk is offered it.`
-              : `${called} is disabled: the front desk is not offered it.`,
+              ? say("types.enabled_done", { name: called })
+              : say("types.disabled_done", { name: called }),
           ),
       })
     );
@@ -438,14 +435,14 @@ export function types(element, context) {
           "label",
           { class: "usher-check", for: offered.id },
           offered,
-          enabled ? "Enabled" : "Disabled",
+          enabled ? say("types.enabled") : say("types.disabled"),
         ),
       ),
       el(
         "td",
         {},
         standard
-          ? el("span", { class: "usher-pill usher-pill-lit" }, "Default")
+          ? el("span", { class: "usher-pill usher-pill-lit" }, say("types.default"))
           : fixed && enabled
             ? el(
                 "button",
@@ -453,11 +450,15 @@ export function types(element, context) {
                   type: "button",
                   class: "quiet",
                   "data-key": `default ${called}`,
-                  "aria-label": `Make ${called} the default`,
+                  "aria-label": say("types.make_default_named", { name: called }),
                   onclick: () =>
-                    change("set_default", { name: called }, `${called} is the default.`),
+                    change(
+                      "set_default",
+                      { name: called },
+                      say("types.default_done", { name: called }),
+                    ),
                 },
-                "Make default",
+                say("types.make_default"),
               )
             : null,
       ),
@@ -473,11 +474,11 @@ export function types(element, context) {
               type: "button",
               class: "quiet",
               "data-key": `up ${called}`,
-              "aria-label": `Move ${called} up`,
+              "aria-label": say("types.move_up_named", { name: called }),
               disabled: place === 0,
               onclick: () => move(called, -1),
             },
-            "Up",
+            say("types.up"),
           ),
           el(
             "button",
@@ -485,11 +486,11 @@ export function types(element, context) {
               type: "button",
               class: "quiet",
               "data-key": `down ${called}`,
-              "aria-label": `Move ${called} down`,
+              "aria-label": say("types.move_down_named", { name: called }),
               disabled: place === count - 1,
               onclick: () => move(called, 1),
             },
-            "Down",
+            say("types.down"),
           ),
           el(
             "button",
@@ -497,10 +498,10 @@ export function types(element, context) {
               type: "button",
               class: "quiet",
               "data-key": `edit ${called}`,
-              "aria-label": `Edit ${called}`,
+              "aria-label": say("types.edit_named", { name: called }),
               onclick: () => open(type, true),
             },
-            "Edit",
+            say("types.edit"),
           ),
           el(
             "button",
@@ -508,15 +509,11 @@ export function types(element, context) {
               type: "button",
               class: "quiet",
               "data-key": `delete ${called}`,
-              "aria-label": `Delete ${called}`,
+              "aria-label": say("types.delete_named", { name: called }),
               onclick: () =>
-                change(
-                  "drop_type",
-                  { name: called },
-                  `${called} is deleted. Vouchers issued on its terms stay what they are.`,
-                ),
+                change("drop_type", { name: called }, say("types.deleted", { name: called })),
             },
-            "Delete",
+            say("types.delete"),
           ),
         ),
       ),
@@ -534,7 +531,7 @@ export function types(element, context) {
       // The type the form edits may be gone, deleted from another screen.
       if (editing !== null && !known.includes(editing)) close();
       if (all.length === 0) {
-        body.replaceChildren(el("p", {}, "No voucher type is defined yet."));
+        body.replaceChildren(el("p", {}, say("types.none")));
         // Nothing to offer until there is one: the form stands open.
         if (form.hidden) open(null, false);
         return;
@@ -557,9 +554,13 @@ export function types(element, context) {
               el(
                 "tr",
                 {},
-                ...["Name", "A voucher of it", "Front desk", "Default", ""].map((column) =>
-                  el("th", { scope: "col" }, column),
-                ),
+                ...[
+                  say("types.name"),
+                  say("types.col_gives"),
+                  say("types.col_front_desk"),
+                  say("types.default"),
+                  "",
+                ].map((column) => el("th", { scope: "col" }, column)),
               ),
             ),
             el(
@@ -577,11 +578,7 @@ export function types(element, context) {
             ),
           ),
         ),
-        el(
-          "p",
-          { class: "usher-hint" },
-          "The front desk is offered the enabled types, in the order of this list. The default is the type a point of issue with one button issues, so it has nothing to choose.",
-        ),
+        el("p", { class: "usher-hint" }, say("types.hint")),
       );
       if (at !== undefined) {
         // A type moved to an end of the list can go no further that
@@ -601,21 +598,21 @@ export function types(element, context) {
     } catch (why) {
       if (gone) return;
       body.replaceChildren();
-      say(words(why));
+      tell(words(why));
     }
   };
 
   element.setAttribute("role", "region");
   element.setAttribute("aria-labelledby", title);
   element.replaceChildren(
-    el("h3", { id: title }, "Defined by the administrator"),
+    el("h3", { id: title }, say("types.title")),
     el("div", { class: "row" }, add),
     body,
     form,
     said,
   );
 
-  // A voucher assigned for hand-out may bring its type with it.
+  // A voucher that is set aside may bring its type with it.
   document.addEventListener(TYPES_KEPT, look);
   look();
 

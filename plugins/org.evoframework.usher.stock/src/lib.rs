@@ -12,6 +12,9 @@
 //!   "..."}]}}`, the vouchers themselves, oldest first.
 //! - `release`: `{"id": "..."}` gives a held voucher up without handing
 //!   it out and answers `{"released": bool}`.
+//!
+//! A refusal is given under a code, as its subclass, beside its words:
+//! `not_as_asked`, `not_kept` or `unknown_request`.
 
 #![forbid(unsafe_code)]
 
@@ -26,6 +29,7 @@ use evo_plugin_sdk::contract::{
     RuntimeCapabilities,
 };
 use evo_plugin_sdk::Manifest;
+use evo_usher_why::why;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -76,6 +80,16 @@ struct Release {
 
 fn refused(why: impl std::fmt::Display) -> PluginError {
     PluginError::Permanent(why.to_string())
+}
+
+/// A payload that is not what the request takes.
+fn not_as_asked(e: serde_json::Error) -> PluginError {
+    why("not_as_asked", format!("not what this request takes: {e}")).as_asked()
+}
+
+/// A change to the reserve that could not be written down.
+fn not_kept(e: std::io::Error) -> PluginError {
+    why("not_kept", format!("the reserve was not kept: {e}")).as_asked()
 }
 
 impl Plugin for StockPlugin {
@@ -161,31 +175,33 @@ impl Respondent for StockPlugin {
             let answer = match req.request_type.as_str() {
                 "put" => {
                     let put: Put = serde_json::from_slice(&req.payload)
-                        .map_err(refused)?;
+                        .map_err(not_as_asked)?;
                     let added = reserve
                         .put(&put.kind, put.vouchers)
-                        .map_err(refused)?;
+                        .map_err(not_kept)?;
                     json!({ "added": added })
                 }
                 "take" => {
                     let take: Take = serde_json::from_slice(&req.payload)
-                        .map_err(refused)?;
-                    let voucher = reserve.take(&take.kind).map_err(refused)?;
+                        .map_err(not_as_asked)?;
+                    let voucher = reserve.take(&take.kind).map_err(not_kept)?;
                     json!({ "voucher": voucher })
                 }
                 "count" => json!({ "held": reserve.count() }),
                 "held" => json!({ "held": reserve.held() }),
                 "release" => {
                     let release: Release = serde_json::from_slice(&req.payload)
-                        .map_err(refused)?;
+                        .map_err(not_as_asked)?;
                     let released =
-                        reserve.release(&release.id).map_err(refused)?;
+                        reserve.release(&release.id).map_err(not_kept)?;
                     json!({ "released": released })
                 }
                 other => {
-                    return Err(refused(format!(
-                        "unknown request type: {other}"
-                    )))
+                    return Err(why(
+                        "unknown_request",
+                        format!("unknown request type: {other}"),
+                    )
+                    .as_asked())
                 }
             };
             let payload = serde_json::to_vec(&answer).map_err(refused)?;

@@ -52,7 +52,10 @@ fn a_new_unit_is_set_up_by_whoever_opens_it_first() {
         json!({
             "set_up": false, "level": "standard",
             "least_password": 12, "keeps": true,
-            "site": { "name": "", "logo": null },
+            "site": {
+                "name": "", "logo": null,
+                "language": "en", "follows_browser": true,
+            },
         })
     );
     // Nobody signs in to a unit that has nobody.
@@ -61,13 +64,29 @@ fn a_new_unit_is_set_up_by_whoever_opens_it_first() {
 
     // A name and a password make the first administrator. What is no
     // name, and a password that is too short or is the name, are
-    // refused in plain words, and nobody is made.
-    for (name, password, words) in [
-        ("   ", PASSWORD, "A name is needed."),
-        ("Anna", "eleven char", "12 characters at least"),
+    // refused in plain words, and nobody is made. Each refusal has its
+    // code, and beside it the values it speaks of, for a screen to say
+    // it in its own language.
+    for (name, password, code, values, words) in [
+        (
+            "   ",
+            PASSWORD,
+            "name_needed",
+            Value::Null,
+            "A name is needed.",
+        ),
+        (
+            "Anna",
+            "eleven char",
+            "password_too_short",
+            json!({ "least": 12, "has": 11 }),
+            "12 characters at least",
+        ),
         (
             "Anna Kowalska of St Mary",
             "anna kowalska of st mary",
+            "password_is_name",
+            Value::Null,
             "not the name",
         ),
     ] {
@@ -77,7 +96,8 @@ fn a_new_unit_is_set_up_by_whoever_opens_it_first() {
             Some(json!({ "name": name, "password": password })),
             &nobody,
         );
-        assert_eq!(status, 400, "{said}");
+        assert_eq!((status, subclass(&said)), (400, code), "{said}");
+        assert_eq!(said["error"]["details"]["values"], values, "{said}");
         assert!(
             said["error"]["message"].as_str().unwrap().contains(words),
             "{said}"
@@ -233,6 +253,12 @@ fn five_wrong_tries_in_a_row_hold_a_name_and_say_nothing_of_who_there_is() {
                 .as_str()
                 .unwrap()
                 .contains("Wait 15 minutes"),
+            "{said}"
+        );
+        // How long, as a number for a screen to say in its own words.
+        assert_eq!(
+            said["error"]["details"]["values"],
+            json!({ "minutes": 15 }),
             "{said}"
         );
     }
@@ -397,7 +423,10 @@ fn the_extended_level_takes_the_units_code_and_a_longer_password() {
         json!({
             "set_up": false, "level": "extended",
             "least_password": 16, "keeps": false,
-            "site": { "name": "", "logo": null },
+            "site": {
+                "name": "", "logo": null,
+                "language": "en", "follows_browser": true,
+            },
         })
     );
     let set_up =
@@ -745,7 +774,7 @@ fn who_has_not_signed_in_gets_the_face_and_the_way_in_and_no_more() {
 }
 
 #[test]
-fn anyone_is_told_the_sites_name_and_logo_and_nothing_else_of_it() {
+fn anyone_is_told_the_sites_name_logo_and_language_and_nothing_else_of_it() {
     use base64::Engine as _;
     let dir = short_dir();
     let steward = Steward::start_given(
@@ -753,6 +782,7 @@ fn anyone_is_told_the_sites_name_and_logo_and_nothing_else_of_it() {
         &[
             ("USHER_SITE_NAME", "Parish Hall"),
             ("USHER_TIME_ZONE", "Europe/Warsaw"),
+            ("USHER_LANGUAGE", "de"),
         ],
     );
     let nobody = Caller::beyond();
@@ -769,8 +799,9 @@ fn anyone_is_told_the_sites_name_and_logo_and_nothing_else_of_it() {
     };
 
     // Before anyone has set the unit up, the form it is set up by wears
-    // the name the unit was started with. Of the site, the name and the
-    // logo are told and nothing else: no time zone.
+    // the name the unit was started with, in the language it was started
+    // with. Of the site, the name, the logo and the language are told
+    // and nothing else: no time zone.
     let (status, state) = steward.usher("GET", "state", None, &nobody);
     assert_eq!(status, 200, "{state}");
     assert_eq!(
@@ -778,7 +809,10 @@ fn anyone_is_told_the_sites_name_and_logo_and_nothing_else_of_it() {
         json!({
             "set_up": false, "level": "standard",
             "least_password": 12, "keeps": true,
-            "site": { "name": "Parish Hall", "logo": null },
+            "site": {
+                "name": "Parish Hall", "logo": null,
+                "language": "de", "follows_browser": true,
+            },
         })
     );
     // The shelf itself is asked by nobody who has not signed in, to
@@ -805,6 +839,34 @@ fn anyone_is_told_the_sites_name_and_logo_and_nothing_else_of_it() {
         json!({ "name": "St Mary's Hall", "time_zone": "Europe/Warsaw" }),
     );
     assert_eq!(status, 200, "{said}");
+    // Named without a word of the language, the site speaks what the
+    // unit was started with; then it is told another, and to speak it
+    // to every browser.
+    let (_, state) = steward.usher("GET", "state", None, &nobody);
+    assert_eq!(state["site"]["language"], "de");
+    let (status, said) = ask(
+        &anna,
+        "set",
+        json!({
+            "name": "St Mary's Hall", "time_zone": "Europe/Warsaw",
+            "language": "en", "follows_browser": false,
+        }),
+    );
+    assert_eq!(status, 200, "{said}");
+    // A language that is none is refused under its code, and changes
+    // nothing.
+    let (status, said) = ask(
+        &anna,
+        "set",
+        json!({ "name": "Elsewhere", "language": "German" }),
+    );
+    assert_eq!(status, 400, "{said}");
+    assert_eq!(said["error"]["details"]["subclass"], "language_not_one");
+    assert_eq!(
+        said["error"]["message"],
+        "German is not a language as one is named. One is named as en, de \
+         or pt-BR."
+    );
 
     // Anyone is told the name and the logo, for the form a person signs
     // in by to wear, and is told the same with a session as without.
@@ -814,6 +876,7 @@ fn anyone_is_told_the_sites_name_and_logo_and_nothing_else_of_it() {
         "site": {
             "name": "St Mary's Hall",
             "logo": { "png_b64": carried, "width": 220, "height": 62 },
+            "language": "en", "follows_browser": false,
         },
     });
     for (who, caller) in [

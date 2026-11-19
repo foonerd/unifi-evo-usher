@@ -62,6 +62,11 @@
 //!   "at", "held"}]}`: the hand-out of each of those vouchers that was
 //!   handed out here; with no `ids`, the newest hundred, the newest
 //!   first.
+//!
+//! A refusal is given under a code, as its subclass, beside its words:
+//! the code is what a screen finds words of its own language by. What
+//! another shelf refused reaches the counter in that shelf's words alone,
+//! and is given on under a code that says which shelf it was.
 
 #![forbid(unsafe_code)]
 
@@ -79,6 +84,7 @@ use evo_plugin_sdk::contract::{
 };
 use evo_plugin_sdk::error_taxonomy::ErrorClass;
 use evo_plugin_sdk::Manifest;
+use evo_usher_why::why;
 use serde_json::Value;
 
 pub use counter::{
@@ -131,13 +137,22 @@ fn own_words(detail: String) -> String {
 /// What asking `shelf` came to, where it came to nothing, for whoever
 /// asked the counter.
 fn refusal_of(shelf: &str, refused: ShelfDispatchError) -> Refusal {
+    // The steward hands a plugin another shelf's words and not the code
+    // they were given under: the code here says which shelf refused, and
+    // whether for now or as asked.
+    let (for_now, as_asked) = match shelf {
+        CONTROLLER => ("controller_for_now", "controller_as_asked"),
+        NETWORKS => ("networks_for_now", "networks_as_asked"),
+        RESERVE => ("reserve_for_now", "reserve_as_asked"),
+        _ => ("shelf_for_now", "shelf_as_asked"),
+    };
     match refused {
         // What the shelf itself says is said on, in its own words.
         ShelfDispatchError::Transient { detail } => {
-            Refusal::ForNow(own_words(detail))
+            Refusal::ForNow(why(for_now, own_words(detail)))
         }
         ShelfDispatchError::Permanent { detail } => {
-            Refusal::AsAsked(own_words(detail))
+            Refusal::AsAsked(why(as_asked, own_words(detail)))
         }
         // What the steward refuses by name is refused under that name,
         // and is not asked again.
@@ -146,9 +161,11 @@ fn refusal_of(shelf: &str, refused: ShelfDispatchError) -> Refusal {
             why: detail,
         },
         other if other.is_retryable() => {
-            Refusal::ForNow(format!("{shelf}: {other}"))
+            Refusal::ForNow(why("shelf_for_now", format!("{shelf}: {other}")))
         }
-        other => Refusal::AsAsked(format!("{shelf}: {other}")),
+        other => {
+            Refusal::AsAsked(why("shelf_as_asked", format!("{shelf}: {other}")))
+        }
     }
 }
 
@@ -157,8 +174,8 @@ fn refusal_of(shelf: &str, refused: ShelfDispatchError) -> Refusal {
 /// not, under the name the steward gave.
 fn told(refused: Refusal) -> PluginError {
     match refused {
-        Refusal::ForNow(why) => PluginError::Transient(why),
-        Refusal::AsAsked(why) => PluginError::Permanent(why),
+        Refusal::ForNow(why) => why.for_now(),
+        Refusal::AsAsked(why) => why.as_asked(),
         Refusal::Named { name, why } => PluginError::WithSubclass {
             class: ErrorClass::PermissionDenied,
             subclass: name,
@@ -178,16 +195,20 @@ impl Shelves for Steward {
         payload: Value,
     ) -> Asked<'a> {
         Box::pin(async move {
-            let payload = serde_json::to_vec(&payload)
-                .map_err(|e| Refusal::AsAsked(e.to_string()))?;
+            let payload = serde_json::to_vec(&payload).map_err(|e| {
+                Refusal::AsAsked(why("not_as_asked", e.to_string()))
+            })?;
             let answer = self
                 .0
                 .dispatch(shelf, request_type, payload, None)
                 .await
                 .map_err(|refused| refusal_of(shelf, refused))?;
             serde_json::from_slice(&answer).map_err(|e| {
-                Refusal::ForNow(format!(
-                    "{shelf} answered {request_type} with no JSON: {e}"
+                Refusal::ForNow(why(
+                    "shelf_answer_unread",
+                    format!(
+                        "{shelf} answered {request_type} with no JSON: {e}"
+                    ),
                 ))
             })
         })
@@ -417,35 +438,54 @@ mod tests {
         let of = |refused| refusal_of("stock.reserve", refused);
         assert_eq!(
             of(ShelfDispatchError::Transient { detail: detail() }),
-            Refusal::ForNow(detail())
+            Refusal::ForNow(why("reserve_for_now", detail()))
         );
         assert_eq!(
             of(ShelfDispatchError::Permanent { detail: detail() }),
-            Refusal::AsAsked(detail())
+            Refusal::AsAsked(why("reserve_as_asked", detail()))
+        );
+        // The code says which shelf it was.
+        assert_eq!(
+            refusal_of(
+                "access.controller",
+                ShelfDispatchError::Transient { detail: detail() }
+            ),
+            Refusal::ForNow(why("controller_for_now", detail()))
+        );
+        assert_eq!(
+            refusal_of(
+                "networks.directory",
+                ShelfDispatchError::Permanent { detail: detail() }
+            ),
+            Refusal::AsAsked(why("networks_as_asked", detail()))
         );
         // What is not the shelf's own saying names the shelf, and is
         // asked again only where the steward says it may be.
         let unreached =
             of(ShelfDispatchError::SubstrateFailure { detail: detail() });
         assert!(
-            matches!(&unreached, Refusal::ForNow(why) if why.starts_with("stock.reserve: ")),
+            matches!(&unreached, Refusal::ForNow(why) if why.words.starts_with("stock.reserve: ")),
             "{unreached:?}"
         );
         let unstocked = of(ShelfDispatchError::NoPluginOnShelf {
             shelf: "stock.reserve".to_string(),
         });
         assert!(
-            matches!(&unstocked, Refusal::AsAsked(why) if why.starts_with("stock.reserve: ")),
+            matches!(&unstocked, Refusal::AsAsked(why) if why.words.starts_with("stock.reserve: ")),
             "{unstocked:?}"
         );
 
+        // The steward is told each under its code, in its own words and
+        // nothing before them.
         assert!(matches!(
-            told(Refusal::ForNow(detail())),
-            PluginError::Transient(why) if why == detail()
+            told(Refusal::ForNow(why("reserve_for_now", detail()))),
+            PluginError::WithSubclass { class: ErrorClass::Transient, subclass, message }
+                if subclass == "reserve_for_now" && message == detail()
         ));
         assert!(matches!(
-            told(Refusal::AsAsked(detail())),
-            PluginError::Permanent(why) if why == detail()
+            told(Refusal::AsAsked(why("no_such_type", detail()))),
+            PluginError::WithSubclass { class: ErrorClass::ContractViolation, subclass, message }
+                if subclass == "no_such_type" && message == detail()
         ));
     }
 

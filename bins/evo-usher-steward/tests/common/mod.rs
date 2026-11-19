@@ -358,6 +358,7 @@ discovery_enabled = false
             .env_remove("USHER_SECURITY")
             .env_remove("USHER_SITE_NAME")
             .env_remove("USHER_TIME_ZONE")
+            .env_remove("USHER_LANGUAGE")
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         if face {

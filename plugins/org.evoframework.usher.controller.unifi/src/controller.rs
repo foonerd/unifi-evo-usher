@@ -8,6 +8,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use evo_usher_why::why;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -115,22 +116,31 @@ struct Revoking {
 
 fn asked<T: serde::de::DeserializeOwned>(payload: &[u8]) -> Result<T, Refusal> {
     serde_json::from_slice(payload).map_err(|e| {
-        Refusal::AsAsked(format!("not what this request takes: {e}"))
+        Refusal::AsAsked(why(
+            "not_as_asked",
+            format!("not what this request takes: {e}"),
+        ))
     })
 }
 
 /// Where a controller's API stands, taken apart: only `https`, and a host
 /// to shake hands with.
 fn address(base: &str) -> Result<(String, String, u16), Refusal> {
-    let refused = |why: &str| Refusal::AsAsked(format!("'{base}': {why}"));
-    let url = reqwest::Url::parse(base)
-        .map_err(|e| refused(&format!("not an address ({e})")))?;
+    let refused = |code: &'static str, words: &str| {
+        Refusal::AsAsked(why(code, format!("'{base}': {words}")))
+    };
+    let url = reqwest::Url::parse(base).map_err(|e| {
+        refused("address_not_one", &format!("not an address ({e})"))
+    })?;
     if url.scheme() != "https" {
-        return Err(refused("a controller is spoken to over https only"));
+        return Err(refused(
+            "address_not_https",
+            "a controller is spoken to over https only",
+        ));
     }
     let host = url
         .host_str()
-        .ok_or_else(|| refused("the address names no host"))?
+        .ok_or_else(|| refused("address_not_one", "the address names no host"))?
         .trim_matches(|c| c == '[' || c == ']')
         .to_string();
     let port = url.port_or_known_default().unwrap_or(443);
@@ -142,10 +152,10 @@ fn held(fingerprint: &Option<String>) -> Result<Option<Fingerprint>, Refusal> {
         None => Ok(None),
         Some(text) => {
             trust::fingerprint_read(text).map(Some).ok_or_else(|| {
-                Refusal::AsAsked(
-                    "a fingerprint is the 64 hexadecimal digits of a SHA-256"
-                        .to_string(),
-                )
+                Refusal::AsAsked(why(
+                    "fingerprint_not_one",
+                    "a fingerprint is the 64 hexadecimal digits of a SHA-256",
+                ))
             })
         }
     }
@@ -234,8 +244,9 @@ impl Controller {
     }
 
     fn line(&self) -> Result<Arc<Set>, Refusal> {
-        self.set()
-            .ok_or_else(|| Refusal::AsAsked("no controller is set".to_string()))
+        self.set().ok_or_else(|| {
+            Refusal::AsAsked(why("no_controller_set", "no controller is set"))
+        })
     }
 
     /// Answer one request of the shelf.
@@ -250,8 +261,9 @@ impl Controller {
                 let (_, host, port) = address(&probe.base)?;
                 let presented =
                     trust::presented(&host, port).await.map_err(|e| {
-                        Refusal::ForNow(format!(
-                            "{host}:{port} did not shake hands: {e}"
+                        Refusal::ForNow(why(
+                            "controller_no_handshake",
+                            format!("{host}:{port} did not shake hands: {e}"),
                         ))
                     })?;
                 Ok(json!({
@@ -265,9 +277,10 @@ impl Controller {
                 let (base, _, _) = address(&setting.base)?;
                 let key = setting.key.trim();
                 if key.is_empty() {
-                    return Err(Refusal::AsAsked(
-                        "a key is needed".to_string(),
-                    ));
+                    return Err(Refusal::AsAsked(why(
+                        "key_needed",
+                        "a key is needed",
+                    )));
                 }
                 let fingerprint = held(&setting.fingerprint)?;
                 let line = Line::new(&base, key, fingerprint)?;
@@ -281,10 +294,14 @@ impl Controller {
                         .as_ref()
                         .map(trust::fingerprint_written),
                 };
-                let kept_bytes = serde_json::to_vec(&kept)
-                    .map_err(|e| Refusal::AsAsked(e.to_string()))?;
+                let kept_bytes = serde_json::to_vec(&kept).map_err(|e| {
+                    Refusal::AsAsked(why("not_kept", e.to_string()))
+                })?;
                 let unkept = |e: io::Error| {
-                    Refusal::ForNow(format!("the setting was not kept: {e}"))
+                    Refusal::ForNow(why(
+                        "not_kept",
+                        format!("the setting was not kept: {e}"),
+                    ))
                 };
                 keep(&self.key_path(), key.as_bytes()).map_err(unkept)?;
                 keep(&self.kept_path(), &kept_bytes).map_err(unkept)?;
@@ -314,7 +331,8 @@ impl Controller {
                         "base": set.kept.base,
                         "held": set.kept.fingerprint.is_some(),
                         "version": version,
-                        "trouble": trouble,
+                        "trouble": trouble.as_ref().map(|why| &why.words),
+                        "trouble_code": trouble.as_ref().map(|why| why.code),
                     }))
                 }
             },
@@ -353,9 +371,10 @@ impl Controller {
                 if let Some(asked) = &networks.site {
                     sites.retain(|site| site.id == *asked);
                     if sites.is_empty() {
-                        return Err(Refusal::AsAsked(
-                            "the controller has no such site".to_string(),
-                        ));
+                        return Err(Refusal::AsAsked(why(
+                            "no_such_site",
+                            "the controller has no such site",
+                        )));
                     }
                 }
                 let mut answer = Vec::new();
@@ -385,7 +404,10 @@ impl Controller {
                 let choosing: Choosing = asked(payload)?;
                 let line = self.line()?;
                 let unkept = |e: io::Error| {
-                    Refusal::ForNow(format!("the choice was not kept: {e}"))
+                    Refusal::ForNow(why(
+                        "not_kept",
+                        format!("the choice was not kept: {e}"),
+                    ))
                 };
                 let Some(network) = choosing.network else {
                     match fs::remove_file(self.chosen_path()) {
@@ -401,9 +423,10 @@ impl Controller {
                 let Some(found) =
                     known.into_iter().find(|known| known.id == network)
                 else {
-                    return Err(Refusal::AsAsked(
-                        "the site has no such wireless network".to_string(),
-                    ));
+                    return Err(Refusal::AsAsked(why(
+                        "no_such_network",
+                        "the site has no such wireless network",
+                    )));
                 };
                 let chosen = Chosen {
                     base: line.kept.base.clone(),
@@ -412,14 +435,16 @@ impl Controller {
                     name: found.name,
                     security: found.security.map(str::to_string),
                 };
-                let bytes = serde_json::to_vec(&chosen)
-                    .map_err(|e| Refusal::AsAsked(e.to_string()))?;
+                let bytes = serde_json::to_vec(&chosen).map_err(|e| {
+                    Refusal::AsAsked(why("not_kept", e.to_string()))
+                })?;
                 keep(&self.chosen_path(), &bytes).map_err(unkept)?;
                 Ok(json!({ "chosen": chosen.told() }))
             }
-            other => {
-                Err(Refusal::AsAsked(format!("unknown request type: {other}")))
-            }
+            other => Err(Refusal::AsAsked(why(
+                "unknown_request",
+                format!("unknown request type: {other}"),
+            ))),
         }
     }
 }

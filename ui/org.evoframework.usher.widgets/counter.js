@@ -11,6 +11,7 @@ import { el, id, placeOf, svg, words } from "./dom.js";
 import { HELD_CHANGED, TYPES_KEPT, VOUCHER_HANDED } from "./events.js";
 import { RESERVE } from "./shelves.js";
 import { lasts, limits, written } from "./vouchers.js";
+import { say } from "./words.js";
 
 /** The minutes in a day, the step in which days are chosen. */
 const DAY = 1440;
@@ -23,9 +24,9 @@ const DAY = 1440;
  * @returns {string}
  */
 export function devices(type) {
-  if (typeof type?.guests !== "number") return "any number of devices";
-  if (type.up_to_guests === true) return `up to ${type.guests} devices`;
-  return type.guests === 1 ? "one device" : `${type.guests} devices`;
+  if (typeof type?.guests !== "number") return say("counter.devices_any");
+  if (type.up_to_guests === true) return say("counter.devices_up_to", { count: type.guests });
+  return say("counter.devices", { count: type.guests });
 }
 
 /**
@@ -37,7 +38,7 @@ export function devices(type) {
  */
 export function duration(type) {
   if (type?.up_to_days === true && typeof type.minutes === "number") {
-    return `up to ${Math.floor(type.minutes / DAY)} days`;
+    return say("counter.days_up_to", { count: Math.floor(type.minutes / DAY) });
   }
   return lasts(type?.minutes);
 }
@@ -50,8 +51,11 @@ export function duration(type) {
  */
 export function gives(type) {
   const parts = [duration(type), devices(type)];
-  const limited = limits(type);
-  if (limited !== "none") parts.push(limited);
+  // A type that sets no limit says nothing of limits.
+  const limited = ["down_kbps", "up_kbps", "megabytes"].some(
+    (limit) => typeof type?.[limit] === "number",
+  );
+  if (limited) parts.push(limits(type));
   return parts.filter((part) => part !== "").join("; ");
 }
 
@@ -70,17 +74,17 @@ export function chosen(type, typed) {
     const said = String(text ?? "").trim();
     const number = Number(said);
     if (!/^\d+$/.test(said) || number < 1 || number > most) {
-      throw new Error(`${what}: a whole number from 1 to ${most}.`);
+      throw new Error(say("counter.choose_within", { what, most }));
     }
     return number;
   };
   /** @type {{ days?: number, guests?: number }} */
   const choice = {};
   if (type?.up_to_days === true) {
-    choice.days = within(typed.days, Math.floor(type.minutes / DAY), "Days");
+    choice.days = within(typed.days, Math.floor(type.minutes / DAY), say("counter.days"));
   }
   if (type?.up_to_guests === true) {
-    choice.guests = within(typed.guests, type.guests, "Devices");
+    choice.guests = within(typed.guests, type.guests, say("counter.devices_label"));
   }
   return choice;
 }
@@ -147,7 +151,7 @@ export function counter(element, context) {
   };
 
   /** @param {string} text @param {boolean} [trouble] */
-  const say = (text, trouble = false) => {
+  const tell = (text, trouble = false) => {
     if (gone) return;
     said.textContent = text;
     said.classList.toggle("usher-trouble", trouble);
@@ -186,19 +190,19 @@ export function counter(element, context) {
     const sheet = /** @type {HTMLDialogElement} */ (
       el(
         "dialog",
-        { class: "usher-guest", "aria-label": "The voucher, for the guest" },
+        { class: "usher-guest", "aria-label": say("counter.guest_sheet") },
         host,
-        el("h4", {}, `Wi-Fi: ${network}`),
-        got?.join ? symbol(got.join, `A code a phone reads to join ${network}`) : null,
+        el("h4", {}, say("counter.wifi", { network })),
+        got?.join ? symbol(got.join, say("counter.symbol", { network })) : null,
         got?.join
-          ? el("p", {}, "Point your phone's camera at the square to join, then type this code:")
-          : el("p", {}, "Join the network, then type this code:"),
+          ? el("p", {}, say("counter.guest_scan"))
+          : el("p", {}, say("counter.guest_join")),
         el("p", { class: "usher-voucher" }, written(got?.voucher?.code)),
         el("p", { class: "usher-hint" }, gives(got?.type)),
         el(
           "div",
           { class: "row" },
-          el("button", { type: "button", onclick: () => sheet.close() }, "Done"),
+          el("button", { type: "button", onclick: () => sheet.close() }, say("common.done")),
         ),
       )
     );
@@ -219,44 +223,42 @@ export function counter(element, context) {
       el(
         "div",
         { class: "usher-ticket" },
-        got?.join ? symbol(got.join, `A code a phone reads to join ${network}`) : null,
+        got?.join ? symbol(got.join, say("counter.symbol", { network })) : null,
         el(
           "div",
           {},
           el("p", { class: "usher-voucher" }, written(got?.voucher?.code)),
-      el(
-        "dl",
-        {},
-        el("dt", {}, "For the network"),
-        el("dd", {}, String(got?.network ?? "")),
-        el("dt", {}, "Type"),
-        el("dd", {}, String(type.name ?? "")),
-        el("dt", {}, "Lasts"),
-        el("dd", {}, `${lasts(type.minutes)}, from its first use`),
-        el("dt", {}, "Lets in"),
-        el("dd", {}, devices(type)),
-        el("dt", {}, "Limits"),
-        el("dd", {}, limits(type)),
-        el("dt", {}, "From"),
-        el("dd", {}, got?.held === true ? "those held on this unit" : "the controller, minted now"),
-      ),
+          el(
+            "dl",
+            {},
+            el("dt", {}, say("counter.for_network")),
+            el("dd", {}, String(got?.network ?? "")),
+            el("dt", {}, say("counter.type")),
+            el("dd", {}, String(type.name ?? "")),
+            el("dt", {}, say("counter.lasts")),
+            el("dd", {}, say("counter.lasts_from_first_use", { lasts: lasts(type.minutes) })),
+            el("dt", {}, say("counter.lets_in")),
+            el("dd", {}, devices(type)),
+            el("dt", {}, say("counter.limits")),
+            el("dd", {}, limits(type)),
+            el("dt", {}, say("counter.from")),
+            el(
+              "dd",
+              {},
+              got?.held === true ? say("counter.from_aside") : say("counter.from_controller"),
+            ),
+          ),
         ),
       ),
-      got?.join
-        ? el(
-            "p",
-            { class: "usher-hint" },
-            `A phone's camera pointed at the square joins ${network}; the code is then typed where the network asks for it.`,
-          )
-        : null,
+      got?.join ? el("p", { class: "usher-hint" }, say("counter.scan_hint", { network })) : null,
       el(
         "div",
         { class: "row" },
-        el("button", { type: "button", onclick: () => show(got) }, "Show to the guest"),
+        el("button", { type: "button", onclick: () => show(got) }, say("counter.show_guest")),
         el(
           "button",
           { type: "button", class: "quiet", onclick: () => handed.replaceChildren() },
-          "Done",
+          say("common.done"),
         ),
       ),
     );
@@ -271,16 +273,16 @@ export function counter(element, context) {
     if (asking) return;
     asking = true;
     hold(true);
-    say("Asking the controller for a voucher.");
+    tell(say("counter.asking"));
     try {
       const got = await ask("hand", { type: name, ...choice });
       if (gone) return;
       chooseNone();
       present(got);
-      say("");
+      tell("");
       document.dispatchEvent(new Event(VOUCHER_HANDED));
     } catch (why) {
-      say(words(why), true);
+      tell(words(why), true);
     } finally {
       asking = false;
       hold(false);
@@ -333,13 +335,16 @@ export function counter(element, context) {
           { class: "usher-field" },
           el("label", { for: input.id }, label),
           input,
-          el("p", { class: "usher-hint" }, `From 1 to ${most}.`),
+          el("p", { class: "usher-hint" }, say("counter.from_1_to", { most })),
         ),
       };
     };
     const days =
-      type.up_to_days === true ? one("days", "Days", Math.floor(type.minutes / DAY)) : null;
-    const many = type.up_to_guests === true ? one("guests", "Devices", type.guests) : null;
+      type.up_to_days === true
+        ? one("days", say("counter.days"), Math.floor(type.minutes / DAY))
+        : null;
+    const many =
+      type.up_to_guests === true ? one("guests", say("counter.devices_label"), type.guests) : null;
     const asked = el(
       "form",
       {
@@ -351,7 +356,7 @@ export function counter(element, context) {
           try {
             choice = chosen(type, { days: days?.input.value, guests: many?.input.value });
           } catch (why) {
-            say(words(why), true);
+            tell(words(why), true);
             return;
           }
           hand(name, choice);
@@ -359,7 +364,7 @@ export function counter(element, context) {
         // What was said of a number is said no longer once it is typed
         // over.
         oninput: () => {
-          if (said.classList.contains("usher-trouble")) say("");
+          if (said.classList.contains("usher-trouble")) tell("");
         },
       },
       el("h4", { id: heading }, name),
@@ -368,7 +373,7 @@ export function counter(element, context) {
       el(
         "div",
         { class: "row" },
-        el("button", { type: "submit" }, "Issue the voucher"),
+        el("button", { type: "submit" }, say("counter.issue")),
         el(
           "button",
           {
@@ -376,16 +381,16 @@ export function counter(element, context) {
             class: "quiet",
             onclick: () => {
               chooseNone();
-              say("");
+              tell("");
             },
           },
-          "Cancel",
+          say("common.cancel"),
         ),
       ),
     );
     choosingFor = name;
     choosing.replaceChildren(asked);
-    say("");
+    tell("");
     // Whoever asked is put at the first thing to choose, with what
     // stands there ready to be typed over.
     const first = (days ?? many)?.input;
@@ -404,11 +409,7 @@ export function counter(element, context) {
       if (!types.some((/** @type {any} */ type) => type.name === choosingFor)) chooseNone();
       if (types.length === 0) {
         offer.replaceChildren(
-          el(
-            "p",
-            {},
-            "No voucher type is enabled for the front desk. An administrator defines and enables them under Voucher types.",
-          ),
+          el("p", {}, say("counter.none_enabled")),
         );
       } else {
         offer.replaceChildren(
@@ -425,11 +426,15 @@ export function counter(element, context) {
                   onclick: () => (fixed ? hand(String(type.name)) : choose(type)),
                 },
                 el("strong", {}, String(type.name)),
-                type.name === standard ? el("em", { class: "usher-default" }, "Default") : null,
+                type.name === standard
+                  ? el("em", { class: "usher-default" }, say("counter.default"))
+                  : null,
                 el(
                   "span",
                   {},
-                  held[type.name] > 0 ? `${gives(type)}; ${held[type.name]} held` : gives(type),
+                  held[type.name] > 0
+                    ? say("counter.with_aside", { gives: gives(type), count: held[type.name] })
+                    : gives(type),
                 ),
               );
             }),
@@ -437,18 +442,18 @@ export function counter(element, context) {
         );
         hold(asking);
       }
-      say("");
+      tell("");
     } catch (why) {
       if (gone) return;
       offer.replaceChildren();
-      say(words(why));
+      tell(words(why));
     }
   };
 
   element.setAttribute("role", "region");
   element.setAttribute("aria-labelledby", title);
   element.replaceChildren(
-    el("h3", { id: title }, "Hand a guest a voucher"),
+    el("h3", { id: title }, say("counter.title")),
     offer,
     choosing,
     said,

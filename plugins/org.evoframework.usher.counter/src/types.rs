@@ -20,6 +20,7 @@ use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+use evo_usher_why::{why, Why};
 use serde::{Deserialize, Serialize};
 
 /// The most types a counter keeps: each is a button on a screen.
@@ -75,19 +76,26 @@ impl VoucherType {
     ///
     /// What a controller takes beyond this is the controller's to say, and
     /// it says so when a voucher is issued on the terms.
-    pub fn held(mut self) -> Result<Self, String> {
+    pub fn held(mut self) -> Result<Self, Why> {
         self.name = self.name.trim().to_string();
         if self.name.is_empty() {
-            return Err("a voucher type needs a name".to_string());
+            return Err(why("type_needs_name", "a voucher type needs a name"));
         }
         if self.name.chars().count() > LONGEST_NAME {
-            return Err(format!(
-                "the name of a voucher type is at most {LONGEST_NAME} \
-                 characters"
-            ));
+            return Err(why(
+                "type_name_too_long",
+                format!(
+                    "the name of a voucher type is at most {LONGEST_NAME} \
+                     characters"
+                ),
+            )
+            .with("most", LONGEST_NAME));
         }
         if self.minutes == 0 {
-            return Err("a voucher lasts a minute at least".to_string());
+            return Err(why(
+                "type_lasts_no_time",
+                "a voucher lasts a minute at least",
+            ));
         }
         for (what, limit) in [
             ("guests", self.guests),
@@ -96,22 +104,29 @@ impl VoucherType {
             ("up_kbps", self.up_kbps),
         ] {
             if limit == Some(0) {
-                return Err(format!(
-                    "{what}: a limit is 1 at least, and is left out for none"
-                ));
+                return Err(why(
+                    "type_limit_is_none",
+                    format!(
+                        "{what}: a limit is 1 at least, and is left out \
+                         for none"
+                    ),
+                )
+                .with("limit", what));
             }
         }
         if self.up_to_days
             && (!self.minutes.is_multiple_of(DAY) || self.minutes < 2 * DAY)
         {
-            return Err("days that are chosen are whole days, up to 2 at \
-                        least"
-                .to_string());
+            return Err(why(
+                "type_days_to_choose_too_few",
+                "days that are chosen are whole days, up to 2 at least",
+            ));
         }
         if self.up_to_guests && self.guests.is_none_or(|most| most < 2) {
-            return Err("a number of devices that is chosen is up to 2 at \
-                        least"
-                .to_string());
+            return Err(why(
+                "type_devices_to_choose_too_few",
+                "a number of devices that is chosen is up to 2 at least",
+            ));
         }
         Ok(self)
     }
@@ -130,12 +145,12 @@ impl VoucherType {
     /// The terms one voucher of the type is issued on: the type's own
     /// where nothing is chosen, and with the days and the devices chosen
     /// where they are. A choice the type does not offer, a choice left
-    /// out, and one beyond what the type allows are refused in words.
+    /// out, and one beyond what the type allows are refused.
     pub fn issued(
         &self,
         days: Option<u64>,
         guests: Option<u64>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, Why> {
         let mut terms = Self {
             up_to_days: false,
             up_to_guests: false,
@@ -144,40 +159,58 @@ impl VoucherType {
         match (self.up_to_days, days) {
             (false, None) => {}
             (false, Some(_)) => {
-                return Err(format!(
-                    "the days of '{}' are fixed, and are not chosen",
-                    self.name
-                ))
+                return Err(why(
+                    "days_not_chosen",
+                    format!(
+                        "the days of '{}' are fixed, and are not chosen",
+                        self.name
+                    ),
+                )
+                .with("name", self.name.as_str()))
             }
             (true, Some(days)) if (1..=self.most_days()).contains(&days) => {
                 terms.minutes = days * DAY;
             }
             (true, _) => {
-                return Err(format!(
-                    "'{}' is issued for 1 to {} days: say for how many",
-                    self.name,
-                    self.most_days()
-                ))
+                return Err(why(
+                    "days_to_choose",
+                    format!(
+                        "'{}' is issued for 1 to {} days: say for how many",
+                        self.name,
+                        self.most_days()
+                    ),
+                )
+                .with("name", self.name.as_str())
+                .with("most", self.most_days()))
             }
         }
         let most = self.guests.unwrap_or(0);
         match (self.up_to_guests, guests) {
             (false, None) => {}
             (false, Some(_)) => {
-                return Err(format!(
-                    "the devices of '{}' are fixed, and are not chosen",
-                    self.name
-                ))
+                return Err(why(
+                    "devices_not_chosen",
+                    format!(
+                        "the devices of '{}' are fixed, and are not chosen",
+                        self.name
+                    ),
+                )
+                .with("name", self.name.as_str()))
             }
             (true, Some(guests)) if (1..=most).contains(&guests) => {
                 terms.guests = Some(guests);
             }
             (true, _) => {
-                return Err(format!(
-                    "'{}' is issued for 1 to {most} devices: say for how \
-                     many",
-                    self.name
-                ))
+                return Err(why(
+                    "devices_to_choose",
+                    format!(
+                        "'{}' is issued for 1 to {most} devices: say for \
+                         how many",
+                        self.name
+                    ),
+                )
+                .with("name", self.name.as_str())
+                .with("most", most))
             }
         }
         Ok(terms)
@@ -187,8 +220,9 @@ impl VoucherType {
 /// Why a change to the types was not made.
 #[derive(Debug)]
 pub enum Unkept {
-    /// It is against what the types are held to; the words say what.
-    Rule(String),
+    /// It is against what the types are held to: under a code, and in
+    /// words.
+    Rule(Why),
     /// It could not be written down.
     Disk(io::Error),
 }
@@ -196,7 +230,7 @@ pub enum Unkept {
 impl fmt::Display for Unkept {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Rule(why) => f.write_str(why),
+            Self::Rule(why) => f.write_str(&why.words),
             Self::Disk(e) => write!(f, "{e}"),
         }
     }
@@ -206,6 +240,12 @@ impl From<io::Error> for Unkept {
     fn from(e: io::Error) -> Self {
         Self::Disk(e)
     }
+}
+
+/// The refusal of a name no type has.
+pub fn no_such(name: &str) -> Why {
+    why("no_such_type", format!("there is no voucher type '{name}'"))
+        .with("name", name)
 }
 
 /// What is kept: the types in the order they were first defined, which
@@ -244,13 +284,18 @@ impl Kept {
                 .any(|kind| kind.name == name && kind.fixed())
     }
 
-    /// Hold what is kept to its rules after a change; `change` is what
-    /// the refusal says of the change that was asked for. A default that can
+    /// Hold what is kept to its rules after a change; `code` and `change`
+    /// are what the refusal is given under and what it says of the change
+    /// that was asked for. A default that can
     /// be one no longer gives way: the change is refused while another
     /// type could be the default, so that the administrator says which,
     /// and is made, with no default left, where none could. With no
     /// default, the first type that can be one is.
-    fn settled(mut self, change: &str) -> Result<Self, Unkept> {
+    fn settled(
+        mut self,
+        code: &'static str,
+        change: &str,
+    ) -> Result<Self, Unkept> {
         let named: Vec<String> =
             self.types.iter().map(|kind| kind.name.clone()).collect();
         self.disabled.retain(|off| named.contains(off));
@@ -260,10 +305,17 @@ impl Kept {
                     kind.name != default && self.can_be_default(&kind.name)
                 });
                 if other {
-                    return Err(Unkept::Rule(format!(
-                        "'{default}' is the default voucher type{change}; \
-                         make another type the default first"
-                    )));
+                    return Err(Unkept::Rule(
+                        why(
+                            code,
+                            format!(
+                                "'{default}' is the default voucher \
+                                 type{change}; make another type the \
+                                 default first"
+                            ),
+                        )
+                        .with("name", default),
+                    ));
                 }
                 self.default = None;
             }
@@ -308,7 +360,7 @@ impl Types {
         };
         // What an earlier counter kept had no default: the first type
         // that can be one is.
-        let kept = kept.settled("").map_err(|e| {
+        let kept = kept.settled("default_stays", "").map_err(|e| {
             io::Error::new(io::ErrorKind::InvalidData, e.to_string())
         })?;
         Ok(Self { path, kept })
@@ -369,7 +421,10 @@ impl Types {
             Some(kept) => *kept = kind,
             None => next.types.push(kind),
         }
-        self.keep(next.settled(", and the default has nothing to choose")?)
+        self.keep(next.settled(
+            "default_has_no_choice",
+            ", and the default has nothing to choose",
+        )?)
     }
 
     /// Drop the type of that name. Says whether there was one.
@@ -379,23 +434,25 @@ impl Types {
         if next.types.len() == self.kept.types.len() {
             return Ok(false);
         }
-        self.keep(next.settled(" and cannot be deleted")?)?;
+        self.keep(
+            next.settled("default_not_deleted", " and cannot be deleted")?,
+        )?;
         Ok(true)
     }
 
     /// Enable the type of that name for the front desk, or disable it.
     pub fn enable(&mut self, name: &str, enabled: bool) -> Result<(), Unkept> {
         if self.find(name).is_none() {
-            return Err(Unkept::Rule(format!(
-                "there is no voucher type '{name}'"
-            )));
+            return Err(Unkept::Rule(no_such(name)));
         }
         let mut next = self.kept.clone();
         next.disabled.retain(|off| off != name);
         if !enabled {
             next.disabled.push(name.to_string());
         }
-        self.keep(next.settled(" and cannot be disabled")?)
+        self.keep(
+            next.settled("default_not_disabled", " and cannot be disabled")?,
+        )
     }
 
     /// Put the types in the order of `names`, which is the order they
@@ -405,24 +462,33 @@ impl Types {
         let mut ordered = Vec::with_capacity(next.types.len());
         for name in names {
             if ordered.iter().any(|kind: &VoucherType| kind.name == *name) {
-                return Err(Unkept::Rule(format!(
-                    "'{name}' is named twice in the order"
-                )));
+                return Err(Unkept::Rule(
+                    why(
+                        "type_named_twice",
+                        format!("'{name}' is named twice in the order"),
+                    )
+                    .with("name", name.as_str()),
+                ));
             }
             let Some(kind) = self.find(name) else {
-                return Err(Unkept::Rule(format!(
-                    "there is no voucher type '{name}'"
-                )));
+                return Err(Unkept::Rule(no_such(name)));
             };
             ordered.push(kind.clone());
         }
         if ordered.len() != next.types.len() {
-            return Err(Unkept::Rule(format!(
-                "an order names every voucher type: there are {}, and {} \
-                 were named",
-                next.types.len(),
-                ordered.len()
-            )));
+            return Err(Unkept::Rule(
+                why(
+                    "order_names_every_type",
+                    format!(
+                        "an order names every voucher type: there are {}, \
+                         and {} were named",
+                        next.types.len(),
+                        ordered.len()
+                    ),
+                )
+                .with("there", next.types.len())
+                .with("named", ordered.len()),
+            ));
         }
         next.types = ordered;
         self.keep(next)
@@ -432,21 +498,31 @@ impl Types {
     /// to choose, enabled for the front desk, can be it.
     pub fn set_default(&mut self, name: &str) -> Result<(), Unkept> {
         let Some(kind) = self.find(name) else {
-            return Err(Unkept::Rule(format!(
-                "there is no voucher type '{name}'"
-            )));
+            return Err(Unkept::Rule(no_such(name)));
         };
         if !kind.fixed() {
-            return Err(Unkept::Rule(format!(
-                "'{name}' has days or devices to choose, and the default \
-                 is issued as it stands"
-            )));
+            return Err(Unkept::Rule(
+                why(
+                    "default_must_be_fixed",
+                    format!(
+                        "'{name}' has days or devices to choose, and the \
+                         default is issued as it stands"
+                    ),
+                )
+                .with("name", name),
+            ));
         }
         if !self.is_enabled(name) {
-            return Err(Unkept::Rule(format!(
-                "'{name}' is disabled, and the default is one that is \
-                 enabled"
-            )));
+            return Err(Unkept::Rule(
+                why(
+                    "default_is_enabled",
+                    format!(
+                        "'{name}' is disabled, and the default is one that \
+                         is enabled"
+                    ),
+                )
+                .with("name", name),
+            ));
         }
         let mut next = self.kept.clone();
         next.default = Some(name.to_string());
@@ -494,7 +570,7 @@ mod tests {
 
     fn rule(refused: Result<impl fmt::Debug, Unkept>) -> String {
         match refused {
-            Err(Unkept::Rule(why)) => why,
+            Err(Unkept::Rule(why)) => why.words,
             other => panic!("not refused by a rule: {other:?}"),
         }
     }
@@ -580,7 +656,7 @@ mod tests {
                 "devices",
             ),
         ] {
-            let why = refused.held().unwrap_err();
+            let why = refused.held().unwrap_err().words;
             assert!(why.contains(said), "{why}");
         }
         assert!(up_to("Contractor", 30).held().is_ok());
@@ -591,8 +667,12 @@ mod tests {
         let day = kind("Day guest", DAY);
         assert!(day.fixed());
         assert_eq!(day.issued(None, None), Ok(day.clone()));
-        assert!(day.issued(Some(2), None).unwrap_err().contains("fixed"));
-        assert!(day.issued(None, Some(2)).unwrap_err().contains("fixed"));
+        let refused = day.issued(Some(2), None).unwrap_err();
+        assert_eq!(refused.code, "days_not_chosen");
+        assert!(refused.words.contains("fixed"));
+        let refused = day.issued(None, Some(2)).unwrap_err();
+        assert_eq!(refused.code, "devices_not_chosen");
+        assert!(refused.words.contains("fixed"));
 
         let contractor = up_to("Contractor", 30);
         assert!(!contractor.fixed());
@@ -605,7 +685,9 @@ mod tests {
         );
         for days in [None, Some(0), Some(31)] {
             let why = contractor.issued(days, None).unwrap_err();
-            assert!(why.contains("1 to 30 days"), "{why}");
+            assert_eq!(why.code, "days_to_choose");
+            assert_eq!(why.values["most"], 30);
+            assert!(why.words.contains("1 to 30 days"), "{why}");
         }
 
         let family = VoucherType {
@@ -620,7 +702,8 @@ mod tests {
         );
         for guests in [None, Some(0), Some(6)] {
             let why = family.issued(None, guests).unwrap_err();
-            assert!(why.contains("1 to 5 devices"), "{why}");
+            assert_eq!(why.code, "devices_to_choose");
+            assert!(why.words.contains("1 to 5 devices"), "{why}");
         }
     }
 

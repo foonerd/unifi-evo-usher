@@ -52,7 +52,32 @@ The types stand in an order: the one they were defined in, until
 
 A request that may succeed if asked again (the controller was not
 reached, or a shelf did not answer) is refused as transient; one that
-will not succeed as asked, as permanent.
+will not succeed as asked, as a contract violation.
+
+A refusal carries a code as its subclass, beside its words in English,
+and the code stays what it is from release to release. Of a type's
+terms: `type_needs_name`, `type_name_too_long`, `type_lasts_no_time`,
+`type_limit_is_none`, `type_days_to_choose_too_few`,
+`type_devices_to_choose_too_few`. Of the types kept: `no_such_type`,
+`too_many_types`, `type_named_twice`, `order_names_every_type`,
+`default_has_no_choice`, `default_not_deleted`, `default_not_disabled`,
+`default_must_be_fixed`, `default_is_enabled`. Of a hand-out:
+`days_not_chosen`, `days_to_choose`, `devices_not_chosen`,
+`devices_to_choose`, `no_network_chosen`. Of a voucher to assign:
+`no_such_voucher`, `voucher_expired`, `voucher_in_use`,
+`voucher_lasts_unknown`, `voucher_makes_no_type`,
+`voucher_handed_before`, `voucher_held_already`,
+`type_holds_no_voucher`, `type_on_other_terms`. And `not_as_asked`,
+`not_kept`, `unknown_request`.
+
+What another shelf refused reaches the counter in that shelf's words
+and without its code: the counter gives it on in those words, under a
+code that says which shelf it was and whether asking again may succeed:
+`controller_for_now`, `controller_as_asked`, `networks_for_now`,
+`networks_as_asked`, `reserve_for_now`, `reserve_as_asked`, and
+`shelf_for_now`, `shelf_as_asked` and `shelf_answer_unread` for what is
+no shelf's own saying. What the steward refuses by a name of its own is
+given on under that name.
 """
 
 [[requests]]

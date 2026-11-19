@@ -6,7 +6,7 @@ What it is built to be: a core that holds the UniFi key, mints the vouchers on t
 
 ## Status
 
-0.3.16 stands on the evo steward, has a face, and is installed as a service. `evo-usher-steward` is the steward with the usher's catalogue and three plugins: the controller, which mints vouchers on a UniFi Network controller; the counter, which keeps the voucher types on offer and hands a guest a voucher of one of them, one assigned for handing out before one minted for the asking; and the stock, which holds the vouchers assigned. It serves the usher's face to a browser, in which a controller is looked at and set, its vouchers are listed, assigned for handing out and revoked, the wireless network vouchers are for is chosen, the voucher types are kept and a guest is handed a voucher. It is in the archive, in a package of its own, which makes a machine a unit, and in the image; the package is proven on a machine made for it, where it is installed, started as a service, asked as a browser asks, started again and removed. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else.
+0.3.17 stands on the evo steward, has a face, and is installed as a service. `evo-usher-steward` is the steward with the usher's catalogue and four plugins: the controller, which mints vouchers on a UniFi Network controller; the counter, which keeps the voucher types on offer and hands a guest a voucher of one of them, one assigned for handing out before one minted for the asking; the stock, which holds the vouchers assigned; and the site, which keeps what the place a unit serves is called, its logo, its time zone and its language. It serves the usher's face to a browser, in English or in German, in which a controller is looked at and set, its vouchers are listed, assigned for handing out and revoked, the wireless network vouchers are for is chosen, the voucher types are kept and a guest is handed a voucher. It is in the archive, in a package of its own, which makes a machine a unit, and in the image; the package is proven on a machine made for it, where it is installed, started as a service, asked as a browser asks, started again and removed. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else.
 
 The controller plugin is written from Ubiquiti's published description of the UniFi Network API, version 11.0.97, and is held to a simulated controller written from the same description. It has been run from the usher's face against a UniFi Network application, version 11.0.99: the controller set, its version, its sites, its vouchers and its wireless networks read, a wireless network chosen, and vouchers assigned and handed out.
 
@@ -108,11 +108,21 @@ A shell loads a widget pack as the module `index.js` in the pack's directory. Th
 
 ### The site
 
-The page Site sets the site's name, its logo and its time zone. The bar, the browser's tab, the forms a unit is set up and signed in to by, and the voucher shown to a guest wear the site's name and logo, and the usher's own where a site has none. Every time the face shows is written in the site's time zone, and says which zone where that is not the browser's own.
+The page Site sets the site's name, its logo, its time zone and its language. The bar, the browser's tab, the forms a unit is set up and signed in to by, and the voucher shown to a guest wear the site's name and logo, and the usher's own where a site has none. Every time the face shows is written in the site's time zone, and says which zone where that is not the browser's own.
 
-`USHER_SITE_NAME` and `USHER_TIME_ZONE` give a unit its name and time zone from its first start. They stand until an administrator saves a name and a time zone on the page; what was saved stands from then on.
+`USHER_SITE_NAME`, `USHER_TIME_ZONE` and `USHER_LANGUAGE` give a unit its name, time zone and language from its first start. They stand until an administrator saves them on the page; what was saved stands from then on.
 
-Anyone who can reach a unit is told the site's name and logo, for the forms to wear. Nothing else of the site is told without a session.
+Anyone who can reach a unit is told the site's name, logo and language, for the forms to wear and to speak. Nothing else of the site is told without a session.
+
+### The languages
+
+Every text the face shows comes from one file for each language, under `lang/` in the shell's directory: `en.json`, `de.json`, and `languages.json`, which lists the languages under the names they call themselves. A text is found by its key, takes the values it speaks of by name, and has a form for each count the language tells apart. What a language has no text for is said in English. Numbers, dates and times are written as the language writes them.
+
+Which language a screen speaks is settled as the page is opened: the one a person picked on that browser, in the bar or on the form they come in by; else the first of the browser's own languages the face speaks, where the site follows browsers, which it does unless an administrator says otherwise on the page Site; else the site's language; else English.
+
+What the usher refuses, it refuses under a code that stays the same from release to release, as the refusal's subclass, with its words in English beside it for a log and for a caller that is no screen. The face says a refusal in its own language by the code, and in the server's words where it has no text for one. `crates/why` is the one place a refusal is made.
+
+A language is added by a file: `docs/translating.md` says how, and a test holds every language to the keys, the values and the counts of the English file.
 
 ### Who may ask
 
@@ -148,7 +158,7 @@ On a machine with Fedora, RHEL, AlmaLinux or Rocky Linux the same unit comes as 
 | `/var/lib/evo/` | What the steward keeps: the controller and its key, the voucher types, the vouchers held, the record of hand-outs, the people who sign in. It stays when the package is removed and goes when it is purged. |
 | `/run/evo/` | The steward's client socket and, at the extended level, the unit's code, while the service runs. |
 
-The paths are evo's own defaults, and the service is evo-core's reference unit with what a distribution chooses: the program, the account, the face on port 8443 of every address, and protections of the usher's own on top of evo's. The steward runs without privilege, without a capability and without a device, sees the machine's files read-only apart from what it keeps, and its system calls are filtered. What is to differ on one unit, the address of the face for one, goes into a drop-in (`sudo systemctl edit evo`), which a newer package leaves alone.
+The paths are evo's own defaults, and the service is evo-core's reference unit with what a distribution chooses: the program, the account, the face on port 8443 of every address, and protections of the usher's own on top of evo's. The steward runs without privilege, without a capability and without a device, sees the machine's files read-only apart from what it keeps, and its system calls are filtered. Every screen joined to a unit holds a connection, and a connection is an open file: the steward raises its own limit of open files to 65536 where it may, and where it may change no limit of its own, as in this service, the service file sets it; the Compose files set it too. What is to differ on one unit, the address of the face for one, goes into a drop-in (`sudo systemctl edit evo`), which a newer package leaves alone.
 
 The face is at `https://<the unit>:8443/`. The steward's certificate is signed by an authority of its own, `/var/lib/evo/state/https/ca.crt`, and names the unit `localhost`: a browser that reaches it by another name is warned, also with the authority installed, which is why a site puts a proxy with its own certificate in front. Open it and set it up: a name and a password, and the unit has its first administrator. A unit that is updated from an earlier version has nobody yet and is set up the same way; everything else it keeps stays as it was. It is updated where only its administrators reach it, and opened at once.
 

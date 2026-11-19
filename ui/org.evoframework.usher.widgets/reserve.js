@@ -1,10 +1,12 @@
-// The reserve: the vouchers assigned for handing out and held on this
-// unit, counted by type. One held goes before one minted for the asking,
-// and is handed out while the controller is away. Which vouchers they are
-// is told among the controller's vouchers, in another widget.
+// The reserve: the vouchers set aside for guests and kept on this unit,
+// counted by type. One that is set aside goes to a guest before a new
+// one is made, and is there while the controller cannot be reached.
+// Which vouchers they are is told among the controller's vouchers, in
+// another widget.
 
 import { el, id, words } from "./dom.js";
 import { HELD_CHANGED, VOUCHER_HANDED } from "./events.js";
+import { say } from "./words.js";
 
 /** How often the count is asked for while the page is looked at. */
 const EVERY_MS = 15000;
@@ -28,11 +30,7 @@ export function reserve(element, context) {
       const types = Object.entries(counted?.held ?? {}).filter(([, count]) => count > 0);
       if (types.length === 0) {
         held.replaceChildren(
-          el(
-            "p",
-            {},
-            "None. A voucher assigned for hand-out, among the controller's vouchers, is held here; it goes before one minted for the asking, also while the controller is away.",
-          ),
+          el("p", {}, say("reserve.none")),
         );
       } else {
         held.replaceChildren(
@@ -55,10 +53,10 @@ export function reserve(element, context) {
   element.setAttribute("role", "region");
   element.setAttribute("aria-labelledby", title);
   element.replaceChildren(
-    el("h3", { id: title }, "Held on this unit"),
+    el("h3", { id: title }, say("reserve.title")),
     held,
     said,
-    el("div", { class: "row" }, el("button", { type: "button", class: "quiet", onclick: look }, "Count again")),
+    el("div", { class: "row" }, el("button", { type: "button", class: "quiet", onclick: look }, say("reserve.count_again"))),
   );
 
   const seen = () => {

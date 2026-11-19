@@ -24,6 +24,7 @@ use argon2::{
     Algorithm, Argon2, Params, PasswordHasher as _, PasswordVerifier as _,
     Version,
 };
+use evo_usher_why::{why, Why};
 use serde::{Deserialize, Serialize};
 
 /// The longest password, in characters: room for a sentence.
@@ -141,20 +142,31 @@ impl Person {
 
 /// A name as it is kept, without the spaces around it; or why it is no
 /// name.
-pub fn name_held(name: &str) -> Result<String, String> {
+pub fn name_held(name: &str) -> Result<String, Why> {
     let name = name.trim();
     if name.is_empty() {
-        return Err("A name is needed.".to_string());
+        return Err(why("name_needed", "A name is needed."));
     }
     if name.chars().count() > LONGEST_NAME {
-        return Err(format!("A name is {LONGEST_NAME} characters at most."));
+        return Err(why(
+            "name_too_long",
+            format!("A name is {LONGEST_NAME} characters at most."),
+        )
+        .with("most", LONGEST_NAME));
     }
     if name.chars().any(char::is_control) {
-        return Err(
-            "A name is written in letters, digits and signs.".to_string()
-        );
+        return Err(why(
+            "name_not_plain",
+            "A name is written in letters, digits and signs.",
+        ));
     }
     Ok(name.to_string())
+}
+
+/// The refusal of a name nobody has.
+pub fn nobody_called(name: &str) -> Why {
+    why("no_such_person", format!("There is nobody called {name}."))
+        .with("name", name)
 }
 
 /// Whether two names are one person's: a name is the same however its
@@ -163,28 +175,39 @@ pub fn same_name(one: &str, other: &str) -> bool {
     one.trim().to_lowercase() == other.trim().to_lowercase()
 }
 
-/// Whether a password can be a person's at this level; or, in plain
-/// words, why not. Length is all that is asked: any characters, spaces
+/// Whether a password can be a person's at this level; or why not. Length is all that is asked: any characters, spaces
 /// among them, and no mixture of kinds (NIST SP 800-63B-4, 3.1.1.2).
 pub fn password_held(
     password: &str,
     name: &str,
     level: Level,
-) -> Result<(), String> {
+) -> Result<(), Why> {
     let length = password.chars().count();
     let least = level.least_password();
     if length < least {
-        return Err(format!(
-            "A password is {least} characters at least; this one has {length}. A few words in a row are easy to remember and long enough."
-        ));
+        return Err(why(
+            "password_too_short",
+            format!(
+                "A password is {least} characters at least; this one has \
+                 {length}. A few words in a row are easy to remember and \
+                 long enough."
+            ),
+        )
+        .with("least", least)
+        .with("has", length));
     }
     if length > LONGEST_PASSWORD {
-        return Err(format!(
-            "A password is {LONGEST_PASSWORD} characters at most."
-        ));
+        return Err(why(
+            "password_too_long",
+            format!("A password is {LONGEST_PASSWORD} characters at most."),
+        )
+        .with("most", LONGEST_PASSWORD));
     }
     if same_name(password, name) {
-        return Err("A password is not the name itself.".to_string());
+        return Err(why(
+            "password_is_name",
+            "A password is not the name itself.",
+        ));
     }
     Ok(())
 }
@@ -214,8 +237,9 @@ pub fn matches(password: &str, hash: &str) -> bool {
 /// Why a change to the people was not made.
 #[derive(Debug)]
 pub enum Unkept {
-    /// It is against what the people are held to; the words say what.
-    Rule(String),
+    /// It is against what the people are held to: under a code, and in
+    /// words.
+    Rule(Why),
     /// It could not be written down.
     Disk(io::Error),
 }
@@ -328,9 +352,13 @@ impl People {
         now_ms: u64,
     ) -> Result<(), Unkept> {
         if self.find(name).is_some() {
-            return Err(Unkept::Rule(format!(
-                "There is a person called {name} already."
-            )));
+            return Err(Unkept::Rule(
+                why(
+                    "person_exists",
+                    format!("There is a person called {name} already."),
+                )
+                .with("name", name),
+            ));
         }
         let mut next = self.kept.clone();
         next.push(Person {
@@ -353,9 +381,7 @@ impl People {
         let Some(person) =
             next.iter_mut().find(|person| same_name(&person.name, name))
         else {
-            return Err(Unkept::Rule(format!(
-                "There is nobody called {name}."
-            )));
+            return Err(Unkept::Rule(nobody_called(name)));
         };
         person.password = password_hash;
         self.keep(next)
@@ -365,9 +391,7 @@ impl People {
     /// people has one who can add the others.
     pub fn remove(&mut self, name: &str) -> Result<(), Unkept> {
         let Some(leaving) = self.find(name) else {
-            return Err(Unkept::Rule(format!(
-                "There is nobody called {name}."
-            )));
+            return Err(Unkept::Rule(nobody_called(name)));
         };
         let others = self
             .kept
@@ -377,10 +401,17 @@ impl People {
             })
             .count();
         if leaving.role == ADMINISTRATOR && others == 0 {
-            return Err(Unkept::Rule(format!(
-                "{} is the only administrator, and stays until there is another.",
-                leaving.name
-            )));
+            return Err(Unkept::Rule(
+                why(
+                    "only_administrator",
+                    format!(
+                        "{} is the only administrator, and stays until \
+                         there is another.",
+                        leaving.name
+                    ),
+                )
+                .with("name", leaving.name.as_str()),
+            ));
         }
         let mut next = self.kept.clone();
         next.retain(|person| !same_name(&person.name, name));
@@ -417,7 +448,7 @@ mod tests {
 
     fn rule(refused: Result<(), Unkept>) -> String {
         match refused {
-            Err(Unkept::Rule(why)) => why,
+            Err(Unkept::Rule(why)) => why.words,
             other => panic!("not refused by a rule: {other:?}"),
         }
     }
@@ -461,13 +492,19 @@ mod tests {
         assert_eq!(password_held("\u{fc}\u{fc}\u{fc}\u{fc}\u{fc}\u{fc}\u{fc}\u{fc}\u{fc}\u{fc}\u{fc}\u{fc}\u{fc}\u{fc}\u{fc}", "Anna", level), Ok(()));
         assert_eq!(password_held("twelve chars", "Anna", level), Ok(()));
         let short = password_held("eleven char", "Anna", level).unwrap_err();
+        assert_eq!(short.code, "password_too_short");
+        assert_eq!(
+            (&short.values["least"], &short.values["has"]),
+            (&12.into(), &11.into())
+        );
         assert!(
-            short.contains("12 characters at least")
-                && short.contains("has 11"),
+            short.words.contains("12 characters at least")
+                && short.words.contains("has 11"),
             "{short}"
         );
         assert!(password_held("fifteen chars!!", "Anna", Level::Extended)
             .unwrap_err()
+            .words
             .contains("16 characters at least"));
         assert!(
             password_held(&"p".repeat(LONGEST_PASSWORD), "Anna", level).is_ok()
@@ -478,6 +515,7 @@ mod tests {
             level
         )
         .unwrap_err()
+        .words
         .contains("at most"));
         assert!(password_held(
             "the verger of st mary",
@@ -485,6 +523,7 @@ mod tests {
             level
         )
         .unwrap_err()
+        .words
         .contains("not the name"));
     }
 

@@ -20,9 +20,11 @@
 //!   to the public authorities where none is. It is set only once it has
 //!   answered. Answers `{"base": "...", "held": bool, "version": "..."}`.
 //! - `info`: answers `{"set": false}`, or the controller that is set:
-//!   `{"set": true, "base", "held", "version", "trouble"}`. A controller
-//!   that does not answer is still the one that is set; its `version` is
-//!   then null and `trouble` says why.
+//!   `{"set": true, "base", "held", "version", "trouble",
+//!   "trouble_code"}`. A controller that does not answer is still the one
+//!   that is set; its `version` is then null, `trouble` says why in
+//!   words, and `trouble_code` is the code a refusal for that reason is
+//!   given under.
 //! - `sites`: answers `{"sites": [{"id", "name", "reference"}]}`.
 //! - `mint`: `{"site", "note", "minutes", "count", "guests", "megabytes",
 //!   "down_kbps", "up_kbps"}`, the last five optional, answers
@@ -55,6 +57,9 @@
 //! The choice is the usher's own. A voucher is a site's and not one
 //! network's: the controller lets it in on every wireless network it
 //! puts its hotspot portal in front of, and holds it to none of them.
+//!
+//! A refusal is given under a code, as its subclass, beside its words:
+//! the code is what a screen finds words of its own language by.
 
 #![forbid(unsafe_code)]
 
@@ -115,8 +120,8 @@ impl ControllerPlugin {
 impl From<Refusal> for PluginError {
     fn from(refusal: Refusal) -> Self {
         match refusal {
-            Refusal::ForNow(why) => PluginError::Transient(why),
-            Refusal::AsAsked(why) => PluginError::Permanent(why),
+            Refusal::ForNow(why) => why.for_now(),
+            Refusal::AsAsked(why) => why.as_asked(),
         }
     }
 }

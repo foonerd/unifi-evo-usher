@@ -13,6 +13,9 @@ The vouchers minted and not yet handed out, held by type. A voucher
 leaves the reserve once and is never taken in again, so that no guest is
 handed a voucher another guest was handed. What the reserve holds is
 kept through a restart: a change is on disk before it is answered.
+
+A refusal carries a code as its subclass, beside its words in English:
+`not_as_asked`, `not_kept` or `unknown_request`.
 """
 
 [[requests]]

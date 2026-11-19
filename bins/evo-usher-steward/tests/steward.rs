@@ -82,8 +82,9 @@ fn the_site_is_kept_through_the_steward_and_across_a_restart() {
 
     let steward = Steward::start(dir.path());
     let new = json!({
-        "name": "", "time_zone": null, "language": null, "logo": null,
-        "set_here": false,
+        "name": "", "time_zone": null, "language": "en",
+        "follows_browser": true, "logo": null,
+        "set_here": false, "language_set_here": false,
         "limits": {
             "name_characters": 64, "logo_bytes": 262144,
             "logo_width": 1024, "logo_height": 512,
@@ -112,7 +113,10 @@ fn the_site_is_kept_through_the_steward_and_across_a_restart() {
             "set",
             json!({ "name": " Parish Hall ", "time_zone": "Europe/Warsaw" })
         ),
-        json!({ "name": "Parish Hall", "time_zone": "Europe/Warsaw" })
+        json!({
+            "name": "Parish Hall", "time_zone": "Europe/Warsaw",
+            "language": "en", "follows_browser": true,
+        })
     );
     assert_eq!(
         steward.ask(
@@ -131,24 +135,29 @@ fn the_site_is_kept_through_the_steward_and_across_a_restart() {
         json!({ "width": 300, "height": 84, "bytes": logo.len() })
     );
 
-    // What is not a logo is refused in words for a screen, and the logo
-    // the site has stays.
-    for (file, words) in [
+    // What is not a logo is refused under a code and in words, and the
+    // logo the site has stays. The words are the refusal's own, with
+    // nothing of the steward's before them.
+    for (file, code, words) in [
         (
             b"GIF89a, and so on".to_vec(),
+            "logo_not_png",
             "This file is not a PNG picture. A logo is a PNG file.",
         ),
         (
             logo[..logo.len() - 9].to_vec(),
+            "logo_damaged",
             "This PNG file is cut short or damaged, and cannot be a logo.",
         ),
         (
             png(1025, 2),
+            "logo_picture_too_large",
             "This picture is 1025 by 2 pixels. A logo is 1024 by 512 pixels \
              at most.",
         ),
         (
             png(300, 300),
+            "logo_file_too_long",
             "This file is 352 KiB. A logo is 256 KiB at most.",
         ),
     ] {
@@ -157,12 +166,12 @@ fn the_site_is_kept_through_the_steward_and_across_a_restart() {
             "put_logo",
             json!({ "png_b64": carried(&file) }),
         );
-        assert!(
-            refused["error"]["message"]
-                .as_str()
-                .is_some_and(|said| said.ends_with(words)),
+        assert_eq!(refused["error"]["message"], words, "{refused}");
+        assert_eq!(
+            refused["error"]["details"]["subclass"], code,
             "{words}: {refused}"
         );
+        assert_eq!(refused["error"]["class"], "contract_violation");
     }
     let refused = steward.ask(
         "site.settings",
@@ -209,17 +218,21 @@ fn the_site_is_kept_through_the_steward_and_across_a_restart() {
 }
 
 #[test]
-fn a_unit_is_given_its_first_name_and_time_zone_where_it_is_started() {
+fn a_unit_is_given_its_first_name_time_zone_and_language_where_it_is_started() {
     let dir = short_dir();
     let given = [
         ("USHER_SITE_NAME", "Parish Hall"),
         ("USHER_TIME_ZONE", "Europe/Warsaw"),
+        ("USHER_LANGUAGE", "de"),
     ];
     let steward = Steward::start_given(dir.path(), &given);
     let site = steward.ask("site.settings", "get", json!({}));
     assert_eq!(site["name"], "Parish Hall", "{site}");
     assert_eq!(site["time_zone"], "Europe/Warsaw");
+    assert_eq!(site["language"], "de");
+    assert_eq!(site["follows_browser"], true);
     assert_eq!(site["set_here"], false);
+    assert_eq!(site["language_set_here"], false);
     assert_eq!(steward.stop(), Some(0));
 
     // Until an administrator sets the site, a unit goes by what it is
@@ -235,8 +248,11 @@ fn a_unit_is_given_its_first_name_and_time_zone_where_it_is_started() {
     let site = steward.ask("site.settings", "get", json!({}));
     assert_eq!(site["name"], "St Mary's Hall", "{site}");
     assert_eq!(site["time_zone"], Value::Null);
+    // Started with no language, the unit speaks English.
+    assert_eq!(site["language"], "en");
     // What an administrator sets stands from then on, whatever the unit
-    // is started with.
+    // is started with. The language was not set with the name: it is
+    // still what the unit is started with.
     steward.ask(
         "site.settings",
         "set",
@@ -248,21 +264,46 @@ fn a_unit_is_given_its_first_name_and_time_zone_where_it_is_started() {
     assert_eq!(site["name"], "St Mary's Hall, front desk", "{site}");
     assert_eq!(site["time_zone"], "UTC");
     assert_eq!(site["set_here"], true);
+    assert_eq!(site["language"], "de");
+    assert_eq!(site["language_set_here"], false);
+    // A language that is set stands as the name does.
+    assert_eq!(
+        steward.ask(
+            "site.settings",
+            "set",
+            json!({
+                "name": "St Mary's Hall, front desk", "time_zone": "UTC",
+                "language": "en", "follows_browser": false,
+            }),
+        ),
+        json!({
+            "name": "St Mary's Hall, front desk", "time_zone": "UTC",
+            "language": "en", "follows_browser": false,
+        })
+    );
+    assert_eq!(steward.stop(), Some(0));
+    let steward = Steward::start_given(dir.path(), &given);
+    let site = steward.ask("site.settings", "get", json!({}));
+    assert_eq!(site["language"], "en", "{site}");
+    assert_eq!(site["follows_browser"], false);
+    assert_eq!(site["language_set_here"], true);
     assert_eq!(steward.stop(), Some(0));
 
-    // A value that is not as a name or a time zone is leaves the unit
-    // without one, and the unit starts all the same.
+    // A value that is not as a name, a time zone or a language is
+    // leaves the unit without one, and the unit starts all the same.
     let other = short_dir();
     let steward = Steward::start_given(
         other.path(),
         &[
             ("USHER_SITE_NAME", "St Mary's"),
             ("USHER_TIME_ZONE", "Warsaw time"),
+            ("USHER_LANGUAGE", "German"),
         ],
     );
     let site = steward.ask("site.settings", "get", json!({}));
     assert_eq!(site["name"], "St Mary's", "{site}");
     assert_eq!(site["time_zone"], Value::Null);
+    assert_eq!(site["language"], "en");
     assert_eq!(steward.stop(), Some(0));
 }
 
@@ -475,8 +516,12 @@ fn a_guest_is_handed_a_voucher_minted_for_the_asking() {
     );
     let refused = hand(&steward, "For ever");
     assert_eq!(
-        refused["error"]["message"],
-        "plugin error: permanent error: minutes must be within 1..=1000000",
+        refused["error"]["message"], "minutes must be within 1..=1000000",
+        "{refused}"
+    );
+    // The code says which shelf refused; the words are that shelf's.
+    assert_eq!(
+        refused["error"]["details"]["subclass"], "controller_as_asked",
         "{refused}"
     );
     let unknown = hand(&steward, "Week guest");

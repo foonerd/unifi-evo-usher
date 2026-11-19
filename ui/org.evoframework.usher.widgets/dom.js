@@ -1,5 +1,7 @@
 // The little the widgets need to put elements on a page.
 
+import { moment, refusal } from "./words.js";
+
 /**
  * Make an element.
  *
@@ -40,21 +42,23 @@ export function svg(tag, set = {}, ...within) {
 }
 
 /**
- * What went wrong, in the words it was said in. The steward puts its own
- * words before a plugin's; the plugin's are the ones for the screen.
+ * What went wrong, in the language the page speaks: a refusal of the
+ * usher's by the words that language has for its code, and anything
+ * else in the words it was said in.
  *
  * @param {unknown} why
+ * @param {Record<string, unknown>} [known] values the widget knows that
+ *   a refusal's words may speak of
  * @returns {string}
  */
-export function words(why) {
-  const said = why instanceof Error ? why.message : String(why);
-  return said.replace(/^plugin error: (permanent|transient) error: /, "");
+export function words(why, known = {}) {
+  return refusal(why, known);
 }
 
 /**
  * The place the unit serves, as a widget knows it under a shell that
  * says nothing of it: a place with no name and no logo, where a time is
- * written as the browser writes one.
+ * written as the browser keeps it, in the language the page speaks.
  *
  * @type {import("./index.js").Place}
  */
@@ -77,7 +81,7 @@ function plain(when, how) {
   const told = typeof when === "number" || typeof when === "string" || when instanceof Date;
   const date = told ? new Date(when) : null;
   if (date === null || Number.isNaN(date.getTime())) return typeof when === "string" ? when : "";
-  return date.toLocaleString(undefined, how);
+  return moment(date, how);
 }
 
 /**

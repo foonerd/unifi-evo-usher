@@ -410,7 +410,7 @@ fn a_new_usher_is_set_up_and_its_controller_set_from_the_screen() {
     assert!(
         said.as_str()
             .unwrap()
-            .contains("Nobody vouches for this certificate"),
+            .contains("No certificate authority confirms this certificate"),
         "{said}"
     );
     // For the eye: the certificate the controller presents, before the
@@ -462,7 +462,10 @@ fn a_new_usher_is_set_up_and_its_controller_set_from_the_screen() {
     let set = browser.look(r#"return widget("usher.controller").innerText;"#);
     let set = set.as_str().unwrap();
     assert!(set.contains(&simulated.base()), "{set}");
-    assert!(set.contains("the one certificate it is held to"), "{set}");
+    assert!(
+        set.contains("the fingerprint of its certificate was compared"),
+        "{set}"
+    );
     assert!(
         !set.contains(simulated.key()),
         "the key is not on the screen: {set}"
@@ -502,7 +505,7 @@ fn a_new_usher_is_set_up_and_its_controller_set_from_the_screen() {
     );
     browser.wait(
         "the choice",
-        r#"widget("usher.networks").innerText.includes("A voucher names Guests to the guest.")"#,
+        r#"widget("usher.networks").innerText.includes("A voucher tells the guest to join Guests.")"#,
     );
     let known = steward.ask("networks.directory", "networks", json!({}));
     assert_eq!(known["chosen"]["name"], "Guests", "{known}");
@@ -521,7 +524,7 @@ fn a_new_usher_is_set_up_and_its_controller_set_from_the_screen() {
     );
     browser.wait(
         "the choice",
-        r#"widget("usher.networks").innerText.includes("A voucher names Guests to the guest.")"#,
+        r#"widget("usher.networks").innerText.includes("A voucher tells the guest to join Guests.")"#,
     );
 
     // The controller's vouchers are on the screen as the controller has
@@ -718,7 +721,7 @@ fn a_new_usher_is_set_up_and_its_controller_set_from_the_screen() {
             "1 day, from its first use",
             "one device",
             "down 7.2 Mbit/s, up 1.2 Mbit/s, 6000 MB",
-            "the controller, minted now"
+            "the controller, made just now"
         ])
     );
     assert_eq!(simulated.held(), 2, "one press, one voucher");
@@ -817,15 +820,15 @@ fn a_new_usher_is_set_up_and_its_controller_set_from_the_screen() {
         "the vouchers made elsewhere",
         r#"widget("usher.vouchers").innerText.includes("4 valid, 0 expired, on the controller.")"#,
     );
-    press_listed(&mut browser, &format!("Assign {} for hand-out", walk_in[0]));
+    press_listed(&mut browser, &format!("Set {} aside", walk_in[0]));
     browser.wait(
         "one held on the counter",
-        &format!(r#"{walk_in_button} === "2 hours; one device; 1 held""#),
+        &format!(r#"{walk_in_button} === "2 hours; one device; 1 set aside""#),
     );
     browser.wait(
         "the list to say it is held",
         &format!(
-            r#"[...widget("usher.vouchers").querySelectorAll("tbody tr")].find((row) => row.innerText.includes({code}))?.querySelectorAll("td")[1].textContent === "for hand-out""#,
+            r#"[...widget("usher.vouchers").querySelectorAll("tbody tr")].find((row) => row.innerText.includes({code}))?.querySelectorAll("td")[1].textContent === "set aside""#,
             code = json!(walk_in[0]),
         ),
     );
@@ -847,15 +850,15 @@ fn a_new_usher_is_set_up_and_its_controller_set_from_the_screen() {
     }
 
     // A second is assigned and taken back: it is not held.
-    press_listed(&mut browser, &format!("Assign {} for hand-out", walk_in[1]));
+    press_listed(&mut browser, &format!("Set {} aside", walk_in[1]));
     browser.wait(
         "two held",
-        &format!(r#"{walk_in_button} === "2 hours; one device; 2 held""#),
+        &format!(r#"{walk_in_button} === "2 hours; one device; 2 set aside""#),
     );
     press_listed(&mut browser, &format!("Take {} back", walk_in[1]));
     browser.wait(
         "one held again",
-        &format!(r#"{walk_in_button} === "2 hours; one device; 1 held""#),
+        &format!(r#"{walk_in_button} === "2 hours; one device; 1 set aside""#),
     );
 
     // The one held goes first: the press hands out that very voucher,
@@ -878,7 +881,7 @@ fn a_new_usher_is_set_up_and_its_controller_set_from_the_screen() {
         browser.look(
             r#"return [...widget("usher.counter").querySelectorAll("dd")].at(-1).textContent;"#
         ),
-        "those held on this unit"
+        "those set aside on this unit"
     );
     assert_eq!(simulated.held(), 4, "nothing was minted for it");
     browser.wait(
@@ -1224,20 +1227,27 @@ fn an_administrator_defines_the_voucher_types_the_front_desk_is_offered() {
 
     // The default is neither disabled nor deleted while another type
     // could be the default: the page says why, and it stands as it was.
-    for label in [
-        "Week guest, enabled for the front desk",
-        "Delete Week guest",
+    for (label, why_not) in [
+        (
+            "Week guest, enabled for the front desk",
+            "Week guest is the default voucher type and cannot be \
+             disabled. Make another type the default first.",
+        ),
+        (
+            "Delete Week guest",
+            "Week guest is the default voucher type and cannot be deleted. \
+             Make another type the default first.",
+        ),
     ] {
         browser.act(&press(label));
         browser.wait(
             "why not",
-            r#"widget("usher.types").querySelector(".usher-said.usher-trouble")?.textContent.includes("make another type the default first")"#,
+            r#"widget("usher.types").querySelector(".usher-said.usher-trouble")?.textContent.includes("Make another type the default first.")"#,
         );
+        // Said in the words the face has for the refusal's code, with
+        // the name of the type that was asked about.
         let why = browser.look(said)[0].as_str().unwrap().to_string();
-        assert!(
-            why.contains("'Week guest' is the default voucher type"),
-            "{label}: {why}"
-        );
+        assert_eq!(why, why_not, "{label}");
         browser.wait(
             "the type as it was",
             r#"widget("usher.types").querySelectorAll("tbody tr")[2]?.cells[2].querySelector("input").checked === true"#,
@@ -1574,7 +1584,7 @@ fn an_administrator_defines_the_voucher_types_the_front_desk_is_offered() {
                 "12 days, from its first use",
                 "2 devices",
                 "none",
-                "the controller, minted now"
+                "the controller, made just now"
             ],
             null
         ])
@@ -1640,7 +1650,7 @@ fn an_administrator_defines_the_voucher_types_the_front_desk_is_offered() {
     assert_eq!(
         browser.look(said),
         json!([
-            "Contractor is deleted. Vouchers issued on its terms stay what they are.",
+            "Contractor is deleted. Vouchers already issued as Contractor stay as they are.",
             false
         ])
     );
@@ -1745,7 +1755,7 @@ fn the_menu_leads_from_page_to_page() {
             r#"return [...document.querySelectorAll(".shelf-name")].filter(onScreen).map((n) => n.textContent);"#,
         );
         let several: &[&str] = if *label == "Vouchers" {
-            &["Controller", "Reserve"]
+            &["Controller", "Set aside"]
         } else {
             &[]
         };
@@ -2805,8 +2815,8 @@ fn a_site_is_given_its_name_its_time_zone_and_its_logo_from_the_screen() {
     assert_eq!(
         page,
         json!({
-            "heading": "Name, time zone and logo",
-            "region": ["region", "Name, time zone and logo"],
+            "heading": "Name, time zone, language and logo",
+            "region": ["region", "Name, time zone, language and logo"],
             "name": ["Parish Hall", 64, "Name"],
             "zone": ["", "Time zone", [["", "Each browser's own"], ["UTC", "UTC"]]],
             "offers": [true, true],
@@ -3061,6 +3071,7 @@ fn a_site_is_given_its_name_its_time_zone_and_its_logo_from_the_screen() {
         json!({
             "name": "St Mary's Hall",
             "logo": { "png_b64": carried, "width": 300, "height": 84 },
+            "language": "en", "follows_browser": true,
         })
     );
     // For the eye: the page of the site, and the bar wearing the logo.
@@ -3070,8 +3081,9 @@ fn a_site_is_given_its_name_its_time_zone_and_its_logo_from_the_screen() {
     }
 
     // By the keyboard alone: the Tab key goes from the page's heading
-    // through the name, the time zone, saving them, the file and what
-    // can be done with the logo, and each is ringed where it stands.
+    // through the name, the time zone, the language and whether a
+    // browser's own goes before it, saving them, the file and what can
+    // be done with the logo, and each is ringed where it stands.
     browser
         .act(r#"document.querySelector(".page:not([hidden]) > h2").focus();"#);
     let at = r#"
@@ -3079,7 +3091,15 @@ fn a_site_is_given_its_name_its_time_zone_and_its_logo_from_the_screen() {
         const ring = getComputedStyle(at);
         return [at.name || at.textContent, ring.outlineStyle, ring.outlineWidth];
     "#;
-    for stop in ["name", "time_zone", "Save", "logo", "Remove the logo"] {
+    for stop in [
+        "name",
+        "time_zone",
+        "language",
+        "follows_browser",
+        "Save",
+        "logo",
+        "Remove the logo",
+    ] {
         browser.press("Tab", false);
         assert_eq!(browser.look(at), json!([stop, "solid", "3px"]));
     }
@@ -3338,8 +3358,412 @@ fn a_site_is_given_its_name_its_time_zone_and_its_logo_from_the_screen() {
     let (_, state) = steward.usher("GET", "state", None, &nobody);
     assert_eq!(
         state["site"],
-        json!({ "name": "St Mary's Hall", "logo": null })
+        json!({
+            "name": "St Mary's Hall", "logo": null,
+            "language": "en", "follows_browser": true,
+        })
     );
+    assert_eq!(steward.stop(), Some(0));
+}
+
+/// Copy a directory and everything in it.
+fn copied(from: &std::path::Path, to: &std::path::Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let there = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copied(&entry.path(), &there);
+        } else {
+            std::fs::copy(entry.path(), there).unwrap();
+        }
+    }
+}
+
+/// What the face says where it stands: the language of the page, the
+/// entries of the menu, and the language chosen in the bar's list.
+fn spoken(browser: &mut Browser) -> Value {
+    browser.look(
+        r#"
+        return {
+          lang: document.documentElement.lang,
+          menu: menuEntries().map((entry) => entry.textContent),
+          chosen: document.getElementById("language").value,
+        };
+        "#,
+    )
+}
+
+#[test]
+fn the_face_speaks_the_language_a_person_a_browser_or_the_site_says() {
+    let Some(mut browser) = Browser::open() else {
+        return;
+    };
+    browser.size(1280, 900);
+    // The face as it is, and beside its languages one more that has
+    // words for two texts and for nothing else.
+    let face = short_dir();
+    copied(&ui_root(), face.path());
+    let lang = face.path().join(SHELL).join("lang");
+    std::fs::write(
+        lang.join("xx.json"),
+        json!({ "page.counter": "Xcounter", "common.save": "Xsave" })
+            .to_string(),
+    )
+    .unwrap();
+    std::fs::write(
+        lang.join("languages.json"),
+        json!([
+            { "tag": "en", "name": "English" },
+            { "tag": "de", "name": "Deutsch" },
+            { "tag": "xx", "name": "Xish" },
+        ])
+        .to_string(),
+    )
+    .unwrap();
+    let dir = short_dir();
+    let steward = Steward::start_given(
+        dir.path(),
+        &[("EVO_HTTPS_STATIC_DIR", face.path().to_str().unwrap())],
+    );
+    let shell = format!("{}/{SHELL}/", steward.address());
+    let title = r#"document.getElementById("entry-title")?.textContent"#;
+
+    // A new unit, and a browser that speaks English: the form a unit is
+    // set up by is in English, and offers the languages the face speaks,
+    // each under its own name.
+    browser.go(&shell);
+    browser.wait(
+        "the form in English",
+        &format!(r#"{title} === "Set up this usher""#),
+    );
+    assert_eq!(
+        browser.look(
+            r#"
+            const list = document.getElementById("entry-language");
+            return {
+              lang: document.documentElement.lang,
+              offered: [...list.options].map((option) => [option.value, option.textContent]),
+              chosen: list.value,
+              shown: onScreen(list),
+              called: document.querySelector('label[for="entry-language"]').textContent,
+            };
+            "#
+        ),
+        json!({
+            "lang": "en",
+            "offered": [["en", "English"], ["de", "Deutsch"], ["xx", "Xish"]],
+            "chosen": "en", "shown": true, "called": "Language",
+        })
+    );
+
+    // German is picked on the form: the page is in German, and stays so
+    // when it is loaded again.
+    let pick = |list: &str, language: &str| {
+        format!(
+            r#"
+            const list = document.getElementById({list});
+            list.value = {language};
+            list.dispatchEvent(new Event("change", {{ bubbles: true }}));
+            "#,
+            list = json!(list),
+            language = json!(language),
+        )
+    };
+    browser.act(&pick("entry-language", "de"));
+    browser.wait(
+        "the form in German",
+        &format!(r#"{title} === "Diesen Usher einrichten""#),
+    );
+    browser.reload();
+    browser.wait(
+        "the form in German, loaded again",
+        &format!(
+            r#"{title} === "Diesen Usher einrichten" && document.documentElement.lang === "de""#
+        ),
+    );
+    assert_eq!(
+        browser.look(
+            r##"
+            return [
+              localStorage.getItem("usherLanguage"),
+              document.getElementById("entry-language").value,
+              document.querySelector('label[for="set-up-name"]').textContent,
+              document.querySelector("#set-up-form button").textContent,
+            ];
+            "##
+        ),
+        json!(["de", "de", "Ihr Name", "Einrichten"])
+    );
+
+    // The unit is set up, and the same browser is asked to sign in, in
+    // German. What the usher refuses, it refuses under a code: the page
+    // says it in German.
+    steward.set_up("Anna", PASSWORD);
+    // Two voucher types, for the pages to show once she is in.
+    for (name, down) in [("Day guest", Value::Null), ("Fast", json!(7200))] {
+        steward.ask(
+            "issue.counter",
+            "put_type",
+            json!({
+                "name": name, "minutes": 1440, "guests": 1,
+                "down_kbps": down,
+            }),
+        );
+    }
+    browser.reload();
+    browser.wait("the form to sign in", &format!(r#"{title} === "Anmelden""#));
+    // For the eye: the form a person signs in by, in German, with the
+    // languages to choose from under it.
+    if let Some(to) = picture_of(Some("language-sign-in")) {
+        browser.picture(&to);
+    }
+    fill(
+        &mut browser,
+        json!({ "sign-in-name": "Anna", "sign-in-password": OTHER_PASSWORD }),
+    );
+    browser.act(r#"document.getElementById("sign-in-form").requestSubmit();"#);
+    said_in(
+        &mut browser,
+        "sign-in-form",
+        "Der Name oder das Passwort ist falsch.",
+    );
+    fill(
+        &mut browser,
+        json!({ "sign-in-name": "Anna", "sign-in-password": PASSWORD }),
+    );
+    browser.act(r#"document.getElementById("sign-in-form").requestSubmit();"#);
+    browser.wait(
+        "the menu in German",
+        r#"menuEntry("Empfang") !== undefined"#,
+    );
+    assert_eq!(
+        spoken(&mut browser),
+        json!({
+            "lang": "de",
+            "menu": [
+                "Empfang", "Voucher", "Voucher-Typen", "Netzwerk",
+                "Controller", "Standort", "Personen",
+            ],
+            "chosen": "de",
+        })
+    );
+    browser.wait(
+        "the line, in German",
+        r#"document.getElementById("line").textContent === "Verbunden""#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"
+            return [
+              document.title,
+              document.getElementById("sign-out").textContent,
+              document.getElementById("language").getAttribute("aria-label"),
+            ];
+            "#
+        ),
+        json!(["Empfang - Usher", "Abmelden", "Sprache"])
+    );
+
+    // A refusal of a plugin's comes under a code too, and is said in
+    // German with the name that was asked about; a number is written as
+    // German writes one.
+    go_to(&mut browser, "Voucher-Typen");
+    browser.wait(
+        "the types",
+        r#"widget("usher.types").querySelectorAll("tbody tr").length === 2"#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"return [...widget("usher.types").querySelectorAll("tbody tr")].map((row) => row.cells[1].textContent);"#
+        ),
+        json!([
+            "1 Tag; ein Ger\u{e4}t",
+            "1 Tag; ein Ger\u{e4}t; Download 7,2 Mbit/s",
+        ])
+    );
+    browser.act(
+        r#"widget("usher.types").querySelector('[aria-label="Day guest l\u00f6schen"]').click();"#,
+    );
+    browser.wait(
+        "why not, in German",
+        r#"widget("usher.types").querySelector(".usher-said.usher-trouble")?.textContent"#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"return widget("usher.types").querySelector(".usher-said").textContent;"#
+        ),
+        "Day guest ist der Standard-Voucher-Typ und kann nicht gel\u{f6}scht \
+         werden. Machen Sie zuerst einen anderen Typ zum Standard."
+    );
+    // For the eye: a page in German, with what it refused, and the
+    // language chosen in the bar.
+    if let Some(to) = picture_of(Some("language-german")) {
+        browser.act("document.activeElement?.blur();");
+        browser.picture(&to);
+    }
+
+    // A refusal of the usher's own carries the numbers it speaks of:
+    // they stand in the German words.
+    go_to(&mut browser, "Personen");
+    browser.act(r#"document.getElementById("add-person").click();"#);
+    browser.wait(
+        "the form to add a person",
+        r#"document.getElementById("add-person-form") !== null"#,
+    );
+    fill(
+        &mut browser,
+        json!({
+            "add-person-name": "Ben",
+            "add-person-password": "short",
+            "add-person-again": "short",
+        }),
+    );
+    browser
+        .act(r#"document.getElementById("add-person-form").requestSubmit();"#);
+    said_in(
+        &mut browser,
+        "add-person-form",
+        "Ein Passwort hat mindestens 12 Zeichen; dieses hat 5. Einige \
+         aufeinanderfolgende W\u{f6}rter sind leicht zu merken und lang \
+         genug.",
+    );
+
+    // English is picked in the bar: the page is in English again.
+    browser.act(&pick("language", "en"));
+    browser.wait(
+        "the menu in English",
+        r#"menuEntry("Counter") !== undefined"#,
+    );
+    assert_eq!(spoken(&mut browser)["lang"], "en");
+
+    // With nothing picked, a browser is spoken to in its own language
+    // where the face speaks it, and in the site's where the site says
+    // so. The site is told to speak the language that has two texts,
+    // to every browser: what it has no text for is said in English.
+    browser.act(r#"localStorage.removeItem("usherLanguage");"#);
+    steward.ask(
+        "site.settings",
+        "set",
+        json!({ "name": "", "language": "xx", "follows_browser": false }),
+    );
+    browser.reload();
+    browser.wait("the menu in Xish", r#"menuEntry("Xcounter") !== undefined"#);
+    assert_eq!(
+        spoken(&mut browser),
+        json!({
+            "lang": "xx",
+            "menu": [
+                "Xcounter", "Vouchers", "Voucher types", "Network",
+                "Controller", "Site", "People",
+            ],
+            "chosen": "xx",
+        })
+    );
+
+    // The page of the site shows what is kept, and sets it. Told to
+    // follow a browser again, this browser is spoken to in its own
+    // language, English, at once; the site's is German from now on.
+    go_to(&mut browser, "Site");
+    browser.wait(
+        "the site's language",
+        r#"widget("usher.site").querySelector('[name="language"]') !== null"#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"
+            const site = widget("usher.site");
+            const list = site.querySelector('[name="language"]');
+            return {
+              offered: [...list.options].map((option) => [option.value, option.textContent]),
+              chosen: list.value,
+              follows: site.querySelector('[name="follows_browser"]').checked,
+              save: site.querySelector('button[type="submit"]').textContent,
+              called: site.querySelector(`label[for="${list.id}"]`).textContent,
+            };
+            "#
+        ),
+        json!({
+            "offered": [["en", "English"], ["de", "Deutsch"], ["xx", "Xish"]],
+            "chosen": "xx", "follows": false,
+            // One of the two texts the language has.
+            "save": "Xsave", "called": "Language",
+        })
+    );
+    browser.act(
+        r#"
+        const site = widget("usher.site");
+        const list = site.querySelector('[name="language"]');
+        list.value = "de";
+        list.dispatchEvent(new Event("change", { bubbles: true }));
+        site.querySelector('[name="follows_browser"]').click();
+        site.querySelector("form").requestSubmit();
+        "#,
+    );
+    browser.wait(
+        "the page in English",
+        r#"document.documentElement.lang === "en" && menuEntry("Counter") !== undefined"#,
+    );
+    let kept = steward.ask("site.settings", "get", json!({}));
+    assert_eq!(
+        (&kept["language"], &kept["follows_browser"]),
+        (&json!("de"), &json!(true)),
+        "{kept}"
+    );
+    let (_, state) = steward.usher("GET", "state", None, &Caller::beyond());
+    assert_eq!(state["site"]["language"], "de", "{state}");
+    // For the eye: the page of the site, with its language and whether
+    // a browser's own goes before it.
+    if let Some(to) = picture_of(Some("language-site")) {
+        go_to(&mut browser, "Site");
+        browser.wait(
+            "the site's language, as it is kept",
+            r#"widget("usher.site").querySelector('[name="language"]')?.value === "de""#,
+        );
+        browser.act("document.activeElement?.blur();");
+        browser.picture(&to);
+    }
+
+    // A browser whose own language is German, of Austria: it is spoken
+    // to in German, also before anyone has signed in on it.
+    browser.speaks("de-AT,de,en");
+    browser.reload();
+    browser.wait(
+        "the menu in German",
+        r#"menuEntry("Empfang") !== undefined"#,
+    );
+    assert_eq!(spoken(&mut browser)["lang"], "de");
+    browser.act(r#"document.getElementById("sign-out").click();"#);
+    browser.wait("the form to sign in", &format!(r#"{title} === "Anmelden""#));
+
+    // A browser that speaks a language the face does not, and English
+    // after it: English, though the site's language is German.
+    browser.speaks("sv-SE,sv,en");
+    browser.reload();
+    browser.wait("the form in English", &format!(r#"{title} === "Sign in""#));
+    // And one that speaks nothing the face does: the site's.
+    browser.speaks("sv-SE,sv");
+    browser.reload();
+    browser.wait("the form in German", &format!(r#"{title} === "Anmelden""#));
+
+    // The site is told to speak its own language to every browser: the
+    // German browser is spoken to in the site's, English.
+    steward.ask(
+        "site.settings",
+        "set",
+        json!({ "name": "", "language": "en", "follows_browser": false }),
+    );
+    browser.speaks("de-AT,de,en");
+    browser.reload();
+    browser.wait(
+        "the form in the site's language",
+        &format!(
+            r#"{title} === "Sign in" && document.documentElement.lang === "en""#
+        ),
+    );
+    // What a person picks on a browser still goes before it.
+    browser.act(&pick("entry-language", "de"));
+    browser.wait("the form in German", &format!(r#"{title} === "Anmelden""#));
     assert_eq!(steward.stop(), Some(0));
 }
 
@@ -3393,6 +3817,29 @@ impl Stand {
                                 "text/plain",
                                 b"not now".to_vec(),
                             ),
+                        }
+                    }
+                    // The words the door says, and the files they
+                    // are read from, as the steward serves them.
+                    file if file.starts_with(&format!("/{SHELL}/"))
+                        && !file.ends_with('/')
+                        && !file.contains("..") =>
+                    {
+                        match std::fs::read(
+                            ui_root().join(file.trim_start_matches('/')),
+                        ) {
+                            Ok(body) => (
+                                "200 OK",
+                                if file.ends_with(".json") {
+                                    "application/json"
+                                } else {
+                                    "text/javascript"
+                                },
+                                body,
+                            ),
+                            Err(_) => {
+                                ("404 Not Found", "text/plain", Vec::new())
+                            }
                         }
                     }
                     shell if shell.ends_with('/') => (

@@ -34,6 +34,8 @@ fn the_steward_serves_the_door_the_shell_and_the_widget_pack() {
         format!("/{SHELL}/brand.js"),
         format!("/{SHELL}/people.js"),
         format!("/{SHELL}/theme.js"),
+        format!("/{SHELL}/site.js"),
+        format!("/{SHELL}/words.js"),
         format!("/{WIDGETS}/index.js"),
         format!("/{WIDGETS}/controller.js"),
         format!("/{WIDGETS}/counter.js"),
@@ -44,6 +46,8 @@ fn the_steward_serves_the_door_the_shell_and_the_widget_pack() {
         format!("/{WIDGETS}/dom.js"),
         format!("/{WIDGETS}/events.js"),
         format!("/{WIDGETS}/shelves.js"),
+        format!("/{WIDGETS}/site.js"),
+        format!("/{WIDGETS}/words.js"),
     ] {
         let (status, kind, _) = steward.file(&module);
         assert_eq!(status, 200, "{module}");
@@ -52,6 +56,32 @@ fn the_steward_serves_the_door_the_shell_and_the_widget_pack() {
             "a browser runs a module only as a script: {module} is {kind}"
         );
     }
+    // The words the face says: the list of the languages it speaks, and
+    // a file of texts for each, served to anyone, as the page is that
+    // says them before a person has signed in.
+    let (status, kind, listed) =
+        steward.file(&format!("/{SHELL}/lang/languages.json"));
+    assert_eq!(status, 200);
+    assert!(kind.contains("json"), "{kind}");
+    let listed: Value = serde_json::from_str(&listed).unwrap();
+    let tags: Vec<&str> = listed
+        .as_array()
+        .expect("a list of languages")
+        .iter()
+        .map(|language| language["tag"].as_str().unwrap())
+        .collect();
+    assert_eq!(tags.first(), Some(&"en"), "English stands first: {tags:?}");
+    for tag in tags {
+        let (status, kind, texts) =
+            steward.file(&format!("/{SHELL}/lang/{tag}.json"));
+        assert_eq!(status, 200, "{tag}");
+        assert!(kind.contains("json"), "{tag}: {kind}");
+        let texts: Value = serde_json::from_str(&texts).unwrap();
+        assert!(texts["common.save"].is_string(), "{tag}");
+    }
+    let (status, _, _) = steward.file(&format!("/{SHELL}/lang/xx.json"));
+    assert_eq!(status, 404, "a language the face does not speak");
+
     let (status, _, packs) = steward.file(&format!("/{SHELL}/packs.json"));
     assert_eq!(status, 200);
     assert_eq!(

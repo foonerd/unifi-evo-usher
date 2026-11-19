@@ -211,6 +211,14 @@ body {
   padding: 0 0.875rem;
 }
 
+/* The language spoken, and the others to choose from: as small as the
+   way out beside it, so that the bar stays one row where it was one. */
+.bar select.language {
+  min-height: 2.75rem;
+  padding: 0 0.5rem;
+  font-size: 0.875rem;
+}
+
 /* A narrow screen: the name and the button, the line to the steward and
    who is signed in under them, and under that the menu while it is open,
    an entry to a row. */
@@ -412,6 +420,30 @@ select:hover {
 input[type="checkbox"],
 input[type="radio"] {
   accent-color: var(--primary);
+}
+
+/* The languages to choose from: no wider than their names, in the bar
+   and under the form a person comes in by. */
+select.language {
+  width: auto;
+  max-width: 100%;
+}
+
+.entry-language {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  margin: 1rem 0 0;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--evo-hairline);
+  color: var(--evo-text-muted);
+}
+
+/* Nothing is said before the words are read: nothing in one language
+   gives way to the same thing in another. */
+html:not([data-spoken]) body {
+  visibility: hidden;
 }
 
 /* A code is read back before it is sent: each character told from the next. */

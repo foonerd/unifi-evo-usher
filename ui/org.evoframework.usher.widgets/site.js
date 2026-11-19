@@ -1,13 +1,15 @@
 // The site: what the place the unit serves is called, what time it
-// keeps, and its logo, set from a screen.
+// keeps, what language it speaks, and its logo, set from a screen.
 //
-// The name and the time zone are saved together. A logo is chosen as a
-// file, looked at as it will stand on a dark page and on a light one,
-// and saved; one that is kept can be removed. What a logo may be is said
-// before a file is chosen, and a file that is not that is refused here,
-// before it is sent, in the words the shelf refuses it in.
+// The name, the time zone and the language are saved together. A logo
+// is chosen as a file, looked at as it will stand on a dark page and on
+// a light one, and saved; one that is kept can be removed. What a logo
+// may be is said before a file is chosen, and a file that is not that
+// is refused here, before it is sent, in the words the shelf's refusal
+// of it is said in.
 
 import { el, id, placeOf, words } from "./dom.js";
+import { languages, say } from "./words.js";
 
 /** What a logo and a name may be, where the shelf does not say. */
 const LIMITS = { name_characters: 64, logo_bytes: 262144, logo_width: 1024, logo_height: 512 };
@@ -68,10 +70,13 @@ export function kib(bytes) {
  */
 export function amissFile(file, limits) {
   if (file.length > limits.logo_bytes) {
-    return `This file is ${kib(file.length)} KiB. A logo is ${kib(limits.logo_bytes)} KiB at most.`;
+    return say("refusal.logo_file_too_long", {
+      kib: kib(file.length),
+      most: kib(limits.logo_bytes),
+    });
   }
   if (file.length < PNG.length || PNG.some((byte, at) => file[at] !== byte)) {
-    return "This file is not a PNG picture. A logo is a PNG file.";
+    return say("refusal.logo_not_png");
   }
   return null;
 }
@@ -87,7 +92,12 @@ export function amissFile(file, limits) {
  */
 export function amissPicture(width, height, limits) {
   if (width > limits.logo_width || height > limits.logo_height) {
-    return `This picture is ${width} by ${height} pixels. A logo is ${limits.logo_width} by ${limits.logo_height} pixels at most.`;
+    return say("refusal.logo_picture_too_large", {
+      width,
+      height,
+      most_width: limits.logo_width,
+      most_height: limits.logo_height,
+    });
   }
   return null;
 }
@@ -114,7 +124,7 @@ function measured(address) {
       done({ width: picture.naturalWidth, height: picture.naturalHeight }),
     );
     picture.addEventListener("error", () =>
-      failed(new Error("This PNG file is cut short or damaged, and cannot be a logo.")),
+      failed(new Error(say("refusal.logo_damaged"))),
     );
     picture.src = address;
   });
@@ -141,7 +151,7 @@ export function site(element, context) {
   let chosen = null;
 
   /** @param {HTMLElement} line @param {string} text @param {boolean} [trouble] */
-  const say = (line, text, trouble = false) => {
+  const tell = (line, text, trouble = false) => {
     if (gone) return;
     line.textContent = text;
     line.classList.toggle("usher-trouble", trouble);
@@ -163,18 +173,13 @@ export function site(element, context) {
       "div",
       { class: "usher-looks" },
       ...[
-        ["dark", "On a dark page"],
-        ["light", "On a light page"],
-      ].map(([tone, says]) =>
+        ["dark", say("site.on_dark"), say("site.logo_on_dark")],
+        ["light", say("site.on_light"), say("site.logo_on_light")],
+      ].map(([tone, says, pictured]) =>
         el(
           "figure",
           { class: `usher-look usher-look-${tone}` },
-          el(
-            "div",
-            {},
-            el("img", { src: address, alt: `The logo ${says.toLowerCase()}` }),
-            el("span", {}, called),
-          ),
+          el("div", {}, el("img", { src: address, alt: pictured }), el("span", {}, called)),
           el("figcaption", { class: "usher-hint" }, says),
         ),
       ),
@@ -185,10 +190,13 @@ export function site(element, context) {
     const allowed = limits();
     const called = String(kept?.name ?? "");
     const zone = typeof kept?.time_zone === "string" ? kept.time_zone : "";
+    const speaks = typeof kept?.language === "string" ? kept.language : "en";
 
-    // The name and the time zone.
+    // The name, the time zone and the language.
     const nameId = id("site-name");
     const zoneId = id("site-zone");
+    const languageId = id("site-language");
+    const followsId = id("site-follows");
     const nameField = /** @type {HTMLInputElement} */ (
       el("input", {
         id: nameId,
@@ -204,13 +212,36 @@ export function site(element, context) {
       el(
         "select",
         { id: zoneId, name: "time_zone" },
-        el("option", { value: "" }, "Each browser's own"),
+        el("option", { value: "" }, say("site.zone_browser")),
         ...zones(zone === "" ? null : zone).map((name) => el("option", { value: name }, name)),
       )
     );
     zoneField.value = zone;
+    // The languages the face speaks, each under its own name; and the
+    // one that is kept, whether the face speaks it or not, so that
+    // saving a name does not change the language.
+    const spoken = languages();
+    const languageField = /** @type {HTMLSelectElement} */ (
+      el(
+        "select",
+        { id: languageId, name: "language" },
+        ...spoken.map((one) => el("option", { value: one.tag, lang: one.tag }, one.name)),
+        ...(spoken.some((one) => one.tag === speaks) ? [] : [el("option", { value: speaks }, speaks)]),
+      )
+    );
+    languageField.value = speaks;
+    const followsField = /** @type {HTMLInputElement} */ (
+      el("input", {
+        id: followsId,
+        name: "follows_browser",
+        type: "checkbox",
+        checked: kept?.follows_browser !== false,
+      })
+    );
     const settingsSaid = el("p", { class: "usher-said", role: "status" });
-    const save = /** @type {HTMLButtonElement} */ (el("button", { type: "submit" }, "Save"));
+    const save = /** @type {HTMLButtonElement} */ (
+      el("button", { type: "submit" }, say("common.save"))
+    );
     let own = "";
     try {
       own = new Intl.DateTimeFormat().resolvedOptions().timeZone ?? "";
@@ -224,27 +255,48 @@ export function site(element, context) {
         novalidate: true,
         // What was said of what was typed is said no longer once it is
         // typed or chosen anew.
-        oninput: () => say(settingsSaid, ""),
+        oninput: () => tell(settingsSaid, ""),
         onsubmit: async (event) => {
           event.preventDefault();
           save.disabled = true;
-          say(settingsSaid, "Saving.");
+          tell(settingsSaid, say("site.saving"));
           try {
             const said = await ask("set", {
               name: nameField.value,
               time_zone: zoneField.value === "" ? null : zoneField.value,
+              language: languageField.value,
+              follows_browser: followsField.checked,
             });
-            kept = { ...kept, name: said?.name ?? "", time_zone: said?.time_zone ?? null, set_here: true };
-            // The bar, the forms and every time on the screens follow.
+            kept = {
+              ...kept,
+              name: said?.name ?? "",
+              time_zone: said?.time_zone ?? null,
+              language: said?.language ?? languageField.value,
+              follows_browser: said?.follows_browser !== false,
+              set_here: true,
+              language_set_here: true,
+            };
+            // The bar, the forms and every time on the screens follow;
+            // where the language this browser is spoken to in is another
+            // now, the page is opened anew in it.
             await place.look();
             // Drawn anew, as it is kept; whoever saved stays where they
             // were.
             draw();
             const drawn = /** @type {HTMLElement} */ (body.querySelector(".usher-site-settings"));
-            say(/** @type {HTMLElement} */ (drawn.querySelector(".usher-said")), "Saved.");
+            tell(/** @type {HTMLElement} */ (drawn.querySelector(".usher-said")), say("site.saved"));
             /** @type {HTMLElement} */ (drawn.querySelector('button[type="submit"]')).focus();
           } catch (why) {
-            say(settingsSaid, words(why), true);
+            // What a name may be was told with the site, and how long
+            // the one typed is can be counted: a refusal may say both.
+            tell(
+              settingsSaid,
+              words(why, {
+                most: allowed.name_characters,
+                has: [...nameField.value.trim()].length,
+              }),
+              true,
+            );
             save.disabled = false;
           }
         },
@@ -255,34 +307,43 @@ export function site(element, context) {
         el(
           "div",
           { class: "usher-field" },
-          el("label", { for: nameId }, "Name"),
+          el("label", { for: nameId }, say("site.name")),
           nameField,
           el(
             "p",
             { class: "usher-hint" },
-            `What this place is called, ${allowed.name_characters} characters at most. It stands in the bar, on the form people sign in by, and above a voucher shown to a guest. Left empty, the usher goes by its own name.`,
+            say("site.name_hint", { most: allowed.name_characters }),
           ),
         ),
         el(
           "div",
           { class: "usher-field" },
-          el("label", { for: zoneId }, "Time zone"),
+          el("label", { for: zoneId }, say("site.time_zone")),
           zoneField,
           el(
             "p",
             { class: "usher-hint" },
-            own === ""
-              ? "Every time on these screens is shown in it. With each browser's own, a screen shows a time as its browser keeps it."
-              : `Every time on these screens is shown in it. With each browser's own, a screen shows a time as its browser keeps it; this browser keeps ${own}.`,
+            own === "" ? say("site.zone_hint") : say("site.zone_hint_here", { zone: own }),
+          ),
+        ),
+        el(
+          "div",
+          { class: "usher-field" },
+          el("label", { for: languageId }, say("site.language")),
+          languageField,
+          el("p", { class: "usher-hint" }, say("site.language_hint")),
+          el(
+            "label",
+            { class: "usher-check", for: followsId },
+            followsField,
+            " ",
+            say("site.follows_browser"),
           ),
         ),
       ),
-      kept?.set_here === false && (called !== "" || zone !== "")
-        ? el(
-            "p",
-            { class: "usher-hint usher-site-given" },
-            "These were given to the unit where it was started. What is saved here takes their place, and stays through a restart.",
-          )
+      kept?.set_here === false &&
+      (called !== "" || zone !== "" || (kept?.language_set_here === false && speaks !== "en"))
+        ? el("p", { class: "usher-hint usher-site-given" }, say("site.given"))
         : null,
       settingsSaid,
       el("div", { class: "row" }, save),
@@ -305,7 +366,11 @@ export function site(element, context) {
           el(
             "p",
             { class: "usher-hint" },
-            `The file chosen: ${chosen.width} by ${chosen.height} pixels, ${kib(chosen.bytes)} KiB. It is not saved yet.`,
+            say("site.logo_chosen", {
+              width: chosen.width,
+              height: chosen.height,
+              kib: kib(chosen.bytes),
+            }),
           ),
         );
       } else if (has !== null) {
@@ -314,13 +379,11 @@ export function site(element, context) {
           el(
             "p",
             { class: "usher-hint" },
-            `The logo that is set: ${has.width} by ${has.height} pixels, ${kib(has.bytes)} KiB.`,
+            say("site.logo_set", { width: has.width, height: has.height, kib: kib(has.bytes) }),
           ),
         );
       } else {
-        shown.replaceChildren(
-          el("p", {}, "No logo is set. The usher wears its own mark."),
-        );
+        shown.replaceChildren(el("p", {}, say("site.logo_none")));
       }
 
       const saveLogo = /** @type {HTMLButtonElement} */ (
@@ -331,7 +394,7 @@ export function site(element, context) {
             onclick: async () => {
               if (chosen === null) return;
               saveLogo.disabled = true;
-              say(logoSaid, "Saving the logo.");
+              tell(logoSaid, say("site.saving_logo"));
               try {
                 const said = await ask("put_logo", { png_b64: chosen.base64 });
                 kept = {
@@ -342,14 +405,14 @@ export function site(element, context) {
                 fileField.value = "";
                 await place.look();
                 showLogo();
-                say(logoSaid, "The logo is saved.");
+                tell(logoSaid, say("site.logo_saved"));
               } catch (why) {
-                say(logoSaid, words(why), true);
+                tell(logoSaid, words(why), true);
                 saveLogo.disabled = false;
               }
             },
           },
-          "Save the logo",
+          say("site.save_logo"),
         )
       );
       saveLogo.disabled = chosen === null;
@@ -370,31 +433,31 @@ export function site(element, context) {
                     class: "quiet danger",
                     onclick: async () => {
                       sure.disabled = true;
-                      say(logoSaid, "Removing the logo.");
+                      tell(logoSaid, say("site.removing_logo"));
                       try {
                         await ask("remove_logo");
                         kept = { ...kept, logo: null };
                         await place.look();
                         showLogo();
-                        say(logoSaid, "The logo is removed. The usher wears its own mark.");
+                        tell(logoSaid, say("site.logo_removed"));
                       } catch (why) {
-                        say(logoSaid, words(why), true);
+                        tell(logoSaid, words(why), true);
                         showLogo();
                       }
                     },
                   },
-                  "Yes, remove it",
+                  say("site.remove_yes"),
                 )
               );
               options.replaceChildren(
-                el("span", {}, "Remove the logo?"),
+                el("span", {}, say("site.remove_sure")),
                 sure,
-                el("button", { type: "button", class: "quiet", onclick: showLogo }, "No"),
+                el("button", { type: "button", class: "quiet", onclick: showLogo }, say("common.no")),
               );
               sure.focus();
             },
           },
-          "Remove the logo",
+          say("site.remove_logo"),
         )
       );
       remove.disabled = has === null;
@@ -404,7 +467,7 @@ export function site(element, context) {
     fileField.addEventListener("change", async () => {
       const file = fileField.files?.[0];
       chosen = null;
-      say(logoSaid, "");
+      tell(logoSaid, "");
       if (file === undefined) {
         showLogo();
         return;
@@ -413,7 +476,10 @@ export function site(element, context) {
         // A file far too long is not read to say so.
         if (file.size > allowed.logo_bytes) {
           throw new Error(
-            `This file is ${kib(file.size)} KiB. A logo is ${kib(allowed.logo_bytes)} KiB at most.`,
+            say("refusal.logo_file_too_long", {
+              kib: kib(file.size),
+              most: kib(allowed.logo_bytes),
+            }),
           );
         }
         const bytes = new Uint8Array(await file.arrayBuffer());
@@ -429,7 +495,7 @@ export function site(element, context) {
       } catch (why) {
         fileField.value = "";
         showLogo();
-        say(logoSaid, words(why), true);
+        tell(logoSaid, words(why), true);
       }
     });
 
@@ -439,14 +505,18 @@ export function site(element, context) {
       el(
         "div",
         { class: "usher-form usher-site-logo" },
-        el("h4", {}, "Logo"),
+        el("h4", {}, say("site.logo")),
         el(
           "p",
           { class: "usher-hint" },
-          `A PNG file, ${kib(allowed.logo_bytes)} KiB at most, its picture ${allowed.logo_width} by ${allowed.logo_height} pixels at most. It stands where the usher's mark does, as high as a line of the bar, so a wide logo with little room around it reads best. One with a clear ground stands on dark pages and on light.`,
+          say("site.logo_hint", {
+            kib: kib(allowed.logo_bytes),
+            width: allowed.logo_width,
+            height: allowed.logo_height,
+          }),
         ),
         shown,
-        el("label", { for: fileId }, "Choose a PNG file"),
+        el("label", { for: fileId }, say("site.choose_file")),
         fileField,
         logoSaid,
         options,
@@ -455,7 +525,7 @@ export function site(element, context) {
   };
 
   const load = async () => {
-    body.replaceChildren(el("p", {}, "Loading..."));
+    body.replaceChildren(el("p", {}, say("common.loading")));
     try {
       kept = await ask("get");
       chosen = null;
@@ -468,7 +538,7 @@ export function site(element, context) {
         el(
           "div",
           { class: "row" },
-          el("button", { type: "button", onclick: () => load() }, "Ask again"),
+          el("button", { type: "button", onclick: () => load() }, say("common.ask_again")),
         ),
       );
     }
@@ -476,7 +546,7 @@ export function site(element, context) {
 
   element.setAttribute("role", "region");
   element.setAttribute("aria-labelledby", title);
-  element.replaceChildren(el("h3", { id: title }, "Name, time zone and logo"), body);
+  element.replaceChildren(el("h3", { id: title }, say("site.title")), body);
   load();
 
   return () => {

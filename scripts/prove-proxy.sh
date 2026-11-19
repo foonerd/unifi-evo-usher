@@ -15,6 +15,8 @@
 # Alone: the unit is started by itself, as the image's account, with no
 # capability, no way to gain a privilege and a root file system it cannot
 # write to, and is asked on its own port, believed by its own authority.
+# It holds two thousand connections at once, as a large venue's screens
+# would, and goes on answering.
 #
 # In every case the container must come to say that it is healthy: Docker
 # asks the usher's own program whether the unit is up, as the Compose
@@ -54,11 +56,13 @@ NAME=usher.example.org
 PERSON="Anna"
 PASSWORD="three small owls sing"
 
-# What a unit's site is called and the time zone it keeps where the unit
-# is started, and what its administrator then sets. Made up.
-export USHER_SITE_NAME="Parish Hall" USHER_TIME_ZONE="Europe/Warsaw"
+# What a unit's site is called, the time zone it keeps and the language
+# it speaks where the unit is started, and what its administrator then
+# sets. Made up.
+export USHER_SITE_NAME="Parish Hall" USHER_TIME_ZONE="Europe/Warsaw" USHER_LANGUAGE="de"
 SET_NAME="Hall of St Mary"
 SET_ZONE="Europe/London"
+SET_LANGUAGE="en"
 
 proxies=${*:-alone extended nginx apache caddy traefik}
 # The Compose files of a case, the first the one the unit is in.
@@ -233,6 +237,59 @@ sys.exit("no happening of the type came in time")
 PY
 }
 
+# As many connections as are asked for, held at once as screens hold
+# them: each is joined under the name and the authority given and kept
+# open. With all of them held, the unit is asked on the first, on the
+# last and on one more, and each has to be answered.
+#
+#   holds <name> <port> <authority> <count>
+holds() {
+  python3 - "$@" << 'PY'
+import resource, socket, ssl, sys
+
+name, port, authority, count = sys.argv[1], int(sys.argv[2]), sys.argv[3], int(sys.argv[4])
+# Whoever holds the connections has as many files open as the unit.
+goes_by, at_most = resource.getrlimit(resource.RLIMIT_NOFILE)
+needed = count + 64
+if goes_by < needed:
+    if at_most != resource.RLIM_INFINITY and at_most < needed:
+        sys.exit(f"this machine lets the proof have {at_most} files open, and it needs {needed}")
+    resource.setrlimit(resource.RLIMIT_NOFILE, (needed, at_most))
+context = ssl.create_default_context(cafile=authority)
+# The chain and the name are held. A unit's own certificate names no
+# authority key, which a strict reading refuses.
+context.verify_flags &= ~getattr(ssl, "VERIFY_X509_STRICT", 0)
+
+
+def joined():
+    return context.wrap_socket(socket.create_connection(("127.0.0.1", port), timeout=30), server_hostname=name)
+
+
+def answered(line):
+    line.sendall(f"GET /usher/v1/state HTTP/1.1\r\nHost: {name}:{port}\r\n\r\n".encode())
+    head = b""
+    while b"\r\n" not in head:
+        more = line.recv(4096)
+        if not more:
+            return "the connection was closed"
+        head += more
+    return head.split(b"\r\n", 1)[0].decode()
+
+
+held = []
+for at in range(count):
+    try:
+        held.append(joined())
+    except OSError as why:
+        sys.exit(f"connection {at + 1} of {count} was not taken: {why}")
+for which, line in (("first", held[0]), ("last", held[-1]), ("one more", joined())):
+    said = answered(line)
+    if said.split()[1:2] != ["200"]:
+        sys.exit(f"with {count} held, the {which} connection is answered: {said}")
+print(len(held))
+PY
+}
+
 prove() {
   proxy=$1
   project="usher-proof-$proxy"
@@ -311,6 +368,11 @@ prove() {
     fi
     grep -q 'the HTTPS listener takes no connection on 127.0.0.1:1' "$dir/healthy" || fail "the program does not say what of the unit is not up: $(cat "$dir/healthy")"
     echo "  ok    asked of a listener that is not there, the program says the unit is not up, and why"
+    # Every screen joined to a unit holds a connection, and a connection
+    # is an open file. Two thousand are held at once, twice what a
+    # process is commonly started with, and the unit goes on answering.
+    holds localhost "$port" "$dir/unit-ca.crt" 2000 > "$dir/held" 2> "$dir/held.err" || fail "the unit does not hold two thousand connections: $(tail -n 1 "$dir/held.err")"
+    echo "  ok    $(cat "$dir/held") connections held at once, and the unit answers on the first, on the last and on one more"
   fi
   if [ "$behind" = no ]; then
     said=$(docker inspect "$unit" --format '{{.Config.User}} {{.HostConfig.ReadonlyRootfs}} {{.HostConfig.CapDrop}} {{.HostConfig.SecurityOpt}}')
@@ -340,6 +402,16 @@ prove() {
       queue="${queue:+$queue }$named"
     done
   done
+  # The words the face says come with it: the list of the languages it
+  # speaks, and the texts of each.
+  [ "$(ask /org.evoframework.usher.shell/lang/languages.json)" = 200 ] || fail "the list of the face's languages does not come"
+  local spoken
+  spoken=$(jq -r 'map(.tag) | join(" ")' "$dir/answer")
+  [ "${spoken%% *}" = en ] || fail "the face's languages are $spoken, and English is not the first"
+  for language in $spoken; do
+    [ "$(ask "/org.evoframework.usher.shell/lang/$language.json")" = 200 ] || fail "the texts of $language do not come"
+    jq -e '."common.save" | type == "string"' "$dir/answer" > /dev/null || fail "what came for $language is no file of texts"
+  done
   if [ "$behind" = no ]; then
     echo "  ok    the unit runs as its own account, with no capability, no privilege to gain and a root it cannot write to"
     echo "  ok    the face comes, under the certificate of the unit's own authority"
@@ -365,9 +437,10 @@ prove() {
   [ "$status" = 200 ] || fail "the unit does not say what state it is in: $status $(cat "$dir/answer")"
   jq -e --arg level "$level" --argjson least "$least" '.set_up == false and .level == $level and .least_password == $least' "$dir/answer" > /dev/null \
     || fail "a new unit says of itself: $(cat "$dir/answer")"
-  # And what its site is called, as it was started with: the form it is
-  # set up by wears the name. Nothing else of the site is said.
-  jq -e --arg name "$USHER_SITE_NAME" '.site == {name: $name, logo: null}' "$dir/answer" > /dev/null \
+  # And what its site is called and what language it speaks, as it was
+  # started with: the form it is set up by wears the name, in that
+  # language. Nothing else of the site is said.
+  jq -e --arg name "$USHER_SITE_NAME" --arg language "$USHER_LANGUAGE" '.site == {name: $name, logo: null, language: $language, follows_browser: true}' "$dir/answer" > /dev/null \
     || fail "a new unit that was started with a name says of its site: $(cat "$dir/answer")"
   # Whoever opens it first sets it up, with a name and a password; at
   # the extended level with the unit's code as well.
@@ -398,28 +471,34 @@ prove() {
     echo "  ok    who has not signed in is refused; whoever opens the unit first sets it up, and is answered"
   fi
 
-  # The site: the unit goes by the name and the time zone it was started
-  # with until its administrator sets others, and anyone is told the
-  # name.
+  # The site: the unit goes by the name, the time zone and the language
+  # it was started with until its administrator sets others, and anyone
+  # is told the name and the language.
   status=$(post /api/v1/request "$(request site.settings get '{}')" -H "Authorization: Bearer $bearer")
   [ "$status" = 200 ] || fail "the site is not told to who has signed in: $status $(cat "$dir/answer")"
   jq -r '.payload_b64' "$dir/answer" | base64 -d \
-    | jq -e --arg name "$USHER_SITE_NAME" --arg zone "$USHER_TIME_ZONE" '.name == $name and .time_zone == $zone and .set_here == false and .logo == null' > /dev/null \
-    || fail "the unit does not go by the name and the time zone it was started with: $(jq -r '.payload_b64' "$dir/answer" | base64 -d)"
-  said=$(jq -cn --arg name "$SET_NAME" --arg zone "$SET_ZONE" '{name: $name, time_zone: $zone}')
+    | jq -e --arg name "$USHER_SITE_NAME" --arg zone "$USHER_TIME_ZONE" --arg language "$USHER_LANGUAGE" '.name == $name and .time_zone == $zone and .set_here == false and .logo == null and .language == $language and .follows_browser == true and .language_set_here == false' > /dev/null \
+    || fail "the unit does not go by the name, the time zone and the language it was started with: $(jq -r '.payload_b64' "$dir/answer" | base64 -d)"
+  # A language that is none is refused, under a code a screen finds its
+  # own words by, and changes nothing.
+  status=$(post /api/v1/request "$(request site.settings set '{"name": "Elsewhere", "language": "German"}')" -H "Authorization: Bearer $bearer")
+  [ "$status" != 200 ] || fail "a language that is none is taken: $(cat "$dir/answer")"
+  jq -e '.error.details.subclass == "language_not_one"' "$dir/answer" > /dev/null || fail "a language that is none is refused as: $(cat "$dir/answer")"
+  said=$(jq -cn --arg name "$SET_NAME" --arg zone "$SET_ZONE" --arg language "$SET_LANGUAGE" '{name: $name, time_zone: $zone, language: $language, follows_browser: false}')
   status=$(post /api/v1/request "$(request site.settings set "$said")")
   [ "$status" = 401 ] || fail "a caller who has not signed in sets the site: $status $(cat "$dir/answer")"
   status=$(post /api/v1/request "$(request site.settings set "$said")" -H "Authorization: Bearer $bearer")
-  [ "$status" = 200 ] || fail "the site's name and time zone are not set: $status $(cat "$dir/answer")"
+  [ "$status" = 200 ] || fail "the site's name, time zone and language are not set: $status $(cat "$dir/answer")"
   status=$(ask /usher/v1/state)
-  jq -e --arg name "$SET_NAME" '.site == {name: $name, logo: null}' "$dir/answer" > /dev/null \
+  jq -e --arg name "$SET_NAME" --arg language "$SET_LANGUAGE" '.site == {name: $name, logo: null, language: $language, follows_browser: false}' "$dir/answer" > /dev/null \
     || fail "before anyone has signed in, the unit says of its site: $status $(cat "$dir/answer")"
-  echo "  ok    the unit goes by the name and the time zone it was started with; its administrator sets others, and anyone is told the name"
+  echo "  ok    the unit goes by the name, the time zone and the language it was started with; its administrator sets others, and anyone is told the name and the language"
 
   # The name and the password sign in, a wrong one does not, and a
   # session is refused once it is signed out of.
   status=$(post /usher/v1/sign_in "$(person "$PERSON" "three small owls sang")")
   [ "$status" = 401 ] || fail "a wrong password signs in: $status $(cat "$dir/answer")"
+  jq -e '.error.details.subclass == "wrong_name_or_password"' "$dir/answer" > /dev/null || fail "a wrong password is refused under no code: $(cat "$dir/answer")"
   status=$(post /usher/v1/sign_in "$(person "$PERSON" "$PASSWORD")")
   [ "$status" = 200 ] || fail "the name and the password do not sign in: $status $(cat "$dir/answer")"
   second=$(jq -r '.token' "$dir/answer")
@@ -464,14 +543,14 @@ prove() {
     status=$(ask /usher/v1/state)
     jq -e '.set_up == true' "$dir/answer" > /dev/null || fail "started again, the unit says of itself: $status $(cat "$dir/answer")"
     # What its administrator set of the site stands, though the unit is
-    # started with the first name and time zone as before.
-    jq -e --arg name "$SET_NAME" '.site.name == $name' "$dir/answer" > /dev/null || fail "started again, the unit says of its site: $(cat "$dir/answer")"
+    # started with the first name, time zone and language as before.
+    jq -e --arg name "$SET_NAME" --arg language "$SET_LANGUAGE" '.site.name == $name and .site.language == $language and .site.follows_browser == false' "$dir/answer" > /dev/null || fail "started again, the unit says of its site: $(cat "$dir/answer")"
     status=$(post /api/v1/request "$(request site.settings get '{}')" -H "Authorization: Bearer $bearer")
     [ "$status" = 200 ] || fail "the site is not told after a restart: $status $(cat "$dir/answer")"
     jq -r '.payload_b64' "$dir/answer" | base64 -d \
-      | jq -e --arg name "$SET_NAME" --arg zone "$SET_ZONE" '.name == $name and .time_zone == $zone and .set_here == true' > /dev/null \
+      | jq -e --arg name "$SET_NAME" --arg zone "$SET_ZONE" --arg language "$SET_LANGUAGE" '.name == $name and .time_zone == $zone and .set_here == true and .language == $language and .follows_browser == false and .language_set_here == true' > /dev/null \
       || fail "what was set of the site was not kept through a restart: $(jq -r '.payload_b64' "$dir/answer" | base64 -d)"
-    echo "  ok    started again, the unit has its people, still answers who was signed in, and goes by the name and the time zone that were set"
+    echo "  ok    started again, the unit has its people, still answers who was signed in, and goes by the name, the time zone and the language that were set"
     if [ "$proxy" = alone ]; then
       # A password that is lost: whoever has the unit puts a file of
       # nobody in the place of its people, and the unit is set up anew.

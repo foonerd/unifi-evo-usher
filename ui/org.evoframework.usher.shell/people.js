@@ -7,6 +7,7 @@
 // was typed for what it was.
 
 import { day as dayOf } from "./site.js";
+import { refusal, say } from "./words.js";
 
 /**
  * What a good password is, in a sentence.
@@ -15,7 +16,7 @@ import { day as dayOf } from "./site.js";
  * @returns {string}
  */
 export function advice(least) {
-  return `A good password is a few words in a row that you will remember, ${least} characters or more.`;
+  return say("people.advice", { least });
 }
 
 /**
@@ -28,8 +29,8 @@ export function advice(least) {
  * @returns {string | null}
  */
 export function amiss(password, again) {
-  if (password === "") return "Type a password.";
-  if (password !== again) return "The two passwords are not the same. Type them again.";
+  if (password === "") return say("people.type_password");
+  if (password !== again) return say("people.passwords_differ");
   return null;
 }
 
@@ -58,8 +59,8 @@ function made(tag, set = {}, within = []) {
   return element;
 }
 
-/** @param {unknown} why @returns {string} */
-const wordsOf = (why) => (why instanceof Error ? why.message : String(why));
+/** What went wrong, in the language the face speaks. @param {unknown} why @returns {string} */
+const wordsOf = (why) => refusal(why);
 
 /**
  * @typedef {object} Hands what the shell hands the page
@@ -80,17 +81,15 @@ const wordsOf = (why) => (why instanceof Error ? why.message : String(why));
  */
 export function people(element, hands) {
   const said = made("p", { class: "people-said", role: "status", tabindex: "-1" });
-  const list = made("ul", { class: "people-list", "aria-label": "The people who can sign in" });
-  const add = made("button", { type: "button", id: "add-person" }, ["Add a person"]);
+  const list = made("ul", { class: "people-list", "aria-label": say("people.list") });
+  const add = made("button", { type: "button", id: "add-person" }, [say("people.add")]);
   const mine = made("button", { type: "button", id: "change-my-password", class: "quiet" }, [
-    "Change my password",
+    say("people.change_mine"),
   ]);
   const doing = made("div", { class: "row" }, [add, mine]);
   const desk = made("div", { class: "people-form" });
   const pane = made("div", { class: "stocking people" }, [
-    made("p", { class: "hint" }, [
-      "Everyone here signs in with a name and a password of their own, and can do everything on these pages.",
-    ]),
+    made("p", { class: "hint" }, [say("people.everyone")]),
     said,
     list,
     doing,
@@ -162,7 +161,7 @@ export function people(element, hands) {
    */
   const open = ({ id, title, does, fields, opener, send }) => {
     const alert = made("p", { class: "said", role: "alert" });
-    const cancel = made("button", { type: "button", class: "quiet" }, ["Cancel"]);
+    const cancel = made("button", { type: "button", class: "quiet" }, [say("common.cancel")]);
     const heading = made("h3", { id: `${id}-title` }, [title]);
     const form = made("form", { id, novalidate: "", "aria-labelledby": heading.id }, [
       heading,
@@ -198,7 +197,7 @@ export function people(element, hands) {
   };
 
   add.addEventListener("click", () => {
-    const [nameLabel, name] = fieldOf("add-person-name", "Their name", {
+    const [nameLabel, name] = fieldOf("add-person-name", say("people.their_name"), {
       name: "name",
       type: "text",
       autocomplete: "off",
@@ -206,25 +205,27 @@ export function people(element, hands) {
       spellcheck: "false",
       maxlength: "64",
     });
-    const [passwordLabel, password] = fieldOf("add-person-password", "A password for them", {
-      name: "password",
-      type: "password",
-      autocomplete: "new-password",
-    });
-    const [againLabel, again] = fieldOf("add-person-again", "The same password again", {
+    const [passwordLabel, password] = fieldOf(
+      "add-person-password",
+      say("people.password_for_them"),
+      {
+        name: "password",
+        type: "password",
+        autocomplete: "new-password",
+      },
+    );
+    const [againLabel, again] = fieldOf("add-person-again", say("entry.password_again"), {
       name: "again",
       type: "password",
       autocomplete: "new-password",
     });
     open({
       id: "add-person-form",
-      title: "Add a person",
-      does: "Add",
+      title: say("people.add"),
+      does: say("people.add_do"),
       opener: add,
       fields: [
-        made("p", { class: "hint" }, [
-          "They sign in with this name and password, and can do everything you can. Give them the password yourself; they can change it once they have signed in.",
-        ]),
+        made("p", { class: "hint" }, [say("people.add_hint")]),
         nameLabel,
         name,
         passwordLabel,
@@ -235,7 +236,7 @@ export function people(element, hands) {
       ],
       send: async (alert) => {
         if (name.value.trim() === "") {
-          alert.textContent = "Type their name.";
+          alert.textContent = say("people.type_their_name");
           name.focus();
           return null;
         }
@@ -249,32 +250,40 @@ export function people(element, hands) {
           name: name.value.trim(),
           password: password.value,
         });
-        return `Added ${added.added}. Give them the password; they can sign in now.`;
+        return say("people.added", { name: added.added });
       },
     });
   });
 
   mine.addEventListener("click", () => {
     const name = hands.me()?.name ?? "";
-    const [currentLabel, current] = fieldOf("change-password-current", "The password you have now", {
-      name: "current",
-      type: "password",
-      autocomplete: "current-password",
-    });
-    const [passwordLabel, password] = fieldOf("change-password-new", "New password", {
+    const [currentLabel, current] = fieldOf(
+      "change-password-current",
+      say("people.current_password"),
+      {
+        name: "current",
+        type: "password",
+        autocomplete: "current-password",
+      },
+    );
+    const [passwordLabel, password] = fieldOf("change-password-new", say("people.new_password"), {
       name: "password",
       type: "password",
       autocomplete: "new-password",
     });
-    const [againLabel, again] = fieldOf("change-password-again", "The same new password again", {
-      name: "again",
-      type: "password",
-      autocomplete: "new-password",
-    });
+    const [againLabel, again] = fieldOf(
+      "change-password-again",
+      say("people.new_password_again"),
+      {
+        name: "again",
+        type: "password",
+        autocomplete: "new-password",
+      },
+    );
     open({
       id: "change-password-form",
-      title: "Change my password",
-      does: "Change",
+      title: say("people.change_mine"),
+      does: say("people.change_do"),
       opener: mine,
       fields: [
         whose(name),
@@ -285,13 +294,11 @@ export function people(element, hands) {
         made("p", { class: "hint" }, [advice(least())]),
         againLabel,
         again,
-        made("p", { class: "hint" }, [
-          "Every other browser signed in as you is signed out. This one stays signed in.",
-        ]),
+        made("p", { class: "hint" }, [say("people.change_hint")]),
       ],
       send: async (alert) => {
         if (current.value === "") {
-          alert.textContent = "Type the password you have now.";
+          alert.textContent = say("people.type_current");
           current.focus();
           return null;
         }
@@ -311,7 +318,7 @@ export function people(element, hands) {
           current.select();
           return null;
         }
-        return "Your password is changed. Every other browser signed in as you is signed out.";
+        return say("people.changed");
       },
     });
   });
@@ -321,25 +328,23 @@ export function people(element, hands) {
    * @param {HTMLElement} opener
    */
   const setFor = (name, opener) => {
-    const [passwordLabel, password] = fieldOf("set-password-new", "New password", {
+    const [passwordLabel, password] = fieldOf("set-password-new", say("people.new_password"), {
       name: "password",
       type: "password",
       autocomplete: "new-password",
     });
-    const [againLabel, again] = fieldOf("set-password-again", "The same password again", {
+    const [againLabel, again] = fieldOf("set-password-again", say("entry.password_again"), {
       name: "again",
       type: "password",
       autocomplete: "new-password",
     });
     open({
       id: "set-password-form",
-      title: `Set a new password for ${name}`,
-      does: "Set the password",
+      title: say("people.set_for", { name }),
+      does: say("people.set_do"),
       opener,
       fields: [
-        made("p", { class: "hint" }, [
-          `${name} is signed out everywhere, and signs in with the new password from then on. Give it to them yourself.`,
-        ]),
+        made("p", { class: "hint" }, [say("people.set_hint", { name })]),
         whose(name),
         passwordLabel,
         password,
@@ -355,7 +360,7 @@ export function people(element, hands) {
           return null;
         }
         const set = await hands.usher("set_password", { name, password: password.value });
-        return `${set.set} has a new password, and is signed out everywhere.`;
+        return say("people.set_done", { name: set.set });
       },
     });
   };
@@ -368,12 +373,12 @@ export function people(element, hands) {
    */
   const removeAfterAsking = (name, row) => {
     const before = [...row.childNodes];
-    const sure = made("button", { type: "button", class: "quiet danger" }, [`Remove ${name}`]);
-    const keep = made("button", { type: "button", class: "quiet" }, ["Keep"]);
+    const sure = made("button", { type: "button", class: "quiet danger" }, [
+      say("people.remove_named", { name }),
+    ]);
+    const keep = made("button", { type: "button", class: "quiet" }, [say("people.keep")]);
     row.replaceChildren(
-      made("p", { class: "people-sure" }, [
-        `Remove ${name}? They are signed out at once, and cannot sign in again.`,
-      ]),
+      made("p", { class: "people-sure" }, [say("people.remove_sure", { name })]),
       sure,
       keep,
     );
@@ -386,7 +391,7 @@ export function people(element, hands) {
       sure.disabled = true;
       try {
         const removed = await hands.usher("remove_person", { name });
-        await done(`Removed ${removed.removed}. They are signed out, and cannot sign in.`);
+        await done(say("people.removed", { name: removed.removed }));
       } catch (why) {
         await look();
         said.textContent = wordsOf(why);
@@ -398,23 +403,34 @@ export function people(element, hands) {
   /** @param {{ name: string, role: string, made_ms: number, you: boolean }} person */
   const rowOf = (person) => {
     const since = day(person.made_ms);
-    const role = person.role === "administrator" ? "Administrator" : person.role;
+    const role =
+      person.role === "administrator" ? say("people.role_administrator") : person.role;
     const told = made("div", { class: "person" }, [
       made("span", { class: "person-name" }, [person.name]),
-      ...(person.you ? [made("span", { class: "person-you" }, ["you"])] : []),
-      made("span", { class: "person-role" }, [since === "" ? role : `${role}, since ${since}`]),
+      ...(person.you ? [made("span", { class: "person-you" }, [say("people.you")])] : []),
+      made("span", { class: "person-role" }, [
+        since === "" ? role : say("people.role_since", { role, day: since }),
+      ]),
     ]);
     const row = made("div", { class: "row" });
     if (!person.you) {
       const set = made(
         "button",
-        { type: "button", class: "quiet", "aria-label": `Set a new password for ${person.name}` },
-        ["Set a new password"],
+        {
+          type: "button",
+          class: "quiet",
+          "aria-label": say("people.set_for", { name: person.name }),
+        },
+        [say("people.set_new")],
       );
       const remove = made(
         "button",
-        { type: "button", class: "quiet danger", "aria-label": `Remove ${person.name}` },
-        ["Remove"],
+        {
+          type: "button",
+          class: "quiet danger",
+          "aria-label": say("people.remove_named", { name: person.name }),
+        },
+        [say("people.remove")],
       );
       set.addEventListener("click", () => setFor(person.name, set));
       remove.addEventListener("click", () => removeAfterAsking(person.name, row));
@@ -425,17 +441,25 @@ export function people(element, hands) {
     return item;
   };
 
+  /** How often the page was cleared: what was asked before is not drawn after. */
+  let cleared = 0;
+
   /** Ask who there is, and draw them. */
   async function look() {
     const me = hands.me();
     if (me === null) return;
+    const at = cleared;
     // The unit's keeper is no person, and has no password to change.
     mine.hidden = me.unit || me.name === null;
     try {
       const answered = await hands.usher("people");
+      // Whoever asked has signed out meanwhile: the answer is not theirs
+      // to see any more.
+      if (at !== cleared) return;
       const listed = Array.isArray(answered?.people) ? answered.people : [];
       list.replaceChildren(...listed.map(rowOf));
     } catch (why) {
+      if (at !== cleared) return;
       said.textContent = wordsOf(why);
     }
   }
@@ -443,6 +467,7 @@ export function people(element, hands) {
   return {
     look,
     clear() {
+      cleared += 1;
       shut();
       said.textContent = "";
       list.replaceChildren();

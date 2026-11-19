@@ -14,6 +14,7 @@ samples = []
 
 [dependencies]
 evo-plugin-sdk = { workspace = true }
+evo-usher-why = { path = "../../crates/why" }
 # A logo travels as base64 in a request's payload.
 base64 = "0.22"
 semver = { version = "1", features = ["serde"] }

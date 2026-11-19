@@ -2,6 +2,11 @@
 // the door asks the steward which shell is active and opens that one. A
 // shell goes back through the door when the steward says the active shell
 // has changed, so a change of shell reaches every screen at once.
+//
+// What the door says while it waits, it says in the language the face
+// speaks: the words are read before anything is said.
+
+import { ready, say } from "/org.evoframework.usher.shell/words.js";
 
 /** The shell opened while the steward has none active. */
 export const OWN_SHELL = "org.evoframework.usher.shell";
@@ -31,6 +36,7 @@ export function shellAddress(selection) {
 
 async function open() {
   const line = document.getElementById("door");
+  await ready();
   try {
     const answer = await fetch("/api/v1/describe_active_ui_selection", {
       headers: { Accept: "application/json" },
@@ -41,10 +47,7 @@ async function open() {
     }
     location.replace(shellAddress(await answer.json()));
   } catch (why) {
-    if (line) {
-      line.textContent =
-        "The usher does not answer. Trying again.";
-    }
+    if (line) line.textContent = say("door.silent");
     console.warn("door:", why);
     setTimeout(open, AGAIN_MS);
   }

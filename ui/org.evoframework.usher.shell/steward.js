@@ -10,20 +10,30 @@
  */
 const BEARER = "evoBearer";
 
-/** A refusal by the steward, by the usher, or by a plugin behind them. */
+/**
+ * A refusal by the steward, by the usher, or by a plugin behind them. It
+ * carries the code it was given under, which a screen finds the words of
+ * its own language by, and the words it was given in, which are English.
+ */
 export class Refusal extends Error {
   /**
    * @param {number} status the HTTP status
    * @param {string} kind the steward's class of error
-   * @param {string | null} reason the steward's subclass, where it gave one
-   * @param {string} words what the steward said
+   * @param {string | null} reason the code of the refusal, which the
+   *   steward calls its subclass, where it gave one
+   * @param {string} words what the steward said, in English
+   * @param {Record<string, unknown> | null} [values] the values the
+   *   refusal speaks of, where it carries them
    */
-  constructor(status, kind, reason, words) {
+  constructor(status, kind, reason, words, values = null) {
     super(words);
     this.name = "Refusal";
     this.status = status;
     this.kind = kind;
     this.reason = reason;
+    this.values = values;
+    /** What was asked, where it was a shelf: its payload. @type {Record<string, unknown> | null} */
+    this.asked = null;
   }
 
   /** Whether signing in would let the caller in. */
@@ -103,14 +113,21 @@ function refusalOf(status, said, text) {
   if (error !== null && typeof error === "object") {
     const reason =
       error.details?.subclass ?? error.subclass ?? /** @type {any} */ (said).subclass;
+    const values = error.details?.values;
     return new Refusal(
       status,
       typeof error.class === "string" ? error.class : "error",
       typeof reason === "string" ? reason : null,
       typeof error.message === "string" ? error.message : text,
+      values !== null && typeof values === "object" ? values : null,
     );
   }
-  return new Refusal(status, "error", null, text || `the usher answered ${status}`);
+  // What came is no refusal of the usher's: it is said as it came, or,
+  // where nothing came, by the status alone.
+  if (text) return new Refusal(status, "error", null, text);
+  return new Refusal(status, "error", "no_reason_given", `the usher answered ${status}`, {
+    status,
+  });
 }
 
 /**
@@ -120,14 +137,16 @@ function refusalOf(status, said, text) {
  * @param {string} address
  * @param {"GET" | "DELETE" | "PUT" | "POST"} method
  * @param {Record<string, unknown> | null} carried what goes in the body
- * @param {boolean} withBearer whether the bearer held is presented
+ * @param {boolean | string} withBearer whether the bearer held is
+ *   presented; or the bearer to present, where it is held no longer
  * @returns {Promise<any>}
  * @throws {Refusal}
  */
 async function ask(address, method, carried, withBearer) {
   /** @type {Record<string, string>} */
   const headers = { Accept: "application/json" };
-  const token = withBearer ? bearer() : null;
+  const token =
+    typeof withBearer === "string" ? withBearer : withBearer ? bearer() : null;
   if (token) headers.Authorization = `Bearer ${token}`;
   /** @type {RequestInit} */
   const asked = { method, headers, cache: "no-store" };
@@ -140,7 +159,7 @@ async function ask(address, method, carried, withBearer) {
   try {
     answer = await fetch(address, asked);
   } catch {
-    throw new Refusal(0, "unavailable", "steward_silent", "The usher does not answer.");
+    throw new Refusal(0, "unavailable", "usher_silent", "The usher does not answer.");
   }
   const text = await answer.text();
   let said = null;
@@ -212,13 +231,27 @@ function fromBase64(base64) {
  * @throws {Refusal}
  */
 export async function request(shelf, type, payload = {}) {
-  const said = await op("request", {
-    shelf,
-    request_type: type,
-    payload_b64: toBase64(JSON.stringify(payload)),
-  });
+  let said;
+  try {
+    said = await op("request", {
+      shelf,
+      request_type: type,
+      payload_b64: toBase64(JSON.stringify(payload)),
+    });
+  } catch (why) {
+    // What was asked goes with the refusal: its words may speak of it.
+    if (why instanceof Refusal && payload !== null && typeof payload === "object") {
+      why.asked = /** @type {Record<string, unknown>} */ (payload);
+    }
+    throw why;
+  }
   if (typeof said.payload_b64 !== "string") {
-    throw new Refusal(200, "contract_violation", null, "The usher's answer carries no payload.");
+    throw new Refusal(
+      200,
+      "contract_violation",
+      "answer_unread",
+      "The usher's answer carries no payload.",
+    );
   }
   const text = fromBase64(said.payload_b64);
   return text === "" ? {} : JSON.parse(text);
@@ -242,7 +275,7 @@ export function usher(route, carried = null) {
  * What state the unit is in: whether it is set up yet, and how strict it
  * is. Anyone is told.
  *
- * @returns {Promise<{ set_up: boolean, level: string, least_password: number, keeps: boolean }>}
+ * @returns {Promise<{ set_up: boolean, level: string, least_password: number, keeps: boolean, site?: unknown }>}
  */
 export function state() {
   return ask("/usher/v1/state", "GET", null, false);
@@ -282,20 +315,30 @@ export async function signIn(name, password, keep) {
 /** @param {any} said @param {boolean} kept @returns {{ name: string }} */
 function taken(said, kept) {
   if (typeof said?.token !== "string") {
-    throw new Refusal(200, "contract_violation", null, "The usher's answer carries no session.");
+    throw new Refusal(
+      200,
+      "contract_violation",
+      "answer_unread",
+      "The usher's answer carries no session.",
+    );
   }
   hold(said.token, kept);
   return { name: String(said.name ?? "") };
 }
 
-/** Sign out: the usher ends the session, and the browser forgets it. */
+/**
+ * Sign out: the browser forgets the session at once, so that nothing
+ * more is asked with it, and the usher ends it.
+ */
 export async function signOut() {
+  const token = bearer();
+  hold(null);
+  if (!token) return;
   try {
-    await usher("sign_out", {});
+    await ask("/usher/v1/sign_out", "POST", {}, token);
   } catch {
     // A session the usher no longer knows is as good as ended.
   }
-  hold(null);
 }
 
 /**

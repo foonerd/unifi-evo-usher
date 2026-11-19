@@ -9,9 +9,10 @@ shelf = "settings"
 shape = 1
 
 description = """
-What the place the unit serves is called, how it looks and what time it
-keeps: the site's name, its logo and its time zone. They are kept in one
-place, so that every screen and every ticket shows the same.
+What the place the unit serves is called, how it looks, what time it
+keeps and what language it speaks: the site's name, its logo, its time
+zone and its language. They are kept in one place, so that every screen
+and every ticket shows the same.
 
 The name is one line of text, 64 characters at most; an empty name is no
 name. The logo is a PNG file, 256 KiB at most, its picture 1024 by 512
@@ -23,28 +24,45 @@ none, every screen shows a time in the time zone of its own browser. A
 time zone is held to the form of such a name; whether a zone of that
 name exists is for whoever shows a time to know.
 
-The site as answered is `{ name: string, time_zone: string | null,
-language: string | null, logo: { png_b64: string, width: integer,
-height: integer, bytes: integer } | null, set_here: bool, limits: {
-name_characters: integer, logo_bytes: integer, logo_width: integer,
-logo_height: integer } }`. `png_b64` is the PNG file in base64, with
-padding; `width` and `height` are its picture's, in pixels; `bytes` is
-the file's length. `language` is a language tag; no request of this
-shape sets one, and it is null. `limits` are the ones above, for a
-caller to say before a name is typed or a file is chosen.
+The language is a language tag, such as `en`, `de` or `pt-BR`: the
+language a screen speaks where nothing else says which. It is held to
+the form of such a tag; whether a screen speaks it is for the screen to
+know, and one that does not speaks English. `follows_browser` says
+whether a browser whose own language a screen speaks is spoken to in
+that language, before the site's; it does unless it was set otherwise.
 
-A unit can be given a name and a time zone where it is started, in the
-variables `USHER_SITE_NAME` and `USHER_TIME_ZONE` of its environment.
-They stand for as long as none was set with `set`, and `set_here` is
-false for as long. From the first `set` on, what was set stands and the
-environment is not read: what an administrator set is not undone by a
-restart. A value of the environment that is not as a name or a time
-zone is here is left out, and said in the log.
+The site as answered is `{ name: string, time_zone: string | null,
+language: string, follows_browser: bool, logo: { png_b64: string, width:
+integer, height: integer, bytes: integer } | null, set_here: bool,
+language_set_here: bool, limits: { name_characters: integer, logo_bytes:
+integer, logo_width: integer, logo_height: integer } }`. `png_b64` is
+the PNG file in base64, with padding; `width` and `height` are its
+picture's, in pixels; `bytes` is the file's length. `limits` are the
+ones above, for a caller to say before a name is typed or a file is
+chosen.
+
+A unit can be given a name, a time zone and a language where it is
+started, in the variables `USHER_SITE_NAME`, `USHER_TIME_ZONE` and
+`USHER_LANGUAGE` of its environment. The name and the time zone stand
+for as long as none was set with `set`, and `set_here` is false for as
+long; the language stands for as long as no `set` named one, and
+`language_set_here` is false for as long. From then on, what was set
+stands and the environment is not read: what an administrator set is not
+undone by a restart. With no language given and none set, the language
+is `en`. A value of the environment that is not as a name, a time zone
+or a language is here is left out, and said in the log.
 
 What is kept is kept through a restart: a change is on disk before it is
 answered. A request that is not as its payload is described, or that
-breaks a limit, is refused as permanent, in words for a screen; a change
-that could not be written down, as transient.
+breaks a limit, is refused as it will not succeed as asked; a change
+that could not be written down, as one that may if asked again.
+
+A refusal carries a code as its subclass, beside its words in English,
+and the code stays what it is from release to release: `not_as_asked`,
+`site_name_not_plain`, `site_name_too_long`, `time_zone_not_one`,
+`language_not_one`, `logo_file_too_long`, `logo_not_whole`,
+`logo_not_png`, `logo_damaged`, `logo_picture_too_large`, `not_kept`,
+`unknown_request`.
 """
 
 [[requests]]
@@ -59,9 +77,13 @@ payload_out = "json"
 [[requests]]
 request_type = "set"
 description = """
-Set the name and the time zone. Payload `{ name: string, time_zone:
-string | null }`. The name is kept without the blanks around it. Returns
-`{ name: string, time_zone: string | null }`, as kept.
+Set the name and the time zone, and with them the language and whether
+a browser's own goes before it. Payload `{ name: string, time_zone:
+string | null, language?: string, follows_browser?: bool }`. The name is
+kept without the blanks around it. A language or a `follows_browser`
+that is left out stays as it is. Where any of it is refused, nothing is
+changed. Returns `{ name: string, time_zone: string | null, language:
+string, follows_browser: bool }`, as kept.
 """
 payload_in = "json"
 payload_out = "json"
@@ -112,6 +134,17 @@ Started with a name and a time zone in its environment and nothing kept,
 `get` returns them with `set_here` false. After `set` of another name
 and a restart with the same environment, `get` returns the name that was
 set, with `set_here` true.
+"""
+
+[[acceptance]]
+name = "the-language-is-kept"
+detail = """
+With nothing given and nothing set, `get` returns `language: "en"` and
+`follows_browser: true`. After `set` with `language: "de"` and
+`follows_browser: false` and a restart of the plugin, `get` returns
+them. A `set` that names no language leaves both as they were. `set`
+with a language that is no language tag is refused under
+`language_not_one`, and changes nothing.
 """
 
 [[acceptance]]

@@ -326,6 +326,20 @@ impl Browser {
         self.tell("Emulation.setTimezoneOverride", json!({"timezoneId": zone}));
     }
 
+    /// Have the browser speak these languages, the one it likes best
+    /// first, as the browser of a reader who set them does: `de-AT,de`
+    /// for an Austrian's. What it says of itself stays what it was.
+    pub fn speaks(&mut self, languages: &str) {
+        let itself = self.look("return navigator.userAgent;");
+        self.tell(
+            "Emulation.setUserAgentOverride",
+            json!({
+                "userAgent": itself.as_str().expect("a browser names itself"),
+                "acceptLanguage": languages,
+            }),
+        );
+    }
+
     /// Give the page a window of this size, in CSS pixels.
     pub fn size(&mut self, width: u32, height: u32) {
         self.tell(

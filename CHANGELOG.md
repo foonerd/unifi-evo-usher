@@ -2,6 +2,19 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## [0.3.17] - 2026-11-19
+
+- The face speaks more than one language. Every text it shows comes from one file for each language under `lang/` in the shell's directory, found by a key, with the values it speaks of by name and a form for each count a language tells apart; what a language has no text for is said in English. English and German come with it. Numbers, dates and times are written as the language writes them
+- A site has a language, and a switch for whether each browser's own language goes before it, which it does unless an administrator says otherwise. Both are on the page Site, in `site.settings` (`get` and `set` gain `language` and `follows_browser`), and told by `/usher/v1/state` for the forms to speak before anyone has signed in. `USHER_LANGUAGE` gives a unit its language from its first start, in every Compose file, in `.env.example` and as a comment in `evo.service`
+- A person picks a language in the bar and on the forms a unit is set up and signed in to by; the pick is kept on that browser. Which language a screen speaks: the pick, else the browser's own where the site follows browsers, else the site's, else English
+- What the usher refuses, it refuses under a code that stays the same from release to release, as the refusal's subclass, with its words in English beside it; the usher's own routes carry the values a refusal speaks of as `details.values`. The face says a refusal in its own language by the code. A plugin's refusal arrives as its own words, without evo's prefix before them. A new crate, `crates/why`, is the one place a refusal is made
+- The texts of the pages are reworded for whoever uses them. A voucher is "set aside" where it was "assigned for hand-out", "held" or in "the reserve"; a voucher is "made" where it was "minted"; the page Controller says "Check the address", "Connecting to it", and of a certificate that an authority "confirms" it or that its fingerprint "was compared"; a part that cannot be shown says so in a sentence
+- `docs/translating.md` says how a language is added. A test holds every language to the keys, the values and the counts of the English file, holds every key the scripts use to a text and every text to a use, and finds text that is written into a script
+- The steward raises its limit of open files to 65536 when it starts, or to as much of that as it is allowed, since every screen joined to a unit holds a connection. `evo.service` sets `LimitNOFILE=65536`, where the service may change no limit of its own, and every Compose file sets `ulimits`. `scripts/prove-proxy.sh` holds two thousand connections on a unit at once and is answered on the first, on the last and on one more; `scripts/prove-unit.sh` reads the limit of the running service
+- Fixed: signing out takes the page off the screen before the usher is told, and nothing that arrives late for the session that ended is drawn. The form to sign in could stand, for an instant, over the page of whoever had just signed out
+- A build for development carries line tables and no more of a debugger's information, which halves what every build leaves on disk
+- `scripts/try.sh` and `scripts/try-image.sh` pass `USHER_SITE_NAME`, `USHER_TIME_ZONE` and `USHER_LANGUAGE` on to the unit they start
+
 ## [0.3.16] - 2026-11-19
 
 - A site has a name, a logo and a time zone. A new plugin, `org.evoframework.usher.site`, stocks a new shelf, `site.settings`, with the requests `get`, `set`, `put_logo` and `remove_logo`; its shape is written down under `schemas/org.evoframework.usher/site/`. A name is 64 characters at most; a logo is a PNG file of at most 256 KiB and 1024 by 512 pixels, read as far as it takes to know that it is whole, and kept as given

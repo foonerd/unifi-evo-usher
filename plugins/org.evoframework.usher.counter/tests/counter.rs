@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use evo_usher_counter::{
     Asked, Counter, Refusal, Shelves, CONTROLLER, NETWORKS, RESERVE,
 };
+use evo_usher_why::why;
 use serde_json::{json, Value};
 
 /// The shelves a counter asks: the network vouchers are for, the
@@ -231,7 +232,7 @@ async fn types_are_kept_in_their_order_and_through_a_restart() {
     let named = json!({ "name": "House guests" });
     let refused = ask(&again, "drop_type", named.clone()).await;
     assert!(
-        matches!(&refused, Err(Refusal::AsAsked(why)) if why.contains("'House guests' is the default")),
+        matches!(&refused, Err(Refusal::AsAsked(why)) if why.words.contains("'House guests' is the default")),
         "{refused:?}"
     );
     assert_eq!(
@@ -303,8 +304,10 @@ async fn with_none_held_a_voucher_is_minted_on_the_terms_of_its_type() {
     // A reserve that gives no answer leaves what a counter does with
     // nothing held.
     let stand = Arc::new(Stand::working());
-    *stand.held.lock().unwrap() =
-        Err(Refusal::AsAsked("no plugin on shelf".to_string()));
+    *stand.held.lock().unwrap() = Err(Refusal::AsAsked(why(
+        "said_in_a_test",
+        "no plugin on shelf",
+    )));
     let counter = Counter::open(dir.path(), Some(stand.clone())).unwrap();
     let handed = ask(&counter, "hand", json!({ "type": "House guests" }))
         .await
@@ -321,7 +324,7 @@ async fn a_voucher_assigned_is_held_for_its_type_and_goes_first() {
         json!([listed("old-1", "1111111111"), listed("old-2", "2222222222")]);
     // The controller is away for minting: what is held is handed out all
     // the same.
-    stand.minting = Err(Refusal::ForNow("not reached".to_string()));
+    stand.minting = Err(Refusal::ForNow(why("said_in_a_test", "not reached")));
     let stand = Arc::new(stand);
     let counter = Counter::open(dir.path(), Some(stand.clone())).unwrap();
 
@@ -369,7 +372,7 @@ async fn a_voucher_assigned_is_held_for_its_type_and_goes_first() {
     )
     .await;
     assert!(
-        matches!(&twice, Err(Refusal::AsAsked(why)) if why.contains("held for handing out already")),
+        matches!(&twice, Err(Refusal::AsAsked(why)) if why.words.contains("held for handing out already")),
         "{twice:?}"
     );
 
@@ -395,7 +398,7 @@ async fn a_voucher_assigned_is_held_for_its_type_and_goes_first() {
     // With none left, one is minted; here the controller is away.
     assert_eq!(
         ask(&counter, "hand", json!({ "type": "House guests" })).await,
-        Err(Refusal::ForNow("not reached".to_string()))
+        Err(Refusal::ForNow(why("said_in_a_test", "not reached")))
     );
 }
 
@@ -441,7 +444,7 @@ async fn only_a_voucher_that_lets_a_guest_in_is_assigned() {
             ask(&counter, "assign", json!({ "site": "site-1", "id": id }))
                 .await;
         assert!(
-            matches!(&refused, Err(Refusal::AsAsked(why)) if why.contains(said) && !why.contains("  ")),
+            matches!(&refused, Err(Refusal::AsAsked(why)) if why.words.contains(said) && !why.words.contains("  ")),
             "{id}: {refused:?}"
         );
     }
@@ -474,7 +477,7 @@ async fn nothing_is_handed_out_for_no_network_or_no_such_type() {
     // A type that is not kept: no shelf is asked anything.
     let unknown = ask(&counter, "hand", json!({ "type": "Day" })).await;
     assert!(
-        matches!(&unknown, Err(Refusal::AsAsked(why)) if why.contains("'Day'")),
+        matches!(&unknown, Err(Refusal::AsAsked(why)) if why.words.contains("'Day'")),
         "{unknown:?}"
     );
     assert!(stand.asked().is_empty());
@@ -484,7 +487,7 @@ async fn nothing_is_handed_out_for_no_network_or_no_such_type() {
     let nowhere =
         ask(&counter, "hand", json!({ "type": "House guests" })).await;
     assert!(
-        matches!(&nowhere, Err(Refusal::AsAsked(why)) if why.contains("no wireless network")),
+        matches!(&nowhere, Err(Refusal::AsAsked(why)) if why.words.contains("no wireless network")),
         "{nowhere:?}"
     );
     assert_eq!(stand.asked(), pairs(&[(NETWORKS, "chosen")]));
@@ -586,7 +589,7 @@ async fn a_front_desk_is_offered_the_enabled_types_and_told_the_default() {
     ] {
         let refused = ask(&counter, request, payload).await;
         assert!(
-            matches!(&refused, Err(Refusal::AsAsked(why)) if why.contains(said)),
+            matches!(&refused, Err(Refusal::AsAsked(why)) if why.words.contains(said)),
             "{request}: {refused:?}"
         );
     }
@@ -607,7 +610,7 @@ async fn a_front_desk_is_offered_the_enabled_types_and_told_the_default() {
     )
     .await;
     assert!(
-        matches!(&refused, Err(Refusal::AsAsked(why)) if why.contains("names every voucher type")),
+        matches!(&refused, Err(Refusal::AsAsked(why)) if why.words.contains("names every voucher type")),
         "{refused:?}"
     );
     let offered =
@@ -652,7 +655,7 @@ async fn a_voucher_of_a_type_with_a_choice_is_minted_on_what_was_chosen() {
         payload["type"] = json!("Contractor");
         let refused = ask(&counter, "hand", payload).await;
         assert!(
-            matches!(&refused, Err(Refusal::AsAsked(why)) if why.contains(said)),
+            matches!(&refused, Err(Refusal::AsAsked(why)) if why.words.contains(said)),
             "{chosen}: {refused:?}"
         );
     }
@@ -694,7 +697,7 @@ async fn a_voucher_of_a_type_with_a_choice_is_minted_on_what_was_chosen() {
     )
     .await;
     assert!(
-        matches!(&refused, Err(Refusal::AsAsked(why)) if why.contains("are fixed")),
+        matches!(&refused, Err(Refusal::AsAsked(why)) if why.words.contains("are fixed")),
         "{refused:?}"
     );
 }
@@ -721,7 +724,7 @@ async fn no_voucher_is_assigned_to_a_type_with_a_choice() {
     )
     .await;
     assert!(
-        matches!(&refused, Err(Refusal::AsAsked(why)) if why.contains("no voucher is held for such a type")),
+        matches!(&refused, Err(Refusal::AsAsked(why)) if why.words.contains("no voucher is held for such a type")),
         "{refused:?}"
     );
     assert!(!stand.asked().contains(&pairs(&[(RESERVE, "put")])[0]));
@@ -756,8 +759,8 @@ async fn a_reserve_the_caller_is_kept_from_is_not_minted_around() {
 async fn what_the_minting_shelf_refuses_is_refused_as_it_was() {
     let dir = tempfile::tempdir().unwrap();
     for refusal in [
-        Refusal::ForNow("the controller did not answer".to_string()),
-        Refusal::AsAsked("minutes: at most 1000000".to_string()),
+        Refusal::ForNow(why("said_in_a_test", "the controller did not answer")),
+        Refusal::AsAsked(why("said_in_a_test", "minutes: at most 1000000")),
         kept_from("mint"),
     ] {
         let stand = Arc::new(Stand::new(guests(), Err(refusal.clone())));
@@ -855,7 +858,7 @@ async fn every_hand_out_is_written_down_and_its_voucher_not_assigned() {
             ask(&counter, "assign", json!({ "site": "site-1", "id": id }))
                 .await;
         assert!(
-            matches!(&refused, Err(Refusal::AsAsked(why)) if why.contains("handed out here before")),
+            matches!(&refused, Err(Refusal::AsAsked(why)) if why.words.contains("handed out here before")),
             "{id}: {refused:?}"
         );
     }
