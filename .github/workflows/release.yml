@@ -9,6 +9,8 @@ name: release
 # the job that signs what was proven and publishes the image under the
 # version and a pre-release. Run by hand it builds, packs and proves
 # everything and publishes nothing; the packages are kept with the run.
+# Every job has a time limit several times what it takes: one that hangs
+# is stopped at it and fails.
 on:
   push:
     tags: ["v*"]
@@ -24,6 +26,7 @@ jobs:
   check:
     name: format, lints, tests, docs
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - name: The tag names the version the workspace carries
@@ -44,6 +47,7 @@ jobs:
     name: ${{ matrix.arch }}
     needs: check
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -72,6 +76,7 @@ jobs:
     name: packages and the image
     needs: build
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
@@ -100,6 +105,7 @@ jobs:
     name: a unit, ${{ matrix.arch }}
     needs: package
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -121,6 +127,7 @@ jobs:
     name: a unit from the RPM, ${{ matrix.arch }}
     needs: package
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -143,6 +150,7 @@ jobs:
     name: sign, publish
     needs: [unit, unit-rpm]
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: write
       packages: write

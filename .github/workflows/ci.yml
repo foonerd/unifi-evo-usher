@@ -7,7 +7,9 @@ name: ci
 # package on the machine itself and the RPM in a container of an RPM
 # system that systemd runs; and the image run as a unit in a container,
 # alone and behind each proxy the repository has an example for. What was
-# built and what was packed are kept with the run.
+# built and what was packed are kept with the run. Every job has a time
+# limit several times what it takes: one that hangs is stopped at it and
+# fails, and holds the run no longer.
 on:
   push:
     branches: [main]
@@ -23,6 +25,7 @@ jobs:
   check:
     name: format, lints, tests, docs
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - name: The toolchain rust-toolchain.toml names
@@ -38,6 +41,7 @@ jobs:
     name: ${{ matrix.arch }}
     needs: check
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -66,6 +70,7 @@ jobs:
     name: packages and the image
     needs: build
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
@@ -94,6 +99,7 @@ jobs:
     name: a unit in a container, alone and behind each proxy
     needs: build
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
@@ -115,6 +121,7 @@ jobs:
     name: a unit, ${{ matrix.arch }}
     needs: package
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -136,6 +143,7 @@ jobs:
     name: a unit from the RPM, ${{ matrix.arch }}
     needs: package
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:

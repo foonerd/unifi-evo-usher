@@ -111,6 +111,16 @@ up() {
   done
 }
 
+# Start the service, or start it again, and wait until its face answers.
+# The proof starts it more often within ten seconds than systemd lets a
+# service start, which is five times, so the count is cleared first. A
+# unit in service is not started that often, and needs no such thing.
+start() {
+  systemctl reset-failed evo.service 2> /dev/null || true
+  systemctl "$1" evo.service
+  up
+}
+
 echo "prove-unit: installing $(basename "$package")"
 case "$format" in
   deb) DEBIAN_FRONTEND=noninteractive apt-get install -y "$package" > "$work/install.log" 2>&1 ;;
@@ -246,8 +256,7 @@ grep -q '^#Environment=USHER_TIME_ZONE=Europe/Warsaw$' "$service" || fail "the s
 mkdir -p "$(dirname "$GIVEN")"
 printf '[Service]\nEnvironment="USHER_SITE_NAME=Parish Hall"\nEnvironment=USHER_TIME_ZONE=Europe/Warsaw\n' > "$GIVEN"
 systemctl daemon-reload
-systemctl restart evo.service
-up
+start restart
 [ "$(site get '{}')" = 200 ] || fail "the site is not told: $(cat "$work/answer")"
 answered | jq -e '.name == "Parish Hall" and .time_zone == "Europe/Warsaw" and .set_here == false' > /dev/null || fail "the unit does not go by the name and the time zone it was started with: $(answered)"
 # Anyone is told the name, for the form a person signs in by to wear,
@@ -265,8 +274,7 @@ jq -e '.site == {name: "Hall of St Mary", logo: null}' "$work/answer" > /dev/nul
 echo "  ok    its administrator sets another name and time zone, kept for the steward alone; nobody who has not signed in sets them"
 
 echo "prove-unit: what is kept"
-systemctl restart evo.service
-up
+start restart
 [ "$(systemctl show -p NRestarts --value evo.service)" = 0 ] || fail "the service was started again by itself"
 [ "$(usher me '' "$bearer")" = 200 ] || fail "who was signed in is signed out by a restart: $(cat "$work/answer")"
 [ "$(ask request "$(request issue.counter types '{}')" "$bearer")" = 200 ] || fail "who was signed in is refused after a restart: $(cat "$work/answer")"
@@ -293,8 +301,7 @@ rm "$PEOPLE"
 mkdir -p "$(dirname "$LEVEL")"
 printf '[Service]\nEnvironment=USHER_SECURITY=extended\n' > "$LEVEL"
 systemctl daemon-reload
-systemctl start evo.service
-up
+start start
 [ "$(usher state)" = 200 ] || fail "the unit does not say what state it is in: $(cat "$work/answer")"
 jq -e '.set_up == false and .level == "extended" and .least_password == 16 and .keeps == false' "$work/answer" > /dev/null || fail "a unit of the extended level whose people were taken away says of itself: $(cat "$work/answer")"
 # The form it is set up by wears the site's name still.
@@ -318,8 +325,7 @@ echo "  ok    at the extended level the unit makes a code for the steward alone,
 rm "$LEVEL"
 rmdir "$(dirname "$LEVEL")"
 systemctl daemon-reload
-systemctl restart evo.service
-up
+start restart
 [ "$(usher state)" = 200 ] || fail "the unit does not say what state it is in: $(cat "$work/answer")"
 jq -e '.set_up == true and .level == "standard"' "$work/answer" > /dev/null || fail "back at the ordinary level the unit says of itself: $(cat "$work/answer")"
 [ ! -e "$CODE" ] || fail "back at the ordinary level the unit made a code"
@@ -340,8 +346,7 @@ systemctl stop evo.service
 [ "$(systemctl show -p Result --value evo.service)" = success ] || fail "the service did not stop cleanly: $(systemctl show -p Result --value evo.service)"
 [ ! -e /run/evo ] || fail "/run/evo is still there after the service stopped"
 echo "  ok    stopped cleanly, and its socket is gone"
-systemctl start evo.service
-up
+start start
 # The configuration that is not as the package brought it: rpm keeps
 # each such file when the package goes.
 changed=""
