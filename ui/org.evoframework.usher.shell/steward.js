@@ -227,10 +227,13 @@ export function watch(onHappening, onLine) {
     if (ended) return;
     const scheme = location.protocol === "https:" ? "wss" : "ws";
     const token = bearer();
-    line = new WebSocket(
-      `${scheme}://${location.host}/api/v1/ws`,
-      token ? [`evo.bearer.${token}`] : [],
-    );
+    if (!token) {
+      // The steward opens the line to a paired browser only. Until this
+      // one is paired there is nothing to join, and nothing is down.
+      again = setTimeout(join, 1000);
+      return;
+    }
+    line = new WebSocket(`${scheme}://${location.host}/api/v1/ws`, [`evo.bearer.${token}`]);
     line.onopen = () => {
       wait = 1000;
       line?.send(

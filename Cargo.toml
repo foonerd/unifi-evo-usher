@@ -13,7 +13,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.3.11"
+version = "0.3.12"
 edition = "2021"
 license = "MIT"
 publish = false
@@ -28,6 +28,7 @@ repository = "https://github.com/foonerd/unifi-evo-usher"
 evo = { git = "https://github.com/foonerd/evo-core.git", tag = "v0.1.13.2" }
 evo-plugin-sdk = { git = "https://github.com/foonerd/evo-core.git", tag = "v0.1.13.2" }
 evo-plugin-test = { git = "https://github.com/foonerd/evo-core.git", tag = "v0.1.13.2" }
+evo-auth-bearer = { git = "https://github.com/foonerd/evo-core.git", tag = "v0.1.13.2" }
 
 # One set of lints for every crate; CI denies warnings.
 [workspace.lints.rust]

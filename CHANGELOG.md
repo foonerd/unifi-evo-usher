@@ -2,6 +2,17 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## [0.3.12] - 2026-11-19
+
+- Pairing is the one way in. A caller who presented no bearer was answered by evo with capabilities of evo's choosing: a good part of the steward could be read, and a bearer with any capability was made for the asking, from the same machine, the same network and beyond it alike. Every earlier version that serves HTTPS is open so, and a unit of one should be taken off any network it does not trust until it is replaced. The usher's steward now puts a gate before evo's routes: a request with no valid bearer is refused with 401, unless it asks for a file of the face, for pairing, or for which shell is active. A test asks every operation evo lists, by every method, with no bearer, with nonsense for one and with a forged one, and `scripts/prove-unit.sh` asks an installed unit to make a bearer for nobody
+- How many vouchers are held is told to a paired browser only, as everything else is
+- A browser that is not paired is asked for the pairing code at once and is shown nothing of the steward's until it has it. Left without pairing, the page says so and offers to pair; it does not say the steward is down. The line over which the face hears what happens is opened once the browser is paired
+- `docs/deploying.md` says how a unit is run in Docker, behind a proxy and on a Synology, which certificates it can be given, and the least to set. Every command in it is marked as proven, run, or taken from the maker's documentation
+- `packaging/docker/compose.yaml` runs the unit in a container as its own account, with no capability, no privilege to gain and a root file system it cannot write to, its pairing code given as a secret
+- An example for each of nginx, Apache httpd, Caddy and Traefik under `packaging/proxy/`: the proxy holds the site's certificate, speaks HTTPS to the unit, believes it by the unit's own authority, and passes the WebSocket on
+- `scripts/prove-proxy.sh` proves the Compose file and the four examples as they stand, and CI runs it on every push
+- `scripts/wiki-pictures.sh` makes the pictures of the face the manual shows, from the face itself
+
 ## [0.3.11] - 2026-11-19
 
 - The administrator says in which order the voucher types stand at the counter: "Up" and "Down" move a type in the list on the Voucher types page, and the counter follows at once. `issue.counter` takes `order_types`, which names every type once; `types` and `offered` return the types in that order, and a type defined later stands last. The order is kept through a restart

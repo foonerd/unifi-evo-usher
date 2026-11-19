@@ -2,12 +2,13 @@
 //! set. Everything the steward does is the framework's, through
 //! [`evo::run`]; this program adds only what makes it an usher: the UI
 //! shelves, the plugins it admits, the name it answers `--version` with,
-//! a pairing code where the unit was given none, and that nothing of it
-//! is a household's to lock.
+//! a pairing code where the unit was given none, that nothing of it is
+//! a household's to lock, and that pairing is the one way in.
 
 #![forbid(unsafe_code)]
 
 mod face;
+mod gate;
 mod pairing;
 
 use std::path::PathBuf;
@@ -49,7 +50,10 @@ async fn main() -> anyhow::Result<()> {
     evo::run(
         evo::RunOptions::new(args, admission())
             .with_lan_privilege(evo::LanPrivilege::Withheld)
-            .with_household_groups(Arc::new(NoHousehold)),
+            .with_household_groups(Arc::new(NoHousehold))
+            // And whoever presents no valid bearer is let no further
+            // than the face and pairing.
+            .with_https_setup(gate::setup()),
     )
     .await
 }

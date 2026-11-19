@@ -131,8 +131,12 @@ echo "  ok    the shell, the widgets and the theme are served"
 
 echo "prove-unit: who may ask"
 info=$(request access.controller info '{}')
-[ "$(ask request "$info")" = 403 ] || fail "a caller who presents nothing is answered: $(cat "$work/answer")"
-echo "  ok    a caller who presents nothing is refused"
+[ "$(ask request "$info")" = 401 ] || fail "a caller who presents nothing is answered: $(cat "$work/answer")"
+# Nor is a bearer made for one for the asking, which evo by itself does.
+mint='{"name":"for nobody","reason":"asked for with no bearer","scopes":[{"kind":"step_up","scope":"network_admin"}]}'
+[ "$(ask create_bearer_token "$mint")" = 401 ] || fail "a caller who presents nothing was made a bearer: $(cat "$work/answer")"
+[ "$(ask list_bearer_tokens)" = 401 ] || fail "a caller who presents nothing is told of the unit's bearers: $(cat "$work/answer")"
+echo "  ok    a caller who presents nothing is refused, and no bearer is made for one"
 [ "$(stat -c '%U %a' "$CODE")" = "evo 600" ] || fail "the pairing code is $(stat -c '%U %a' "$CODE"), not the steward's alone"
 code=$(cat "$CODE")
 [[ "$code" =~ ^[0-9a-f]{12}$ ]] || fail "the pairing code is not twelve hexadecimal digits"

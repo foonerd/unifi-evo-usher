@@ -9,12 +9,15 @@ repository.workspace = true
 
 [dependencies]
 evo = { workspace = true }
+evo-auth-bearer = { workspace = true }
 evo-plugin-sdk = { workspace = true }
 evo-usher-about = { path = "../../crates/about" }
 evo-usher-controller-unifi = { path = "../../plugins/org.evoframework.usher.controller.unifi" }
 evo-usher-counter = { path = "../../plugins/org.evoframework.usher.counter" }
 evo-usher-stock = { path = "../../plugins/org.evoframework.usher.stock" }
 anyhow = "1"
+# evo's routes are axum's, and the gate before them is a layer of it.
+axum = { version = "0.7", default-features = false }
 clap = { version = "4", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 toml = "0.8"

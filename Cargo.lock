@@ -1481,11 +1481,11 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-about"
-version = "0.3.11"
+version = "0.3.12"
 
 [[package]]
 name = "evo-usher-controller-unifi"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "evo-plugin-sdk",
  "evo-plugin-test",
@@ -1509,14 +1509,14 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-core"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "evo-usher-about",
 ]
 
 [[package]]
 name = "evo-usher-counter"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "evo-plugin-sdk",
  "evo-plugin-test",
@@ -1533,14 +1533,14 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-printer"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "rustix 1.1.4",
 ]
 
 [[package]]
 name = "evo-usher-render"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "ab_glyph",
  "qrcode",
@@ -1549,7 +1549,7 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-station"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "evo-usher-about",
  "evo-usher-printer",
@@ -1558,12 +1558,14 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-steward"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "anyhow",
+ "axum 0.7.9",
  "base64 0.22.1",
  "clap",
  "evo",
+ "evo-auth-bearer",
  "evo-plugin-sdk",
  "evo-usher-about",
  "evo-usher-controller-unifi",
@@ -1582,7 +1584,7 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-stock"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "evo-plugin-sdk",
  "evo-plugin-test",

@@ -122,46 +122,30 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
     let steward = Steward::start(dir.path());
 
     // A browser the steward takes to be beyond the network: it is let in
-    // to nothing that lets guests on until it has paired.
+    // to nothing until it has paired.
     browser.from(FROM_BEYOND);
     browser.go(&format!("{}/", steward.address()));
 
-    // The door opens the usher's own shell; the shell draws what the
-    // steward says is stocked, and asks for the pairing code as soon as a
-    // widget is refused.
+    // The door opens the usher's own shell. The steward tells a browser
+    // that is not paired nothing, so the shell asks for the pairing code
+    // at once, and draws nothing of the steward's until it has it.
     browser.wait(
         "the pairing dialog",
         r#"document.getElementById("pairing")?.open === true"#,
-    );
-    browser.wait(
-        "the count",
-        r#"widget("usher.reserve")?.innerText.includes("None.")"#,
     );
     let opened = browser.look(
         r#"
         return {
           path: location.pathname,
           widgets: [...document.querySelectorAll("[data-widget]")].map((w) => w.dataset.widget),
-          shown: widgetsOnScreen(),
-          reserve: widget("usher.reserve").innerText,
+          menu: menuEntries().length,
         };
         "#,
     );
-    assert_eq!(opened["path"], format!("/{SHELL}/"));
-    // Everything stocked is drawn, page by page, and the first page is
-    // the one shown: the counter.
     assert_eq!(
-        opened["widgets"],
-        json!([
-            "usher.counter",
-            "usher.vouchers",
-            "usher.reserve",
-            "usher.types",
-            "usher.networks",
-            "usher.controller"
-        ])
+        opened,
+        json!({ "path": format!("/{SHELL}/"), "widgets": [], "menu": 0 })
     );
-    assert_eq!(opened["shown"], json!(["usher.counter"]));
 
     // The face wears the usher's mark and name: in the bar, and on the
     // pairing screen, which is all there is to see of an usher until a
@@ -190,12 +174,26 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
     if let Some(to) = picture_of(Some("pairing")) {
         browser.picture(&to);
     }
-    assert!(
-        opened["reserve"]
-            .as_str()
-            .unwrap()
-            .contains("A voucher assigned for hand-out"),
-        "what is no secret is shown before pairing: {opened}"
+
+    // Left without pairing, the page says so and offers to pair; nothing
+    // of the steward's is shown, and it is not said to be down.
+    browser.act(r#"document.getElementById("pairing-leave").click();"#);
+    browser.wait(
+        "the word that the browser is not paired",
+        r#"document.getElementById("shelves").innerText.includes("This browser is not paired with the unit.")"#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"return [document.getElementById("line").textContent, document.querySelectorAll("[data-widget]").length];"#
+        ),
+        json!(["Not paired.", 0])
+    );
+    browser.act(
+        r##"[...document.querySelectorAll("#shelves button")].find((b) => b.textContent === "Pair this browser").click();"##,
+    );
+    browser.wait(
+        "the pairing dialog again",
+        r#"document.getElementById("pairing")?.open === true"#,
     );
 
     // A code is spent by its first use, so it is shown as it is typed, and
@@ -236,6 +234,31 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
         "the dialog to close",
         r#"document.getElementById("pairing").open === false"#,
     );
+    // Paired, the browser is told what is stocked: everything is drawn,
+    // page by page, and the first page is the one shown, the counter.
+    browser.wait("the menu", "menuEntries().length > 0");
+    assert_eq!(
+        browser.look(
+            r#"return [...document.querySelectorAll("[data-widget]")].map((w) => w.dataset.widget);"#
+        ),
+        json!([
+            "usher.counter",
+            "usher.vouchers",
+            "usher.reserve",
+            "usher.types",
+            "usher.networks",
+            "usher.controller"
+        ])
+    );
+    assert_eq!(
+        browser.look("return widgetsOnScreen();"),
+        json!(["usher.counter"])
+    );
+    // And the line to the steward is joined.
+    browser.wait(
+        "the line",
+        r#"document.getElementById("line").textContent === "Joined to the steward.""#,
+    );
     go_to(&mut browser, "Controller");
     browser.wait(
         "the address field",
@@ -270,6 +293,11 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
             .contains("Nobody vouches for this certificate"),
         "{said}"
     );
+    // For the eye: the certificate the controller presents, before the
+    // key is typed.
+    if let Some(to) = picture_of(Some("controller-key")) {
+        browser.picture(&to);
+    }
     assert!(
         simulated.asked().is_empty(),
         "looking sends the controller nothing: {:?}",
@@ -600,6 +628,10 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
         "{before_the_guest}"
     );
     assert!(before_the_guest.contains(&code), "{before_the_guest}");
+    // For the eye: the voucher as the guest is shown it.
+    if let Some(to) = picture_of(Some("guest")) {
+        browser.picture(&to);
+    }
     browser.act(
         r#"widget("usher.counter").querySelector("dialog.usher-guest button").click();"#,
     );
@@ -685,6 +717,14 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
         "the type the voucher brought, among the types",
         r#"widget("usher.types").querySelector("tbody").innerText.includes("Walk-in")"#,
     );
+    // For the eye: the list with a voucher assigned and the unit holding
+    // it, looked at from where the test stands and left again.
+    if let Some(to) = picture_of(Some("vouchers-assigned")) {
+        let stood = browser.look("return menuCurrent();");
+        go_to(&mut browser, "Vouchers");
+        browser.picture(&to);
+        go_to(&mut browser, stood.as_str().expect("a page is shown"));
+    }
 
     // A second is assigned and taken back: it is not held.
     press_listed(&mut browser, &format!("Assign {} for hand-out", walk_in[1]));

@@ -401,12 +401,38 @@ async function loadTheme() {
   }
 }
 
-/** Ask the steward what is stocked, and draw it. */
+/**
+ * Say that this browser is not paired, where the operator left the
+ * pairing dialog, and offer to pair it.
+ */
+function unpaired() {
+  const pair = document.createElement("button");
+  pair.type = "button";
+  pair.textContent = "Pair this browser";
+  pair.addEventListener("click", () => look());
+  shelves.replaceChildren(
+    notice("This browser is not paired with the unit. The steward answers a paired browser only."),
+    pair,
+  );
+  line.textContent = "Not paired.";
+  line.classList.remove("up", "down");
+}
+
+/**
+ * Ask the steward what is stocked, and draw it. The steward tells a
+ * paired browser only: one that is not paired is asked for the unit's
+ * pairing code first.
+ */
 async function look() {
   try {
     draw(await steward.op("describe_ui_stockings"));
     return true;
   } catch (why) {
+    if (why instanceof steward.Refusal && why.asksForCredential) {
+      if (await askToPair()) return look();
+      unpaired();
+      return false;
+    }
     line.textContent =
       why instanceof Error ? why.message : "The steward does not answer.";
     return false;

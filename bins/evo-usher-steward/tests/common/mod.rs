@@ -324,6 +324,37 @@ discovery_enabled = false
         )
     }
 
+    /// What the steward answers a request put to it as it is given: the
+    /// method, the path, a body where one is given, and headers beside
+    /// what `who` presents. The status, and what was said.
+    pub fn put_to(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&Value>,
+        headers: &[(&str, &str)],
+        who: &Caller,
+    ) -> (u16, String) {
+        let method = reqwest::Method::from_bytes(method.as_bytes()).unwrap();
+        let mut asked = self
+            .web
+            .request(method, format!("{}{path}", self.address()));
+        if let Some(body) = body {
+            asked = asked.json(body);
+        }
+        if let Some(bearer) = &who.bearer {
+            asked = asked.bearer_auth(bearer);
+        }
+        if let Some(from) = who.from {
+            asked = asked.header("X-Forwarded-For", from);
+        }
+        for (name, value) in headers {
+            asked = asked.header(*name, *value);
+        }
+        let answer = asked.send().expect("the steward answers over HTTPS");
+        (answer.status().as_u16(), answer.text().unwrap_or_default())
+    }
+
     /// Ask a shelf over HTTPS as `who`: the answer's payload, or the
     /// steward's refusal.
     pub fn ask_as(

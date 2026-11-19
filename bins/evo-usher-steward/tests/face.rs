@@ -94,8 +94,11 @@ fn the_steward_serves_the_door_the_shell_and_the_widget_pack() {
         ],
         "what is done most stands first"
     );
-    let (_, said) =
-        steward.op("describe_ui_stockings", json!({}), &Caller::here());
+    let (_, said) = steward.op(
+        "describe_ui_stockings",
+        json!({}),
+        &Caller::here().with(&steward.operator()),
+    );
     for entry in said["entries"].as_array().unwrap() {
         let on: Vec<&str> = pages
             .iter()
@@ -118,8 +121,11 @@ fn the_steward_serves_the_door_the_shell_and_the_widget_pack() {
 fn each_plugin_stands_on_the_ui_shelf_of_its_catalogue_shelf() {
     let dir = short_dir();
     let steward = Steward::start(dir.path());
-    let (status, said) =
-        steward.op("describe_ui_stockings", json!({}), &Caller::here());
+    let (status, said) = steward.op(
+        "describe_ui_stockings",
+        json!({}),
+        &Caller::here().with(&steward.operator()),
+    );
     assert_eq!(status, 200, "{said}");
 
     // The steward puts a plugin that says nothing of its face on the UI
@@ -203,15 +209,11 @@ fn what_lets_guests_on_is_asked_only_with_a_credential() {
     let steward = Steward::start(dir.path());
     let beyond = Caller::beyond();
 
-    // How many vouchers are held is no secret.
-    assert_eq!(
-        steward.ask_as(&beyond, "stock.reserve", "count", json!({})),
-        json!({"held": {}})
-    );
-
-    // Everything else is refused to a caller who presents nothing, before
-    // it reaches a plugin.
+    // Every request of every shelf is refused to a caller who presents
+    // nothing, before it reaches a plugin: how many vouchers are held
+    // among them.
     for (shelf, request) in [
+        ("stock.reserve", "count"),
         ("access.controller", "probe"),
         ("access.controller", "set"),
         ("access.controller", "info"),
@@ -237,10 +239,18 @@ fn what_lets_guests_on_is_asked_only_with_a_credential() {
         ("issue.counter", "assign"),
         ("issue.counter", "handed"),
     ] {
-        let refused = steward.ask_as(&beyond, shelf, request, json!({}));
+        let (status, refused) = steward.op(
+            "request",
+            json!({
+                "shelf": shelf,
+                "request_type": request,
+                "payload_b64": common::encoded(&json!({})),
+            }),
+            &beyond,
+        );
+        assert_eq!(status, 401, "{shelf} {request}: {refused}");
         assert_eq!(
-            refused["error"]["details"]["subclass"],
-            "verb_capability_scope_not_granted",
+            refused["error"]["details"]["subclass"], "bearer_required",
             "{shelf} {request}: {refused}"
         );
     }
@@ -310,15 +320,11 @@ fn a_caller_on_the_lan_is_asked_for_a_credential_too() {
     let steward = Steward::start(dir.path());
 
     // On the same machine, and elsewhere on the network behind the proxy:
-    // a caller who presents nothing is refused what lets guests on, as
-    // one from beyond the network is, and is told how many are held.
+    // a caller who presents nothing is refused every request, as one
+    // from beyond the network is.
     for caller in [Caller::here(), Caller::on_the_lan()] {
-        assert_eq!(
-            steward.ask_as(&caller, "stock.reserve", "count", json!({})),
-            json!({"held": {}}),
-            "{caller:?}"
-        );
         for (shelf, request) in [
+            ("stock.reserve", "count"),
             ("access.controller", "probe"),
             ("access.controller", "set"),
             ("access.controller", "info"),
@@ -350,10 +356,9 @@ fn a_caller_on_the_lan_is_asked_for_a_credential_too() {
                 }),
                 &caller,
             );
-            assert_eq!(status, 403, "{caller:?} {shelf} {request}: {refused}");
+            assert_eq!(status, 401, "{caller:?} {shelf} {request}: {refused}");
             assert_eq!(
-                refused["error"]["details"]["subclass"],
-                "verb_capability_scope_not_granted",
+                refused["error"]["details"]["subclass"], "bearer_required",
                 "{caller:?} {shelf} {request}: {refused}"
             );
         }
@@ -378,6 +383,144 @@ fn a_caller_on_the_lan_is_asked_for_a_credential_too() {
         ),
         json!({"set": false}),
         "paired, the same caller is answered"
+    );
+    assert_eq!(steward.stop(), Some(0));
+}
+
+#[test]
+fn a_caller_with_no_valid_bearer_gets_the_face_and_pairing_and_no_more() {
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+    let operator = Caller::here().with(&steward.operator());
+
+    // Every operation the steward has, as evo itself lists them.
+    let operations: Vec<String> = evo::projection_schema::canonical_schema()
+        .iter()
+        .map(|operation| operation.id.as_str().to_string())
+        .collect();
+    assert!(operations.len() > 100, "{}", operations.len());
+    for dangerous in [
+        "create_bearer_token",
+        "revoke_bearer_token",
+        "list_bearer_tokens",
+        "household_protection_set",
+        "request",
+    ] {
+        assert!(operations.iter().any(|op| op == dangerous), "{dangerous}");
+    }
+    let open = ["pair_complete", "describe_active_ui_selection"];
+
+    // A bearer evo would have made for the asking, with every right.
+    let mint = json!({
+        "name": "made for nobody", "reason": "asked for with no bearer",
+        "scopes": [
+            {"kind": "step_up", "scope": "network_admin"},
+            {"kind": "write", "scope": "plugins"},
+        ],
+    });
+    // A bearer that is none, and one that reads as one and is not this
+    // steward's.
+    let forged = "eyJpZCI6ImZvcmdlZCIsImNhcGFiaWxpdGllcyI6W119.c2lnbmF0dXJl";
+
+    for (name, caller) in [
+        ("from beyond", Caller::beyond()),
+        ("on the LAN", Caller::on_the_lan()),
+        ("on the machine", Caller::here()),
+        (
+            "with nonsense for a bearer",
+            Caller::beyond().with("nonsense"),
+        ),
+        ("with a forged bearer", Caller::on_the_lan().with(forged)),
+    ] {
+        // No bearer is made for the asking.
+        for path in [
+            "/api/v1/create_bearer_token",
+            // Spelt another way, it is the same operation.
+            "/%61pi/v1/create_bearer_token",
+            "/api%2Fv1%2Fcreate_bearer_token",
+        ] {
+            let (status, said) =
+                steward.put_to("POST", path, Some(&mint), &[], &caller);
+            assert_eq!(status, 401, "{name}: {path}: {said}");
+            assert!(!said.contains("\"token\""), "{name}: {path}: {said}");
+        }
+        // Nor is any other operation answered, read or written, but
+        // pairing and what the door asks before a browser is paired.
+        for operation in &operations {
+            for method in ["GET", "POST", "PUT", "DELETE"] {
+                let (status, said) = steward.put_to(
+                    method,
+                    &format!("/api/v1/{operation}"),
+                    (method != "GET").then_some(&json!({})),
+                    &[],
+                    &caller,
+                );
+                if open.contains(&operation.as_str()) {
+                    // Open to whoever presents nothing. A bearer that is
+                    // none is refused by evo wherever it is presented.
+                    if caller.bearer.is_none() {
+                        assert_ne!(status, 401, "{name}: {method} {operation}");
+                    }
+                } else {
+                    assert_eq!(
+                        status, 401,
+                        "{name}: {method} {operation}: {said}"
+                    );
+                }
+            }
+        }
+        // The WebSocket is not opened, and what is no operation of the
+        // steward's is no way round.
+        for path in [
+            "/api/v1/ws",
+            "/api/v1/",
+            "/api/v1",
+            "/api/v1/_witness/recent",
+        ] {
+            let (status, _) = steward.put_to("GET", path, None, &[], &caller);
+            assert_eq!(status, 401, "{name}: {path}");
+        }
+        // The face is read, and nothing is written to it.
+        for path in ["/", "/org.evoframework.usher.shell/shell.js"] {
+            let (status, _) = steward.put_to("GET", path, None, &[], &caller);
+            assert_eq!(status, 200, "{name}: {path}");
+            let (status, _) =
+                steward.put_to("POST", path, Some(&json!({})), &[], &caller);
+            assert_eq!(status, 401, "{name}: POST {path}");
+        }
+    }
+
+    // Nothing was made: the operator, who holds a bearer, is told of no
+    // bearer by that name.
+    let (status, told) = steward.op("list_bearer_tokens", json!({}), &operator);
+    assert_eq!(status, 200, "{told}");
+    assert!(!told.to_string().contains("made for nobody"), "{told}");
+
+    // A bearer counts where evo reads one. Named as a subprotocol it
+    // opens the WebSocket and nothing else: on any other operation evo
+    // would read none, and take the caller for one who has none.
+    let as_subprotocol = format!("evo.bearer.{}", steward.operator());
+    let (status, said) = steward.put_to(
+        "POST",
+        "/api/v1/create_bearer_token",
+        Some(&mint),
+        &[("Sec-WebSocket-Protocol", &as_subprotocol)],
+        &Caller::beyond(),
+    );
+    assert_eq!(status, 401, "{said}");
+
+    // Pairing is the way in, and whoever is paired is answered.
+    let beyond = Caller::beyond();
+    let (status, paired) = steward.op(
+        "pair_complete",
+        json!({"pair_id": "bootstrap", "code": PAIRING_CODE}),
+        &beyond,
+    );
+    assert_eq!(status, 200, "{paired}");
+    let browser = beyond.with(paired["token"].as_str().expect("a bearer"));
+    assert_eq!(
+        steward.ask_as(&browser, "issue.counter", "types", json!({})),
+        json!({ "types": [], "default": null, "disabled": [] })
     );
     assert_eq!(steward.stop(), Some(0));
 }
@@ -473,8 +616,11 @@ fn a_steward_without_its_face_still_hands_out_vouchers() {
 
     // The plugins were admitted all the same, each on its UI shelf, with
     // kinds the steward knows and nothing draws.
-    let (_, said) =
-        steward.op("describe_ui_stockings", json!({}), &Caller::here());
+    let (_, said) = steward.op(
+        "describe_ui_stockings",
+        json!({}),
+        &Caller::here().with(&steward.operator()),
+    );
     assert_eq!(said["entries"].as_array().unwrap().len(), 6, "{said}");
 
     let vouchers = json!([{"id": "a", "code": "00001-00001"}]);
