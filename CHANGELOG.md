@@ -2,6 +2,18 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## [0.3.13] - 2026-11-19
+
+- People sign in with a name and a password they can remember. Pairing a browser with a code is gone, and evo's own pairing is closed: nothing of the steward's is asked without a live session, but for the face's files, the unit's state, setting a new unit up, signing in, and which shell is active
+- Whoever opens a new unit first sets it up and is its first administrator. A unit updated from 0.3.12 has nobody and is set up the same way; everything else it keeps stays as it was
+- A page People: add a person, set a new password, remove one, change your own. A new password and a removal sign that person out everywhere at once; the last administrator is not removed
+- A password is 12 characters or more and nothing else is asked of it; it is kept as an Argon2id hash. Five wrong tries in a row hold a name for fifteen minutes, and an unknown name is answered as a wrong password is
+- `USHER_SECURITY` chooses the level, `standard` or `extended`; a mistyped level stops the start. At the extended level setting up takes the unit's code, a password is 16 characters or more, a session lasts eight hours, and no browser is kept signed in. `packaging/docker/extended.yaml` runs a container at it
+- A session lasts twelve hours, or thirty days on a browser the person asks to be kept signed in on; it is kept for the browser's session unless that is asked. It is good for the usher's pages and not for the steward's own administration, and the line a page hears on is opened on a bearer good for hearing only
+- A lost password: whoever has the unit's files takes the file of people away, and the unit asks to be set up anew, at once
+- The steward names where evo keeps its HTTPS state wherever a unit is started, without which a revocation was forgotten at a restart
+- The proofs set a unit up, sign in and out, run both levels, and walk every module the face loads; packing found a face with a module missing whole
+
 ## [0.3.12] - 2026-11-19
 
 - Pairing is the one way in. A caller who presented no bearer was answered by evo with capabilities of evo's choosing: a good part of the steward could be read, and a bearer with any capability was made for the asking, from the same machine, the same network and beyond it alike. Every earlier version that serves HTTPS is open so, and a unit of one should be taken off any network it does not trust until it is replaced. The usher's steward now puts a gate before evo's routes: a request with no valid bearer is refused with 401, unless it asks for a file of the face, for pairing, or for which shell is active. A test asks every operation evo lists, by every method, with no bearer, with nonsense for one and with a forged one, and `scripts/prove-unit.sh` asks an installed unit to make a bearer for nobody

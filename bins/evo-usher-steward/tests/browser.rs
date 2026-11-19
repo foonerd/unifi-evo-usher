@@ -9,7 +9,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use common::browser::Browser;
-use common::{short_dir, ui_root, Steward, FROM_BEYOND, PAIRING_CODE};
+use common::{
+    short_dir, ui_root, Caller, Steward, FROM_BEYOND, OTHER_PASSWORD, PASSWORD,
+    UNITS_CODE,
+};
 use evo_usher_controller_unifi::simulated::Simulated;
 use serde_json::{json, Value};
 
@@ -93,9 +96,60 @@ fn picture_of(of: Option<&str>) -> Option<PathBuf> {
     Some(named.with_file_name(format!("{stem}-{of}.{extension}")))
 }
 
+/// Set a new unit up with its first administrator, and have the browser
+/// hold her session as one that was kept on the device, so that nothing
+/// stands before the face: it is given the session on a page of the
+/// steward's that starts nothing.
+fn signed_in_already(browser: &mut Browser, steward: &Steward) -> Caller {
+    let anna = steward.set_up("Anna", PASSWORD);
+    browser.go(&format!("{}/door.css", steward.address()));
+    browser.act(&format!(
+        r#"localStorage.setItem("evoBearer", {session});"#,
+        session = json!(anna.bearer),
+    ));
+    anna
+}
+
+/// Wait for what a form says is wrong: the one a person comes in by, or
+/// one on the page of the people.
+fn said_in(browser: &mut Browser, form: &str, words: &str) {
+    browser.wait(
+        words,
+        &format!(
+            r#"document.querySelector({place})?.innerText.includes({words})"#,
+            place = json!(format!("#{form} [role=alert]")),
+            words = json!(words),
+        ),
+    );
+}
+
+/// Fill fields by their ids, as a person types into them.
+fn fill(browser: &mut Browser, typed: Value) {
+    browser.act(&format!(
+        r#"
+        for (const [id, text] of Object.entries({typed})) {{
+          type(document.getElementById(id), text);
+        }}
+        "#
+    ));
+}
+
+/// The bearer the browser holds, and where: for the session, or kept on
+/// the device.
+fn held(browser: &mut Browser) -> Value {
+    browser.look(
+        r#"
+        return {
+          session: sessionStorage.getItem("evoBearer"),
+          kept: localStorage.getItem("evoBearer"),
+        };
+        "#,
+    )
+}
+
 /// The pages of the face: what the menu calls each, its address, and the
-/// widgets that stand on it.
-const PAGES: [(&str, &str, &[&str]); 5] = [
+/// widgets that stand on it. The last is the shell's own.
+const PAGES: [(&str, &str, &[&str]); 6] = [
     ("Counter", "#/counter", &["usher.counter"]),
     (
         "Vouchers",
@@ -105,10 +159,11 @@ const PAGES: [(&str, &str, &[&str]); 5] = [
     ("Voucher types", "#/types", &["usher.types"]),
     ("Network", "#/network", &["usher.networks"]),
     ("Controller", "#/controller", &["usher.controller"]),
+    ("People", "#/people", &[]),
 ];
 
 #[test]
-fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
+fn a_new_usher_is_set_up_and_its_controller_set_from_the_screen() {
     let Some(mut browser) = Browser::open() else {
         return;
     };
@@ -122,16 +177,16 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
     let steward = Steward::start(dir.path());
 
     // A browser the steward takes to be beyond the network: it is let in
-    // to nothing until it has paired.
+    // to nothing until someone has signed in at it.
     browser.from(FROM_BEYOND);
     browser.go(&format!("{}/", steward.address()));
 
-    // The door opens the usher's own shell. The steward tells a browser
-    // that is not paired nothing, so the shell asks for the pairing code
-    // at once, and draws nothing of the steward's until it has it.
+    // The door opens the usher's own shell. Nobody has set this usher up
+    // yet, so the shell asks whoever is there to, at once, and draws
+    // nothing of the steward's until they have.
     browser.wait(
-        "the pairing dialog",
-        r#"document.getElementById("pairing")?.open === true"#,
+        "the form that sets an usher up",
+        r#"document.getElementById("entry")?.open === true && document.getElementById("set-up-form") !== null"#,
     );
     let opened = browser.look(
         r#"
@@ -139,104 +194,167 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
           path: location.pathname,
           widgets: [...document.querySelectorAll("[data-widget]")].map((w) => w.dataset.widget),
           menu: menuEntries().length,
+          who: onScreen(document.getElementById("who")),
+          line: document.getElementById("line").textContent,
+          heading: document.querySelector('#entry h2').textContent,
+          named: document.getElementById("entry").getAttribute("aria-labelledby"),
         };
         "#,
     );
     assert_eq!(
         opened,
-        json!({ "path": format!("/{SHELL}/"), "widgets": [], "menu": 0 })
+        json!({
+            "path": format!("/{SHELL}/"), "widgets": [], "menu": 0,
+            "who": false, "line": "Not signed in.",
+            "heading": "Set up this usher", "named": "entry-title",
+        })
     );
 
     // The face wears the usher's mark and name: in the bar, and on the
-    // pairing screen, which is all there is to see of an usher until a
-    // browser is paired. It is the one mark in both places.
+    // screen a person comes in by, which is all there is to see of an
+    // usher until someone has signed in. It is the one mark in both
+    // places.
     let brand = browser.look(
         r##"
-        const [bar, pairing] = [".bar .brand", "#pairing .brand"].map((place) =>
+        const [bar, entry] = [".bar .brand", "#entry .brand"].map((place) =>
           document.querySelector(place));
         return {
           bar: [onScreen(bar.querySelector("svg.mark")), bar.textContent],
-          pairing: [onScreen(pairing.querySelector("svg.mark")), pairing.textContent],
-          same: bar.innerHTML === pairing.innerHTML,
-          slip: getComputedStyle(pairing.querySelector(".mark-slip")).fill,
-          primary: getComputedStyle(document.querySelector('#pairing button[type="submit"]'))
+          entry: [onScreen(entry.querySelector("svg.mark")), entry.textContent],
+          same: bar.innerHTML === entry.innerHTML,
+          slip: getComputedStyle(entry.querySelector(".mark-slip")).fill,
+          primary: getComputedStyle(document.querySelector('#entry button[type="submit"]'))
             .backgroundColor,
         };
         "##,
     );
     assert_eq!(brand["bar"], json!([true, "Usher"]), "{brand}");
-    assert_eq!(brand["pairing"], json!([true, "Usher"]), "{brand}");
+    assert_eq!(brand["entry"], json!([true, "Usher"]), "{brand}");
     assert_eq!(brand["same"], true, "{brand}");
     assert_eq!(
         brand["slip"], brand["primary"],
         "the mark is drawn in the theme's own colour: {brand}"
     );
-    if let Some(to) = picture_of(Some("pairing")) {
-        browser.picture(&to);
+
+    // The form is one a browser and a password manager take for the
+    // making of an account: a name, and a new password twice. The
+    // unit's code is not asked at the ordinary level. A person stands
+    // in the first field, and is told what a good password is.
+    let form = browser.look(
+        r#"
+        const of = (id) => {
+          const field = document.getElementById(id);
+          return [field.type, field.autocomplete, field.labels[0]?.textContent];
+        };
+        return {
+          forms: document.querySelectorAll("form").length,
+          name: of("set-up-name"),
+          password: of("set-up-password"),
+          again: of("set-up-again"),
+          code: onScreen(document.getElementById("set-up-code")),
+          at: document.activeElement.id,
+          advice: document.getElementById("set-up-advice").textContent,
+        };
+        "#,
+    );
+    assert_eq!(
+        form,
+        json!({
+            "forms": 1,
+            "name": ["text", "username", "Your name"],
+            "password": ["password", "new-password", "Password"],
+            "again": ["password", "new-password", "The same password again"],
+            "code": false,
+            "at": "set-up-name",
+            "advice": "A good password is a few words in a row that you will remember, 12 characters or more. Keep it in a password manager, or written down somewhere safe.",
+        })
+    );
+
+    // There is no way past the form: Escape does not put it aside,
+    // however often it is pressed.
+    for _ in 0..3 {
+        browser.press("Escape", false);
+        assert_eq!(
+            browser.look(
+                r#"return [document.getElementById("entry").open, document.getElementById("set-up-form") !== null];"#
+            ),
+            json!([true, true])
+        );
     }
 
-    // Left without pairing, the page says so and offers to pair; nothing
-    // of the steward's is shown, and it is not said to be down.
-    browser.act(r#"document.getElementById("pairing-leave").click();"#);
-    browser.wait(
-        "the word that the browser is not paired",
-        r#"document.getElementById("shelves").innerText.includes("This browser is not paired with the unit.")"#,
+    // Two passwords that are not the same: said, and nothing is sent.
+    fill(
+        &mut browser,
+        json!({
+            "set-up-name": "Anna",
+            "set-up-password": PASSWORD, "set-up-again": "three small owls sang",
+        }),
     );
-    assert_eq!(
-        browser.look(
-            r#"return [document.getElementById("line").textContent, document.querySelectorAll("[data-widget]").length];"#
-        ),
-        json!(["Not paired.", 0])
+    if let Some(to) = picture_of(Some("set-up")) {
+        browser.picture(&to);
+    }
+    browser.act(r#"document.getElementById("set-up-form").requestSubmit();"#);
+    said_in(
+        &mut browser,
+        "set-up-form",
+        "The two passwords are not the same.",
     );
-    browser.act(
-        r##"[...document.querySelectorAll("#shelves button")].find((b) => b.textContent === "Pair this browser").click();"##,
+    // A password too short to be one: the usher says how long one is.
+    fill(
+        &mut browser,
+        json!({ "set-up-password": "owls", "set-up-again": "owls" }),
     );
-    browser.wait(
-        "the pairing dialog again",
-        r#"document.getElementById("pairing")?.open === true"#,
+    browser.act(r#"document.getElementById("set-up-form").requestSubmit();"#);
+    said_in(
+        &mut browser,
+        "set-up-form",
+        "A password is 12 characters at least; this one has 4.",
     );
+    let (_, state) = steward.usher("GET", "state", None, &Caller::beyond());
+    assert_eq!(state["set_up"], false, "{state}");
 
-    // A code is spent by its first use, so it is shown as it is typed, and
-    // no browser has a reason to fill the field with something it keeps.
-    let field = browser.look(
-        r#"
-        const field = document.getElementById("pairing-code");
-        return { type: field.type, autocomplete: field.autocomplete };
-        "#,
+    // A name and a password that will do, sent with the Enter key from
+    // the last field, as a person does.
+    fill(
+        &mut browser,
+        json!({ "set-up-password": PASSWORD, "set-up-again": PASSWORD }),
     );
-    assert_eq!(
-        field,
-        json!({ "type": "text", "autocomplete": "one-time-code" })
-    );
-
-    // Nothing typed but spaces: the steward is sent nothing. Were it sent
-    // anything, the code would be spent and the pairing below refused.
-    browser.act(
-        r#"
-        type(document.getElementById("pairing-code"), "   ");
-        document.getElementById("pairing-form").requestSubmit();
-        "#,
-    );
-    browser.wait(
-        "the word that nothing was sent",
-        r#"document.getElementById("pairing-said").innerText.includes("Nothing was sent")"#,
-    );
-
-    // The code, with the spaces a paste brings along.
-    browser.act(&format!(
-        r#"
-        type(document.getElementById("pairing-code"), {code});
-        document.getElementById("pairing-form").requestSubmit();
-        "#,
-        code = json!(format!("  {PAIRING_CODE} ")),
-    ));
+    browser.act(r#"document.getElementById("set-up-again").focus();"#);
+    browser.press("Enter", false);
     browser.wait(
         "the dialog to close",
-        r#"document.getElementById("pairing").open === false"#,
+        r#"document.getElementById("entry").open === false"#,
     );
-    // Paired, the browser is told what is stocked: everything is drawn,
-    // page by page, and the first page is the one shown, the counter.
+    // The usher is set up, and whoever set it up is signed in: named in
+    // the bar, with the way out beside the name. The form is gone from
+    // the page, which is how a browser knows to offer to keep the
+    // password. The session is held for this session of the browser
+    // only, and stands nowhere in the address.
     browser.wait("the menu", "menuEntries().length > 0");
+    let entered = browser.look(
+        r#"
+        return {
+          forms: document.querySelectorAll('#entry form').length,
+          who: [onScreen(document.getElementById("who")), document.getElementById("who-name").textContent],
+          out: [onScreen(document.getElementById("sign-out")), document.getElementById("sign-out").textContent],
+        };
+        "#,
+    );
+    assert_eq!(
+        entered,
+        json!({ "forms": 0, "who": [true, "Anna"], "out": [true, "Sign out"] })
+    );
+    let holds = held(&mut browser);
+    let session = holds["session"].as_str().expect("a session").to_string();
+    assert_eq!(holds["kept"], Value::Null, "{holds}");
+    let address = browser.look("return location.href;");
+    assert!(!address.as_str().unwrap().contains(&session), "{address}");
+    let (_, state) = steward.usher("GET", "state", None, &Caller::beyond());
+    assert_eq!(state["set_up"], true, "{state}");
+
+    // Signed in, the browser is told what is stocked: everything is
+    // drawn, page by page, and the first page is the one shown, the
+    // counter.
     assert_eq!(
         browser.look(
             r#"return [...document.querySelectorAll("[data-widget]")].map((w) => w.dataset.widget);"#
@@ -805,7 +923,11 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
     if let Some(to) = picture_of(None) {
         browser.picture(&to);
     }
-    for (label, fragment, _) in &PAGES[1..] {
+    for (label, fragment, widgets) in &PAGES[1..] {
+        // The page of the people is pictured where there are some.
+        if widgets.is_empty() {
+            continue;
+        }
         go_to(&mut browser, label);
         if let Some(to) = picture_of(Some(&fragment[2..])) {
             browser.picture(&to);
@@ -831,15 +953,18 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
     assert_eq!(info["base"], simulated.base());
     assert_eq!(info["held"], true);
 
-    // Opened again, the browser is still paired and shows what is set.
+    // Opened again in the same window, the browser is still signed in
+    // and shows what is set.
     browser.go(&format!("{}/", steward.address()));
     browser.wait(
         "the version",
         r#"widget("usher.controller")?.innerText.includes("11.0.97")"#,
     );
     assert_eq!(
-        browser.look(r#"return document.getElementById("pairing").open;"#),
-        json!(false)
+        browser.look(
+            r#"return [document.getElementById("entry").open, document.getElementById("who-name").textContent];"#
+        ),
+        json!([false, "Anna"])
     );
     browser.wait(
         "the choice, kept",
@@ -897,11 +1022,7 @@ fn an_administrator_defines_the_voucher_types_the_front_desk_is_offered() {
         "choose",
         json!({ "site": simulated.site(), "network": guests }),
     );
-    browser.go(&format!("{}/door.css", steward.address()));
-    browser.act(&format!(
-        r#"localStorage.setItem("evoBearer", {bearer});"#,
-        bearer = json!(steward.operator()),
-    ));
+    signed_in_already(&mut browser, &steward);
     browser.go(&format!("{}/", steward.address()));
     go_to(&mut browser, "Voucher types");
 
@@ -1545,14 +1666,9 @@ fn the_menu_leads_from_page_to_page() {
     let steward = Steward::start(dir.path());
     browser.size(1280, 900);
 
-    // A browser that holds a bearer already, so that nothing stands
-    // before the face: on a page of the steward's that starts nothing,
-    // it is given the operator's.
-    browser.go(&format!("{}/door.css", steward.address()));
-    browser.act(&format!(
-        r#"localStorage.setItem("evoBearer", {bearer});"#,
-        bearer = json!(steward.operator()),
-    ));
+    // A browser at which someone is signed in already, so that nothing
+    // stands before the face.
+    signed_in_already(&mut browser, &steward);
     browser.go(&format!("{}/", steward.address()));
     browser.wait(
         "the menu",
@@ -1650,6 +1766,8 @@ fn the_menu_leads_from_page_to_page() {
             ),
         );
     };
+    browser.act("history.back();");
+    at(&mut browser, "People");
     browser.act("history.back();");
     at(&mut browser, "Controller");
     browser.act("history.back();");
@@ -1817,6 +1935,652 @@ fn the_menu_leads_from_page_to_page() {
         "the menu in the bar",
         r#"!onScreen(document.getElementById("menu-button")) && menuEntries().every(onScreen)"#,
     );
+    assert_eq!(steward.stop(), Some(0));
+}
+
+/// Press a button on the page of the people, by what a reader of the
+/// screen is told it is: its label where it has one, or what it says.
+fn press_on_people(browser: &mut Browser, named: &str) {
+    let button = format!(
+        r#"[...document.querySelectorAll(".people button")].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === {named})"#,
+        named = json!(named),
+    );
+    browser.wait(named, &format!("onScreen({button})"));
+    browser.act(&format!("{button}.click();"));
+}
+
+/// Wait for what the page of the people says was done.
+fn done_on_people(browser: &mut Browser, words: &str) {
+    browser.wait(
+        words,
+        &format!(
+            r#"document.querySelector(".people-said")?.textContent.includes({words})"#,
+            words = json!(words),
+        ),
+    );
+}
+
+/// The people as their page lists them: each by name, whether marked as
+/// the reader, what is said of them, and what can be done about them.
+const PEOPLE_LISTED: &str = r#"
+    return [...document.querySelectorAll(".people-list li")].map((row) => ({
+      name: row.querySelector(".person-name").textContent,
+      you: row.querySelector(".person-you") !== null,
+      administrator: row.querySelector(".person-role").textContent.startsWith("Administrator, since "),
+      does: [...row.querySelectorAll("button")].map((b) => b.getAttribute("aria-label")),
+    }));
+"#;
+
+#[test]
+fn people_sign_in_and_out_and_are_looked_after_on_a_page_of_their_own() {
+    let Some(mut browser) = Browser::open() else {
+        return;
+    };
+    browser.size(1280, 900);
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+    let keeper = Caller::here().with(&steward.operator());
+    let me = |who: &Caller| steward.usher("GET", "me", None, who).0;
+
+    // An usher that is set up: Anna is its administrator, and is signed
+    // in at another browser already.
+    let elsewhere = steward.set_up("Anna", PASSWORD);
+    browser.from(FROM_BEYOND);
+    browser.go(&format!("{}/", steward.address()));
+
+    // Whoever opens it is asked to sign in: a form a browser and a
+    // password manager take for signing in, the one form on the page.
+    browser.wait(
+        "the form to sign in",
+        r#"document.getElementById("entry")?.open === true && document.getElementById("sign-in-form") !== null"#,
+    );
+    let form = browser.look(
+        r#"
+        const of = (id) => {
+          const field = document.getElementById(id);
+          return [field.type, field.autocomplete, field.labels[0]?.textContent.trim()];
+        };
+        return {
+          heading: document.querySelector('#entry h2').textContent,
+          forms: document.querySelectorAll("form").length,
+          name: of("sign-in-name"),
+          password: of("sign-in-password"),
+          keep: [of("sign-in-keep")[0], of("sign-in-keep")[2], onScreen(document.getElementById("sign-in-keep")), document.getElementById("sign-in-keep").checked],
+          at: document.activeElement.id,
+          widgets: document.querySelectorAll("[data-widget]").length,
+        };
+        "#,
+    );
+    assert_eq!(
+        form,
+        json!({
+            "heading": "Sign in", "forms": 1,
+            "name": ["text", "username", "Name"],
+            "password": ["password", "current-password", "Password"],
+            "keep": ["checkbox", "Keep me signed in on this device", true, false],
+            "at": "sign-in-name",
+            "widgets": 0,
+        })
+    );
+
+    // Nothing typed is not sent. A wrong password is said to be the
+    // name or the password, whichever: the person stays at the form,
+    // and nothing is held.
+    browser.act(r#"document.getElementById("sign-in-form").requestSubmit();"#);
+    said_in(
+        &mut browser,
+        "sign-in-form",
+        "Type your name and your password.",
+    );
+    fill(
+        &mut browser,
+        json!({ "sign-in-name": "Anna", "sign-in-password": "three small owls sang" }),
+    );
+    // What was said of what was typed is said no longer once something
+    // is typed anew.
+    assert_eq!(
+        browser.look(
+            r#"return document.getElementById("sign-in-said").textContent;"#
+        ),
+        json!("")
+    );
+    if let Some(to) = picture_of(Some("sign-in")) {
+        browser.picture(&to);
+    }
+    fill(&mut browser, json!({ "sign-in-name": "anna" }));
+    browser.act(r#"document.getElementById("sign-in-form").requestSubmit();"#);
+    said_in(
+        &mut browser,
+        "sign-in-form",
+        "The name or the password is wrong.",
+    );
+    assert_eq!(held(&mut browser), json!({ "session": null, "kept": null }));
+    assert_eq!(
+        browser.look(
+            r#"return [document.getElementById("entry").open, document.activeElement.id];"#
+        ),
+        json!([true, "sign-in-password"])
+    );
+
+    // The right one, sent with the Enter key. A name is the same name
+    // however its letters are cased, and is written as it was made.
+    // The session is held for this session of the browser only.
+    fill(&mut browser, json!({ "sign-in-password": PASSWORD }));
+    browser.press("Enter", false);
+    browser.wait(
+        "the dialog to close",
+        r#"document.getElementById("entry").open === false"#,
+    );
+    browser.wait(
+        "who is signed in",
+        r#"document.getElementById("who-name").textContent === "Anna""#,
+    );
+    let holds = held(&mut browser);
+    assert!(holds["session"].is_string(), "{holds}");
+    assert_eq!(holds["kept"], Value::Null, "{holds}");
+    assert_eq!(
+        browser
+            .look(r#"return document.querySelectorAll('#entry form').length;"#),
+        json!(0)
+    );
+    browser.wait(
+        "the line",
+        r#"document.getElementById("line").textContent === "Joined to the steward.""#,
+    );
+
+    // The page of the people: the last in the menu. Anna is on it,
+    // marked as the reader, with nothing to be done about her but by
+    // herself.
+    go_to(&mut browser, "People");
+    browser.wait(
+        "the people",
+        r#"document.querySelectorAll(".people-list li").length === 1"#,
+    );
+    assert_eq!(
+        browser.look(PEOPLE_LISTED),
+        json!([{ "name": "Anna", "you": true, "administrator": true, "does": [] }])
+    );
+    assert_eq!(
+        browser.look(
+            r#"return [...document.querySelectorAll(".people > .row button")].filter(onScreen).map((b) => b.textContent);"#
+        ),
+        json!(["Add a person", "Change my password"])
+    );
+
+    // A person is added: a name, and a password for them, typed twice.
+    press_on_people(&mut browser, "Add a person");
+    browser.wait(
+        "the form to add a person",
+        r#"document.getElementById("add-person-form") !== null"#,
+    );
+    let form = browser.look(
+        r#"
+        const of = (id) => {
+          const field = document.getElementById(id);
+          return [field.type, field.autocomplete, field.labels[0]?.textContent];
+        };
+        const form = document.getElementById("add-person-form");
+        return {
+          forms: document.querySelectorAll(".people form").length,
+          heading: document.getElementById(form.getAttribute("aria-labelledby")).textContent,
+          name: of("add-person-name"),
+          password: of("add-person-password"),
+          again: of("add-person-again"),
+          at: document.activeElement.id,
+          advised: form.innerText.includes("12 characters or more"),
+        };
+        "#,
+    );
+    assert_eq!(
+        form,
+        json!({
+            "forms": 1, "heading": "Add a person",
+            "name": ["text", "off", "Their name"],
+            "password": ["password", "new-password", "A password for them"],
+            "again": ["password", "new-password", "The same password again"],
+            "at": "add-person-name",
+            "advised": true,
+        })
+    );
+    let add =
+        |browser: &mut Browser, name: &str, password: &str, again: &str| {
+            fill(
+                browser,
+                json!({
+                    "add-person-name": name,
+                    "add-person-password": password, "add-person-again": again,
+                }),
+            );
+            browser.act(
+            r#"document.getElementById("add-person-form").requestSubmit();"#,
+        );
+        };
+    add(&mut browser, "Ben", OTHER_PASSWORD, "a lantern in the cave");
+    said_in(
+        &mut browser,
+        "add-person-form",
+        "The two passwords are not the same.",
+    );
+    add(&mut browser, "Ben", "nave", "nave");
+    said_in(
+        &mut browser,
+        "add-person-form",
+        "A password is 12 characters at least; this one has 4.",
+    );
+    add(&mut browser, "ANNA", OTHER_PASSWORD, OTHER_PASSWORD);
+    said_in(
+        &mut browser,
+        "add-person-form",
+        "There is a person called ANNA already.",
+    );
+    add(&mut browser, "Ben", OTHER_PASSWORD, OTHER_PASSWORD);
+    done_on_people(&mut browser, "Added Ben.");
+    // The form is gone, the person stands where it is said what was
+    // done, and Ben is listed, with what can be done about him.
+    assert_eq!(
+        browser.look(
+            r#"return [document.querySelectorAll(".people form").length, document.activeElement.className];"#
+        ),
+        json!([0, "people-said"])
+    );
+    assert_eq!(
+        browser.look(PEOPLE_LISTED),
+        json!([
+            { "name": "Anna", "you": true, "administrator": true, "does": [] },
+            {
+                "name": "Ben", "you": false, "administrator": true,
+                "does": ["Set a new password for Ben", "Remove Ben"],
+            },
+        ])
+    );
+    if let Some(to) = picture_of(Some("people")) {
+        browser.picture(&to);
+    }
+    let ben = steward.signed_in("Ben", OTHER_PASSWORD);
+    assert_eq!(me(&ben), 200);
+
+    // Ben is given a new password. A browser keeps a password under the
+    // name beside it, so the form names whose it is, out of sight. He is
+    // signed out wherever he was, and the old password is his no more.
+    press_on_people(&mut browser, "Set a new password for Ben");
+    browser.wait(
+        "the form to set a password",
+        r#"document.getElementById("set-password-form") !== null"#,
+    );
+    let form = browser.look(
+        r#"
+        const form = document.getElementById("set-password-form");
+        const whose = form.querySelector('[autocomplete="username"]');
+        return {
+          heading: document.getElementById(form.getAttribute("aria-labelledby")).textContent,
+          whose: [whose.value, onScreen(whose)],
+          fields: [...form.querySelectorAll('input[type="password"]')].map((f) => f.autocomplete),
+          at: document.activeElement.id,
+        };
+        "#,
+    );
+    assert_eq!(
+        form,
+        json!({
+            "heading": "Set a new password for Ben",
+            "whose": ["Ben", false],
+            "fields": ["new-password", "new-password"],
+            "at": "set-password-new",
+        })
+    );
+    if let Some(to) = picture_of(Some("people-password")) {
+        browser.picture(&to);
+    }
+    let bens_new = "seven quiet bells ring";
+    fill(
+        &mut browser,
+        json!({ "set-password-new": bens_new, "set-password-again": bens_new }),
+    );
+    browser.act(
+        r#"document.getElementById("set-password-form").requestSubmit();"#,
+    );
+    done_on_people(&mut browser, "Ben has a new password");
+    assert_eq!(me(&ben), 401);
+    assert_eq!(steward.sign_in("Ben", OTHER_PASSWORD).0, 401);
+    let ben = steward.signed_in("Ben", bens_new);
+
+    // Anna changes her own: the one she has, and the new one twice. The
+    // one she has is asked, and a wrong one is said to be wrong. Every
+    // other browser she was signed in at is signed out; this one stays.
+    press_on_people(&mut browser, "Change my password");
+    browser.wait(
+        "the form to change a password",
+        r#"document.getElementById("change-password-form") !== null"#,
+    );
+    let form = browser.look(
+        r#"
+        const form = document.getElementById("change-password-form");
+        const whose = form.querySelector('[autocomplete="username"]');
+        return {
+          whose: [whose.value, onScreen(whose)],
+          fields: [...form.querySelectorAll('input[type="password"]')].map((f) => [f.labels[0].textContent, f.autocomplete]),
+          at: document.activeElement.id,
+        };
+        "#,
+    );
+    assert_eq!(
+        form,
+        json!({
+            "whose": ["Anna", false],
+            "fields": [
+                ["The password you have now", "current-password"],
+                ["New password", "new-password"],
+                ["The same new password again", "new-password"],
+            ],
+            "at": "change-password-current",
+        })
+    );
+    let change = |browser: &mut Browser, current: &str| {
+        fill(
+            browser,
+            json!({
+                "change-password-current": current,
+                "change-password-new": OTHER_PASSWORD,
+                "change-password-again": OTHER_PASSWORD,
+            }),
+        );
+        browser.act(
+            r#"document.getElementById("change-password-form").requestSubmit();"#,
+        );
+    };
+    change(&mut browser, "three small owls sang");
+    said_in(
+        &mut browser,
+        "change-password-form",
+        "The password you have now is not that one.",
+    );
+    assert_eq!(me(&elsewhere), 200);
+    change(&mut browser, PASSWORD);
+    done_on_people(&mut browser, "Your password is changed.");
+    assert_eq!(me(&elsewhere), 401);
+    assert_eq!(steward.sign_in("Anna", PASSWORD).0, 401);
+    let here = Caller::beyond()
+        .with(held(&mut browser)["session"].as_str().expect("a session"));
+    assert_eq!(me(&here), 200);
+    assert_eq!(
+        browser.look(
+            r#"return document.querySelectorAll(".people-list li").length;"#
+        ),
+        json!(2)
+    );
+
+    // Ben is removed, once it was asked again and answered: the person
+    // stands at the way back, and that way leaves him where he is.
+    press_on_people(&mut browser, "Remove Ben");
+    browser.wait(
+        "the question",
+        r#"document.querySelector(".people-sure")?.textContent.startsWith("Remove Ben?")"#,
+    );
+    assert_eq!(
+        browser.look("return document.activeElement.textContent;"),
+        json!("Keep")
+    );
+    browser.press("Enter", false);
+    browser.wait(
+        "the row as it was",
+        r#"document.querySelector(".people-sure") === null"#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"return [document.activeElement.getAttribute("aria-label"), document.querySelectorAll(".people-list li").length];"#
+        ),
+        json!(["Remove Ben", 2])
+    );
+    assert_eq!(me(&ben), 200);
+    press_on_people(&mut browser, "Remove Ben");
+    browser.wait(
+        "the question",
+        r#"document.querySelector(".people-sure") !== null"#,
+    );
+    // The button that removes is named for what it does.
+    press_on_people(&mut browser, "Remove Ben");
+    done_on_people(&mut browser, "Removed Ben.");
+    assert_eq!(
+        browser.look(PEOPLE_LISTED),
+        json!([{ "name": "Anna", "you": true, "administrator": true, "does": [] }])
+    );
+    assert_eq!(me(&ben), 401);
+    assert_eq!(steward.sign_in("Ben", bens_new).0, 401);
+
+    // A session that is ended elsewhere, here by a new password set for
+    // Anna: at the next thing asked, the form to sign in stands over the
+    // page, and the page is left as it was, with what was typed on it.
+    go_to(&mut browser, "Voucher types");
+    browser.wait(
+        "the form to add a type",
+        r#"onScreen(widget("usher.types").querySelector('[name="name"]'))"#,
+    );
+    browser.act(
+        r#"type(widget("usher.types").querySelector('[name="name"]'), "Half typed");"#,
+    );
+    let (status, set) = steward.usher(
+        "POST",
+        "set_password",
+        Some(json!({ "name": "Anna", "password": PASSWORD })),
+        &keeper,
+    );
+    assert_eq!(status, 200, "{set}");
+    assert_eq!(me(&here), 401);
+    browser.act(r#"menuEntry("People").click();"#);
+    browser.wait(
+        "the form to sign in, over the page",
+        r#"document.getElementById("entry").open === true && document.getElementById("sign-in-form") !== null"#,
+    );
+    let over = browser.look(
+        r#"
+        return {
+          fragment: location.hash,
+          typed: widget("usher.types").querySelector('[name="name"]').value,
+          widgets: document.querySelectorAll("[data-widget]").length,
+          who: onScreen(document.getElementById("who")),
+          line: document.getElementById("line").textContent,
+        };
+        "#,
+    );
+    assert_eq!(
+        over,
+        json!({
+            "fragment": "#/people", "typed": "Half typed", "widgets": 6,
+            "who": false, "line": "Not signed in.",
+        })
+    );
+    assert_eq!(held(&mut browser), json!({ "session": null, "kept": null }));
+    fill(
+        &mut browser,
+        json!({ "sign-in-name": "Anna", "sign-in-password": PASSWORD }),
+    );
+    browser.act(r#"document.getElementById("sign-in-form").requestSubmit();"#);
+    browser.wait(
+        "the dialog to close",
+        r#"document.getElementById("entry").open === false"#,
+    );
+    browser.wait(
+        "the people again",
+        r#"document.querySelectorAll(".people-list li").length === 1 && document.getElementById("who-name").textContent === "Anna""#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"return widget("usher.types").querySelector('[name="name"]').value;"#
+        ),
+        json!("Half typed")
+    );
+    browser.wait(
+        "the line again",
+        r#"document.getElementById("line").textContent === "Joined to the steward.""#,
+    );
+
+    // Signed out: the session is ended at the usher and forgotten by the
+    // browser, nothing of the steward's stays on the screen, and the
+    // form to sign in stands there.
+    let session = held(&mut browser)["session"]
+        .as_str()
+        .expect("a session")
+        .to_string();
+    let was = Caller::beyond().with(&session);
+    assert_eq!(me(&was), 200);
+    browser.act(r#"document.getElementById("sign-out").click();"#);
+    browser.wait(
+        "the form to sign in",
+        r#"document.getElementById("entry").open === true && document.getElementById("sign-in-form") !== null"#,
+    );
+    let out = browser.look(
+        r#"
+        return {
+          widgets: document.querySelectorAll("[data-widget]").length,
+          menu: menuEntries().length,
+          people: document.querySelectorAll(".people-list li").length,
+          who: onScreen(document.getElementById("who")),
+          title: document.title,
+        };
+        "#,
+    );
+    assert_eq!(
+        out,
+        json!({ "widgets": 0, "menu": 0, "people": 0, "who": false, "title": "Usher" })
+    );
+    assert_eq!(held(&mut browser), json!({ "session": null, "kept": null }));
+    assert_eq!(me(&was), 401);
+
+    // Signed in with the box ticked, the session is kept on the device:
+    // the browser is still signed in when the usher is opened anew.
+    fill(
+        &mut browser,
+        json!({ "sign-in-name": "Anna", "sign-in-password": PASSWORD }),
+    );
+    browser.act(
+        r#"
+        document.getElementById("sign-in-keep").click();
+        document.getElementById("sign-in-form").requestSubmit();
+        "#,
+    );
+    browser.wait(
+        "the dialog to close",
+        r#"document.getElementById("entry").open === false"#,
+    );
+    let holds = held(&mut browser);
+    assert_eq!(holds["session"], Value::Null, "{holds}");
+    assert!(holds["kept"].is_string(), "{holds}");
+    browser.go(&format!("{}/", steward.address()));
+    browser.wait(
+        "who is signed in",
+        r#"document.getElementById("who-name").textContent === "Anna" && menuEntries().length > 0"#,
+    );
+    assert_eq!(
+        browser.look(r#"return document.getElementById("entry").open;"#),
+        json!(false)
+    );
+
+    // Whoever has the unit's files takes the people away: the usher
+    // asks to be set up again, by whoever opens it next.
+    std::fs::remove_file(steward.people_file()).unwrap();
+    browser.reload();
+    browser.wait(
+        "the form that sets an usher up",
+        r#"document.getElementById("entry")?.open === true && document.getElementById("set-up-form") !== null"#,
+    );
+    assert_eq!(steward.stop(), Some(0));
+}
+
+#[test]
+fn the_extended_level_asks_the_units_code_and_keeps_no_browser_signed_in() {
+    let Some(mut browser) = Browser::open() else {
+        return;
+    };
+    browser.size(1280, 900);
+    let dir = short_dir();
+    let steward = Steward::start_extended(dir.path());
+    browser.from(FROM_BEYOND);
+    browser.go(&format!("{}/", steward.address()));
+
+    // Setting the usher up takes the code that is read on the unit
+    // itself, and a longer password.
+    browser.wait(
+        "the form that sets an usher up",
+        r#"document.getElementById("entry")?.open === true && document.getElementById("set-up-form") !== null"#,
+    );
+    let form = browser.look(
+        r#"
+        const code = document.getElementById("set-up-code");
+        return {
+          code: [onScreen(code), code.type, code.autocomplete, code.labels[0].textContent],
+          advised: document.getElementById("set-up-advice").textContent.includes("16 characters or more"),
+        };
+        "#,
+    );
+    assert_eq!(
+        form,
+        json!({
+            "code": [true, "text", "one-time-code", "The unit's code"],
+            "advised": true,
+        })
+    );
+    let set_up = |browser: &mut Browser, password: &str, code: &str| {
+        fill(
+            browser,
+            json!({
+                "set-up-name": "Anna",
+                "set-up-password": password, "set-up-again": password,
+                "set-up-code": code,
+            }),
+        );
+        browser
+            .act(r#"document.getElementById("set-up-form").requestSubmit();"#);
+    };
+    set_up(&mut browser, PASSWORD, "  ");
+    said_in(&mut browser, "set-up-form", "Type the unit's code.");
+    set_up(&mut browser, PASSWORD, "not-the-code");
+    said_in(&mut browser, "set-up-form", "That is not the unit's code.");
+    if let Some(to) = picture_of(Some("set-up-code")) {
+        browser.picture(&to);
+    }
+    set_up(&mut browser, "fifteen letters", UNITS_CODE);
+    said_in(
+        &mut browser,
+        "set-up-form",
+        "A password is 16 characters at least; this one has 15.",
+    );
+    let (_, state) = steward.usher("GET", "state", None, &Caller::beyond());
+    assert_eq!(state["set_up"], false, "{state}");
+    // The code, with the spaces a paste brings along.
+    set_up(&mut browser, PASSWORD, &format!("  {UNITS_CODE} "));
+    browser.wait(
+        "the dialog to close",
+        r#"document.getElementById("entry").open === false"#,
+    );
+    browser.wait(
+        "who is signed in",
+        r#"document.getElementById("who-name").textContent === "Anna""#,
+    );
+
+    // Signing in, nobody is offered to be kept signed in.
+    browser.act(r#"document.getElementById("sign-out").click();"#);
+    browser.wait(
+        "the form to sign in",
+        r#"document.getElementById("entry").open === true && document.getElementById("sign-in-form") !== null"#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"return onScreen(document.getElementById("sign-in-keep"));"#
+        ),
+        json!(false)
+    );
+    fill(
+        &mut browser,
+        json!({ "sign-in-name": "Anna", "sign-in-password": PASSWORD }),
+    );
+    browser.act(r#"document.getElementById("sign-in-form").requestSubmit();"#);
+    browser.wait(
+        "the dialog to close",
+        r#"document.getElementById("entry").open === false"#,
+    );
+    let holds = held(&mut browser);
+    assert!(holds["session"].is_string(), "{holds}");
+    assert_eq!(holds["kept"], Value::Null, "{holds}");
     assert_eq!(steward.stop(), Some(0));
 }
 

@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{short_dir, Caller, Steward, PAIRING_CODE};
+use common::{short_dir, Caller, Steward, PASSWORD};
 use serde_json::{json, Value};
 
 const SHELL: &str = "org.evoframework.usher.shell";
@@ -32,6 +32,7 @@ fn the_steward_serves_the_door_the_shell_and_the_widget_pack() {
         format!("/{SHELL}/compose.js"),
         format!("/{SHELL}/pages.js"),
         format!("/{SHELL}/brand.js"),
+        format!("/{SHELL}/people.js"),
         format!("/{SHELL}/theme.js"),
         format!("/{WIDGETS}/index.js"),
         format!("/{WIDGETS}/controller.js"),
@@ -204,341 +205,10 @@ fn each_plugin_stands_on_the_ui_shelf_of_its_catalogue_shelf() {
 }
 
 #[test]
-fn what_lets_guests_on_is_asked_only_with_a_credential() {
+fn no_caller_locks_a_signed_in_browser_out_of_the_counter() {
     let dir = short_dir();
     let steward = Steward::start(dir.path());
-    let beyond = Caller::beyond();
-
-    // Every request of every shelf is refused to a caller who presents
-    // nothing, before it reaches a plugin: how many vouchers are held
-    // among them.
-    for (shelf, request) in [
-        ("stock.reserve", "count"),
-        ("access.controller", "probe"),
-        ("access.controller", "set"),
-        ("access.controller", "info"),
-        ("access.controller", "sites"),
-        ("access.controller", "mint"),
-        ("access.controller", "list"),
-        ("access.controller", "revoke"),
-        ("networks.directory", "networks"),
-        ("networks.directory", "choose"),
-        ("networks.directory", "chosen"),
-        ("stock.reserve", "put"),
-        ("stock.reserve", "take"),
-        ("stock.reserve", "held"),
-        ("stock.reserve", "release"),
-        ("issue.counter", "types"),
-        ("issue.counter", "offered"),
-        ("issue.counter", "put_type"),
-        ("issue.counter", "drop_type"),
-        ("issue.counter", "enable_type"),
-        ("issue.counter", "set_default"),
-        ("issue.counter", "order_types"),
-        ("issue.counter", "hand"),
-        ("issue.counter", "assign"),
-        ("issue.counter", "handed"),
-    ] {
-        let (status, refused) = steward.op(
-            "request",
-            json!({
-                "shelf": shelf,
-                "request_type": request,
-                "payload_b64": common::encoded(&json!({})),
-            }),
-            &beyond,
-        );
-        assert_eq!(status, 401, "{shelf} {request}: {refused}");
-        assert_eq!(
-            refused["error"]["details"]["subclass"], "bearer_required",
-            "{shelf} {request}: {refused}"
-        );
-    }
-
-    // The code the unit was given pairs one browser, once, and a wrong
-    // guess spends it as a right one does.
-    let pair = |steward: &Steward, code: &str| {
-        steward.op(
-            "pair_complete",
-            json!({"pair_id": "bootstrap", "code": code}),
-            &beyond,
-        )
-    };
-    let (status, wrong) = pair(&steward, "not-the-code");
-    assert_eq!(status, 403, "{wrong}");
-    let (status, spent) = pair(&steward, PAIRING_CODE);
-    assert_eq!(status, 403, "a wrong guess spent the code: {spent}");
-    assert_eq!(steward.stop(), Some(0));
-
-    // The unit takes its code again when it is next started.
-    let steward = Steward::start(dir.path());
-    let (status, paired) = pair(&steward, PAIRING_CODE);
-    assert_eq!(status, 200, "{paired}");
-    let bearer = paired["token"].as_str().expect("a bearer").to_string();
-    let (status, again) = pair(&steward, PAIRING_CODE);
-    assert_eq!(status, 403, "the code is spent: {again}");
-
-    // Paired, the same caller is answered.
-    let paired = beyond.with(&bearer);
-    assert_eq!(
-        steward.ask_as(&paired, "access.controller", "info", json!({})),
-        json!({"set": false})
-    );
-    assert_eq!(
-        steward.ask_as(
-            &paired,
-            "stock.reserve",
-            "take",
-            json!({"type": "day"})
-        ),
-        json!({"voucher": null})
-    );
-
-    // A program on the same machine that has shown no capability is
-    // refused like anyone else.
-    let local = steward.local("access.controller", "info", json!({}));
-    assert_eq!(
-        local["error"]["details"]["subclass"],
-        "verb_capability_scope_not_granted",
-        "{local}"
-    );
-    assert_eq!(steward.stop(), Some(0));
-
-    // Started again, the unit still knows the browser it paired: the
-    // bearer it gave is answered, and nothing is paired a second time.
-    let steward = Steward::start(dir.path());
-    assert_eq!(
-        steward.ask_as(&paired, "access.controller", "info", json!({})),
-        json!({"set": false})
-    );
-    assert_eq!(steward.stop(), Some(0));
-}
-
-#[test]
-fn a_caller_on_the_lan_is_asked_for_a_credential_too() {
-    let dir = short_dir();
-    let steward = Steward::start(dir.path());
-
-    // On the same machine, and elsewhere on the network behind the proxy:
-    // a caller who presents nothing is refused every request, as one
-    // from beyond the network is.
-    for caller in [Caller::here(), Caller::on_the_lan()] {
-        for (shelf, request) in [
-            ("stock.reserve", "count"),
-            ("access.controller", "probe"),
-            ("access.controller", "set"),
-            ("access.controller", "info"),
-            ("access.controller", "mint"),
-            ("access.controller", "revoke"),
-            ("networks.directory", "choose"),
-            ("networks.directory", "chosen"),
-            ("stock.reserve", "put"),
-            ("stock.reserve", "take"),
-            ("stock.reserve", "held"),
-            ("stock.reserve", "release"),
-            ("issue.counter", "types"),
-            ("issue.counter", "offered"),
-            ("issue.counter", "put_type"),
-            ("issue.counter", "drop_type"),
-            ("issue.counter", "enable_type"),
-            ("issue.counter", "set_default"),
-            ("issue.counter", "order_types"),
-            ("issue.counter", "hand"),
-            ("issue.counter", "assign"),
-            ("issue.counter", "handed"),
-        ] {
-            let (status, refused) = steward.op(
-                "request",
-                json!({
-                    "shelf": shelf,
-                    "request_type": request,
-                    "payload_b64": common::encoded(&json!({})),
-                }),
-                &caller,
-            );
-            assert_eq!(status, 401, "{caller:?} {shelf} {request}: {refused}");
-            assert_eq!(
-                refused["error"]["details"]["subclass"], "bearer_required",
-                "{caller:?} {shelf} {request}: {refused}"
-            );
-        }
-    }
-
-    // Pairing is how a browser on the network comes by the capability,
-    // and it is still open to one.
-    let lan = Caller::on_the_lan();
-    let (status, paired) = steward.op(
-        "pair_complete",
-        json!({"pair_id": "bootstrap", "code": PAIRING_CODE}),
-        &lan,
-    );
-    assert_eq!(status, 200, "{paired}");
-    let bearer = paired["token"].as_str().expect("a bearer").to_string();
-    assert_eq!(
-        steward.ask_as(
-            &lan.with(&bearer),
-            "access.controller",
-            "info",
-            json!({})
-        ),
-        json!({"set": false}),
-        "paired, the same caller is answered"
-    );
-    assert_eq!(steward.stop(), Some(0));
-}
-
-#[test]
-fn a_caller_with_no_valid_bearer_gets_the_face_and_pairing_and_no_more() {
-    let dir = short_dir();
-    let steward = Steward::start(dir.path());
-    let operator = Caller::here().with(&steward.operator());
-
-    // Every operation the steward has, as evo itself lists them.
-    let operations: Vec<String> = evo::projection_schema::canonical_schema()
-        .iter()
-        .map(|operation| operation.id.as_str().to_string())
-        .collect();
-    assert!(operations.len() > 100, "{}", operations.len());
-    for dangerous in [
-        "create_bearer_token",
-        "revoke_bearer_token",
-        "list_bearer_tokens",
-        "household_protection_set",
-        "request",
-    ] {
-        assert!(operations.iter().any(|op| op == dangerous), "{dangerous}");
-    }
-    let open = ["pair_complete", "describe_active_ui_selection"];
-
-    // A bearer evo would have made for the asking, with every right.
-    let mint = json!({
-        "name": "made for nobody", "reason": "asked for with no bearer",
-        "scopes": [
-            {"kind": "step_up", "scope": "network_admin"},
-            {"kind": "write", "scope": "plugins"},
-        ],
-    });
-    // A bearer that is none, and one that reads as one and is not this
-    // steward's.
-    let forged = "eyJpZCI6ImZvcmdlZCIsImNhcGFiaWxpdGllcyI6W119.c2lnbmF0dXJl";
-
-    for (name, caller) in [
-        ("from beyond", Caller::beyond()),
-        ("on the LAN", Caller::on_the_lan()),
-        ("on the machine", Caller::here()),
-        (
-            "with nonsense for a bearer",
-            Caller::beyond().with("nonsense"),
-        ),
-        ("with a forged bearer", Caller::on_the_lan().with(forged)),
-    ] {
-        // No bearer is made for the asking.
-        for path in [
-            "/api/v1/create_bearer_token",
-            // Spelt another way, it is the same operation.
-            "/%61pi/v1/create_bearer_token",
-            "/api%2Fv1%2Fcreate_bearer_token",
-        ] {
-            let (status, said) =
-                steward.put_to("POST", path, Some(&mint), &[], &caller);
-            assert_eq!(status, 401, "{name}: {path}: {said}");
-            assert!(!said.contains("\"token\""), "{name}: {path}: {said}");
-        }
-        // Nor is any other operation answered, read or written, but
-        // pairing and what the door asks before a browser is paired.
-        for operation in &operations {
-            for method in ["GET", "POST", "PUT", "DELETE"] {
-                let (status, said) = steward.put_to(
-                    method,
-                    &format!("/api/v1/{operation}"),
-                    (method != "GET").then_some(&json!({})),
-                    &[],
-                    &caller,
-                );
-                if open.contains(&operation.as_str()) {
-                    // Open to whoever presents nothing. A bearer that is
-                    // none is refused by evo wherever it is presented.
-                    if caller.bearer.is_none() {
-                        assert_ne!(status, 401, "{name}: {method} {operation}");
-                    }
-                } else {
-                    assert_eq!(
-                        status, 401,
-                        "{name}: {method} {operation}: {said}"
-                    );
-                }
-            }
-        }
-        // The WebSocket is not opened, and what is no operation of the
-        // steward's is no way round.
-        for path in [
-            "/api/v1/ws",
-            "/api/v1/",
-            "/api/v1",
-            "/api/v1/_witness/recent",
-        ] {
-            let (status, _) = steward.put_to("GET", path, None, &[], &caller);
-            assert_eq!(status, 401, "{name}: {path}");
-        }
-        // The face is read, and nothing is written to it.
-        for path in ["/", "/org.evoframework.usher.shell/shell.js"] {
-            let (status, _) = steward.put_to("GET", path, None, &[], &caller);
-            assert_eq!(status, 200, "{name}: {path}");
-            let (status, _) =
-                steward.put_to("POST", path, Some(&json!({})), &[], &caller);
-            assert_eq!(status, 401, "{name}: POST {path}");
-        }
-    }
-
-    // Nothing was made: the operator, who holds a bearer, is told of no
-    // bearer by that name.
-    let (status, told) = steward.op("list_bearer_tokens", json!({}), &operator);
-    assert_eq!(status, 200, "{told}");
-    assert!(!told.to_string().contains("made for nobody"), "{told}");
-
-    // A bearer counts where evo reads one. Named as a subprotocol it
-    // opens the WebSocket and nothing else: on any other operation evo
-    // would read none, and take the caller for one who has none.
-    let as_subprotocol = format!("evo.bearer.{}", steward.operator());
-    let (status, said) = steward.put_to(
-        "POST",
-        "/api/v1/create_bearer_token",
-        Some(&mint),
-        &[("Sec-WebSocket-Protocol", &as_subprotocol)],
-        &Caller::beyond(),
-    );
-    assert_eq!(status, 401, "{said}");
-
-    // Pairing is the way in, and whoever is paired is answered.
-    let beyond = Caller::beyond();
-    let (status, paired) = steward.op(
-        "pair_complete",
-        json!({"pair_id": "bootstrap", "code": PAIRING_CODE}),
-        &beyond,
-    );
-    assert_eq!(status, 200, "{paired}");
-    let browser = beyond.with(paired["token"].as_str().expect("a bearer"));
-    assert_eq!(
-        steward.ask_as(&browser, "issue.counter", "types", json!({})),
-        json!({ "types": [], "default": null, "disabled": [] })
-    );
-    assert_eq!(steward.stop(), Some(0));
-}
-
-#[test]
-fn no_caller_locks_a_paired_browser_out_of_the_counter() {
-    let dir = short_dir();
-    let steward = Steward::start(dir.path());
-    let beyond = Caller::beyond();
-    let (status, paired) = steward.op(
-        "pair_complete",
-        json!({"pair_id": "bootstrap", "code": PAIRING_CODE}),
-        &beyond,
-    );
-    assert_eq!(status, 200, "{paired}");
-    let browser = beyond
-        .clone()
-        .with(paired["token"].as_str().expect("a bearer"));
+    let browser = steward.set_up("Anna", PASSWORD);
     let day = json!({
         "name": "Day guest", "minutes": 1440, "guests": 1,
         "megabytes": null, "down_kbps": null, "up_kbps": null,
@@ -555,20 +225,21 @@ fn no_caller_locks_a_paired_browser_out_of_the_counter() {
 
     // evo lets anyone who stands before a home player raise its
     // household's level of protection, and takes the device's password
-    // to lower it. Raised to the highest by a caller who presents
-    // nothing, from beyond the network and from within it, it keeps
-    // nothing of the usher from a paired browser.
-    for (caller, level) in [
-        (Caller::beyond(), json!({"level": "strict", "lend": false})),
-        (
-            Caller::on_the_lan(),
-            json!({"level": "strict", "lend": true}),
-        ),
-        (browser.clone(), json!({"level": "strict", "lend": true})),
-    ] {
-        steward.op("household_protection_set", level, &caller);
-        assert_eq!(asked(&steward), before, "{caller:?}");
+    // to lower it. A caller who has not signed in does not reach it
+    // here; and raised to the highest by whoever holds the unit's own
+    // bearer, it keeps nothing of the usher from who has signed in.
+    let level = json!({"level": "strict", "lend": true});
+    for caller in [Caller::beyond(), Caller::on_the_lan()] {
+        let (status, _) =
+            steward.op("household_protection_set", level.clone(), &caller);
+        assert_eq!(status, 401, "{caller:?}");
     }
+    let keeper = Caller::here().with(&steward.operator());
+    let (status, raised) =
+        steward.op("household_protection_set", level, &keeper);
+    assert_eq!(status, 200, "{raised}");
+    assert_eq!(raised["level"], "strict", "{raised}");
+    assert_eq!(asked(&steward), before);
 
     // Nor after the unit is started again on what it kept.
     assert_eq!(steward.stop(), Some(0));

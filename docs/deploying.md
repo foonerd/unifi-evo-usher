@@ -4,7 +4,7 @@ For whoever puts a unit on a site's network: in Docker, behind a proxy that hold
 
 Every command and setting here is marked with where it comes from:
 
-- **Proven** - run by `scripts/prove-proxy.sh`, which CI runs on every push against the files as they stand in this repository.
+- **Proven** - run by `scripts/prove-proxy.sh`, or, where it says so, by `scripts/prove-unit.sh` or a test; CI runs all three on every push against the files as they stand in this repository.
 - **Run here** - run by hand on a test network while this guide was written, against a local ACME test server where a certificate authority was needed.
 - **From the documentation** - taken from the maker's own documentation and not run. Everything said of DSM is of this kind: no DSM stood in the test network.
 
@@ -12,8 +12,8 @@ Every command and setting here is marked with where it comes from:
 
 - **One listener.** The steward serves HTTPS on port 8443: the face, the API under `/api/v1`, and a WebSocket at `/api/v1/ws`, over which the face hears what happens. A browser names its bearer on that WebSocket in the `Sec-WebSocket-Protocol` header. There is no plain-HTTP listener for a proxy to speak to: a proxy speaks HTTPS to the unit.
 - **Its own certificate.** The unit makes an authority of its own when it first starts, `/var/lib/evo/state/https/ca.crt`, and serves a certificate signed by it, renewed by itself. That certificate names the unit `localhost` and `127.0.0.1` and nothing else. A browser that reaches the unit by any other name is warned, also with the authority installed. A site that wants no warning puts a proxy with the site's certificate in front of the unit.
-- **What it keeps.** Everything is under `/var/lib/evo`: the controller's address and key, the unit's authority with its private key, the key bearers are signed with, the voucher types, the vouchers held, the record of what was handed out, and the browsers paired. Whoever has that directory has the unit.
-- **Who is answered.** A browser is paired once, with the pairing code, and from then on presents a bearer. A caller who presents no valid bearer is given the files of the face and may pair; every other request, the WebSocket among them, is answered 401, from whatever address it comes (**proven**: a test asks every operation the steward has, without a bearer and with a forged one).
+- **What it keeps.** Everything is under `/var/lib/evo`: the controller's address and key, the unit's authority with its private key, the key bearers are signed with, the voucher types, the vouchers held, the record of what was handed out, and the people who can sign in, each with a hash of their password. Whoever has that directory has the unit.
+- **Who is answered.** Whoever has signed in, with a name and a password. A caller who has not is given the files of the face and the way to sign in; every other request, the WebSocket among them, is answered 401, from whatever address it comes (**proven**: a test asks every operation the steward has, with no bearer, with a forged one, and with one of the steward's own making that is no person's session). [Who comes in](#who-comes-in) says the rest.
 
 ## In Docker
 
@@ -22,13 +22,11 @@ A release of this repository publishes the image as `ghcr.io/foonerd/unifi-evo-u
 `packaging/docker/compose.yaml` runs the unit by itself. **Proven.**
 
 ```sh
-od -An -N6 -tx1 /dev/urandom | tr -d ' \n' > pairing-code
-chmod 644 pairing-code
 USHER_VERSION=<version> docker compose up -d
 docker compose cp usher:/var/lib/evo/state/https/ca.crt ./unit-ca.crt
 ```
 
-The face is then at `https://localhost:8443/`, believed by `unit-ca.crt`.
+The face is then at `https://localhost:8443/`, believed by `unit-ca.crt`. Nobody has set the unit up yet: whoever opens the face first does, by choosing the name and the password they sign in with from then on. Open it before the unit is reachable by anyone it is not meant for.
 
 | Variable | What it sets |
 | --- | --- |
@@ -36,13 +34,12 @@ The face is then at `https://localhost:8443/`, believed by `unit-ca.crt`.
 | `USHER_IMAGE` | The image, where it is not `ghcr.io/foonerd/unifi-evo-usher`. |
 | `USHER_ADDRESS` | The address the face is published on. Every address unless one is named; `127.0.0.1` for a unit that only a proxy on the same machine reaches. |
 | `USHER_PORT` | The port it is published on, 8443 unless another is named. |
-| `USHER_PAIRING_CODE` | The file with the pairing code, `./pairing-code` unless another is named. |
 
 What the file sets, and why:
 
 - **The least privilege.** The unit runs as the image's one account, numbered 10001, with every capability dropped, no way to gain a privilege, and a root file system it cannot write to. The steward needs none of them. **Proven**: the proof looks at the container for each of the four and then uses the unit.
 - **What it keeps.** A named volume, `kept`, at `/var/lib/evo`. Docker gives a new named volume to the image's account, so nothing has to be set. A folder of the machine can stand in its place; it must then belong to the account 10001 and be closed to others (**from the documentation** of Docker's bind mounts; not run here).
-- **The pairing code.** A unit in a container makes no pairing code of its own; it is given one in a file, as a Compose secret, which the account 10001 must be able to read. The unit takes the code from the file every time it starts, and a code pairs one browser, once, per start: after `docker compose restart usher` the code in the file pairs the next browser. A wrong guess spends the code until the next start. Put a new code into the file when the old one was seen by anyone it was not meant for.
+- **The level of security.** The file runs the unit at the ordinary level. `packaging/docker/extended.yaml`, named after it, runs it at the extended one, where setting the unit up takes the unit's code as well: see [Who comes in](#who-comes-in). **Proven**, at both levels.
 - **Its socket.** `/run/evo` is kept in memory; the steward's client socket lives there.
 
 The image has no shell and no program to ask the unit how it is. A monitor asks `GET /` on the unit's port and expects `200`.
@@ -57,11 +54,11 @@ A proxy in front of the unit holds the site's certificate towards the browser, a
 2. Pass the WebSocket at `/api/v1/ws` on, with the `Sec-WebSocket-Protocol` header.
 3. Keep that line open for as long as a screen is open.
 
-There is an example for each of four proxies under `packaging/proxy/`, each a Compose file with the unit and the proxy, and the proxy's configuration beside it. In every one the unit publishes no port: only the proxy reaches it. **Proven**, for each of the four: the face loads through the proxy under the site's certificate, a caller who presents nothing is refused, a browser pairs and is answered, a happening arrives over the WebSocket, and a proxy that is given another authority than the unit's passes nothing on.
+There is an example for each of four proxies under `packaging/proxy/`, each a Compose file with the unit and the proxy, and the proxy's configuration beside it. In every one the unit publishes no port: only the proxy reaches it. **Proven**, for each of the four: the face loads through the proxy under the site's certificate, a caller who has not signed in is refused, the unit is set up and signed in to and answers, a happening arrives over the WebSocket, and a proxy that is given another authority than the unit's passes nothing on.
 
 ```sh
 cd packaging/proxy/nginx        # or apache, caddy, traefik
-# beside the files pairing-code, site.crt and site.key:
+# beside the files site.crt and site.key:
 USHER_VERSION=<version> docker compose up -d usher
 docker compose cp usher:/var/lib/evo/state/https/ca.crt ./unit-ca.crt
 USHER_VERSION=<version> docker compose up -d
@@ -79,6 +76,59 @@ The examples call the usher `usher.example.org`; the name the site gives it goes
 | Traefik | `traefik/compose.yaml`, `traefik/traefik.yaml`, `traefik/usher.yaml` | A `serversTransport` with `rootCAs` and `serverName: localhost`. The usher is described in a file, so Traefik needs no way to the Docker socket. Traefik passes a WebSocket on by itself. |
 
 To the unit, every caller is the proxy: it does not learn the address a caller has behind a proxy in another container (**run here**: a forwarded address sent that way changed nothing). Whatever is to depend on where a caller comes from is decided at the proxy.
+
+## Who comes in
+
+**Setting up.** A new unit has nobody. Whoever opens its face first is asked for a name and a password, twice, and is from then on its first administrator, and signed in. A unit is set up once: after that the same address asks to sign in. **Proven** by `scripts/prove-proxy.sh` and `scripts/prove-unit.sh`: a second setting up is refused.
+
+**Signing in.** A name and a password. A name is the same name however its letters are cased. A browser is signed in for as long as it stays open, and for twelve hours at most; with "Keep me signed in on this device" ticked, for thirty days on that browser. "Sign out" in the bar ends the session at once. The form is one a password manager recognises, so the password can be kept in one.
+
+**A password** is 12 characters or more at the standard level and 16 at the extended, and 128 at most. Nothing else is asked of it: no digits, no signs, no change after a time. A few words in a row are long enough and easy to remember. The unit keeps a hash of it (Argon2id) and never the password.
+
+**People.** An administrator adds other people on the page People, each with a name and a password of their own, sets a new password for one who forgot theirs, and removes one. Everyone changes their own password there. A new password, and a removal, sign that person out everywhere at once. The last administrator is not removed.
+
+**Wrong tries.** Five wrong passwords in a row for a name hold that name for fifteen minutes, whoever tries and from wherever. A wrong name and a wrong password are answered alike. Anyone who can reach the unit can hold a name that way, which is one more reason to let only the networks the usher is used from reach it.
+
+**The two levels.** How strict a unit is, is its administrator's choice, made where the unit is started, in `USHER_SECURITY`:
+
+| | `standard`, the ordinary level | `extended` |
+| --- | --- | --- |
+| Setting the unit up | a name and a password | a name, a password, and the unit's code |
+| A password | 12 characters or more | 16 characters or more |
+| A session | twelve hours | eight hours |
+| Kept signed in on a device | thirty days, where asked for | never |
+
+With nothing said the level is `standard`. A value that is neither stops the unit from starting, and says so: a mistyped level is not taken for the laxer one (**proven** by a test).
+
+- An installed unit: `sudo systemctl edit evo`, the two lines `[Service]` and `Environment=USHER_SECURITY=extended`, then `sudo systemctl restart evo`. The unit makes its code anew at every start, for its own account alone; it is read on the unit with `sudo cat /run/evo/unit-code`. **Proven** by `scripts/prove-unit.sh`.
+- A unit in a container: `packaging/docker/extended.yaml` named after the Compose file, beside a file `unit-code` that holds the code and that the account 10001 can read. A unit in a container makes no code of its own and has nowhere to show one, so it is given the code. **Proven.**
+
+  ```sh
+  od -An -N6 -tx1 /dev/urandom | tr -d ' \n' > unit-code
+  chmod 644 unit-code
+  USHER_VERSION=<version> docker compose -f compose.yaml -f ../../docker/extended.yaml up -d   # from packaging/proxy/<proxy>
+  ```
+
+  `USHER_CODE` names the file where it is not `./unit-code`. Five wrong codes in a row hold the code for fifteen minutes.
+
+At the ordinary level whoever reaches a new unit first sets it up. Where a unit is reachable by people it is not meant for before its administrator has opened it, run it at the extended level.
+
+**A forgotten password.** Another administrator sets a new one, on the page People. Where there is no other, whoever has the unit's files lets it be set up anew: the file of the people is taken away, and the next to open the face sets the unit up, at once and without a restart. Everything else the unit keeps stays: the controller, the voucher types, the vouchers. **Proven** by `scripts/prove-unit.sh` and a test.
+
+```sh
+sudo rm /var/lib/evo/state/usher/people.json        # an installed unit
+```
+
+A unit in a container has no shell to do it with. A file that holds nobody is put in the place of its people, from the Compose project's folder; the unit need not be stopped. **Proven.**
+
+```sh
+echo '[]' > people.json
+docker compose cp people.json usher:/var/lib/evo/state/usher/people.json
+```
+
+**What a session is.** A bearer the unit makes for whoever signed in, good for the usher's pages and for nothing of the steward's own administration. The browser holds it and presents it with every request; nobody sees or types it. The unit knows every session it gave and ends one at once on signing out, on a new password, and on a removal. One thing outlasts a session that ended: a line a browser had open to hear what happens stays open until that browser closes it. It hears, and nothing can be asked over it (**proven** by a test).
+
+**The unit's own bearer.** The unit keeps one bearer of its own, in `/var/lib/evo/state/https/bootstrap.token`, for its own account alone. Whoever can read the unit's files can read it, and is answered everything with it. It is how a program on the unit itself asks the steward.
 
 ## Certificates
 
@@ -124,7 +174,7 @@ Written **from the documentation** of DSM 7.2 and Container Manager; none of it 
 A Synology has a proxy and a certificate store of its own, so the unit runs alone, published on the loopback address, and DSM stands in front of it.
 
 1. **The project.** In Container Manager, Project, Create: a name, a folder as the path, and `packaging/docker/compose.yaml` as the Compose file, uploaded or pasted (https://kb.synology.com/en-global/DSM/help/ContainerManager/docker_project?version=7). Where the project gives no way to set a variable, the values are written into the file in the place of `${...}`: the version, and `127.0.0.1` for the address, so that only DSM itself reaches the unit.
-2. **The pairing code.** A file `pairing-code` in the project's folder, which the account 10001 can read: a file that others may read.
+2. **Setting it up.** Once the proxy and the certificate below stand, the face is opened under the name the site gives the usher, and whoever opens it first sets the unit up with a name and a password. Until then the unit's port is on the loopback address, where only the Synology itself reaches it.
 3. **What the unit keeps.** The Compose file keeps it in a named volume, which Docker gives to the unit's account; no shared folder has to be given to an account DSM does not know. Container Manager's Clean runs `docker-compose down`, and Synology's page says the project's volumes go with it: Stop is what stops a unit.
 4. **The proxy.** Control Panel, Login Portal, Advanced, Reverse Proxy, Create (https://kb.synology.com/en-global/DSM/help/DSM/AdminCenter/system_login_portal_advanced?version=7):
    - Source: HTTPS, the name the site gives the usher, port 443, HSTS enabled.
@@ -145,13 +195,13 @@ Each line names what it rests on.
 
 - Run as the image's account, with `cap_drop: ALL`, `no-new-privileges` and `read_only: true`.
 - Keep `/var/lib/evo` in a volume of the unit's own, and treat it as a secret: it holds the controller's key and the keys the unit is believed by.
-- Give the pairing code as a file only the unit and its administrator read. Replace it once it has been used where others could see it.
+- Set the unit up before anyone it is not meant for can reach it, or run it at the extended level and give the unit's code as a file only the unit and its administrator read.
 
 **For the network:**
 
 - Do not publish the unit's port to a network that is not the administrators'. Behind a proxy the unit publishes none (**proven**: the examples publish the proxy alone); alone, `USHER_ADDRESS` names the one address it is published on.
-- At the proxy, let only the networks the usher is used from reach it. The pairing code is the one thing a caller needs no bearer for, and a wrong guess spends it until the unit is started again.
-- A name and password asked by the proxy does not fit in front of the usher: the face sends its bearer in the header such a proxy would use.
+- At the proxy, let only the networks the usher is used from reach it. Signing in is the one thing a caller who has not signed in may try, and whoever can try can hold a name for a quarter of an hour with five wrong passwords.
+- A name and password asked by the proxy does not fit in front of the usher: the face sends its session in the header such a proxy would use.
 - Hold the unit to its own authority at the proxy, as the examples do, so that the proxy speaks to the unit and to nothing that stands in its place (**proven**: given another authority, each proxy passes nothing on).
 
 **For a Synology**, beside the above: the unit on the loopback address, an access control profile on the reverse proxy entry, HSTS on its source, and the firewall open for port 443 from the networks of use alone (**from the documentation**).

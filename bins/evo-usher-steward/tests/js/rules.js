@@ -164,9 +164,26 @@ hold("the same mark in every place", places.children[0].innerHTML, places.childr
 // The method an operation is asked on.
 hold("a description is read", methodOf("describe_ui_stockings"), "GET");
 hold("a request is posted", methodOf("request"), "POST");
-hold("a pairing is posted", methodOf("pair_complete"), "POST");
+hold("anything else is posted", methodOf("take_custody"), "POST");
 hold("a setting is put", methodOf("set_kiosk_password"), "PUT");
-hold("a revocation is deleted", methodOf("revoke_pairing"), "DELETE");
+hold("a revocation is deleted", methodOf("revoke_bearer_token"), "DELETE");
+
+// What the page of the people says and checks before the usher is asked.
+const { advice, amiss, day } = await import("/org.evoframework.usher.shell/people.js");
+hold(
+  "what a good password is",
+  advice(12),
+  "A good password is a few words in a row that you will remember, 12 characters or more.",
+);
+hold("no password typed", amiss("", ""), "Type a password.");
+hold(
+  "two that are not the same",
+  amiss("three small owls sing", "three small owls sang"),
+  "The two passwords are not the same. Type them again.",
+);
+hold("two that are", amiss("three small owls sing", "three small owls sing"), null);
+hold("no day told", [day(null), day(0), day("yesterday")], ["", "", ""]);
+hold("a day", day(Date.UTC(2026, 0, 19, 12)) !== "", true);
 
 // Which shell the door opens.
 hold("no shell active", shellAddress({ active_ui_selection: true }), `/${OWN_SHELL}/`);

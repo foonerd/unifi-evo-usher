@@ -2,14 +2,16 @@
 //! set. Everything the steward does is the framework's, through
 //! [`evo::run`]; this program adds only what makes it an usher: the UI
 //! shelves, the plugins it admits, the name it answers `--version` with,
-//! a pairing code where the unit was given none, that nothing of it is
-//! a household's to lock, and that pairing is the one way in.
+//! that nothing of it is a household's to lock, and that signing in,
+//! with a name and a password the usher keeps, is the one way in.
 
 #![forbid(unsafe_code)]
 
+mod code;
 mod face;
 mod gate;
-mod pairing;
+mod people;
+mod signin;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -39,11 +41,27 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
     let args = evo::cli::Args::parse();
+    // How strict the usher is, is said when it is started. A level that
+    // is mistyped stops the start: it is not taken for the laxer one.
+    let named = std::env::var(people::Level::NAMED_BY).ok();
+    let level = match people::Level::of(named.as_deref()) {
+        Ok(level) => level,
+        Err(why) => {
+            eprintln!("{PROGRAM}: {why}");
+            std::process::exit(2);
+        }
+    };
     // Asked for the usage or for a ledger, the program has ended by now:
-    // a code is made only for a steward that starts.
-    if args.command.is_none() {
-        pairing_code();
+    // a code is made only for a steward that starts, and only where
+    // setting the unit up takes one.
+    if args.command.is_none() && level.asks_code() {
+        units_code();
     }
+    let settings = signin::Settings {
+        level,
+        socket: client_socket(&args),
+        code: std::env::var_os(code::NAMED_BY).map(PathBuf::from),
+    };
     // A caller on the LAN who presents nothing is given no more than one
     // from beyond it: what lets guests on to the network asks for a
     // bearer, wherever the asking comes from.
@@ -51,11 +69,30 @@ async fn main() -> anyhow::Result<()> {
         evo::RunOptions::new(args, admission())
             .with_lan_privilege(evo::LanPrivilege::Withheld)
             .with_household_groups(Arc::new(NoHousehold))
-            // And whoever presents no valid bearer is let no further
-            // than the face and pairing.
-            .with_https_setup(gate::setup()),
+            // And whoever has not signed in is let no further than the
+            // face and the way to sign in.
+            .with_https_setup(gate::setup(settings)),
     )
     .await
+}
+
+/// The steward's client socket, as evo will bind it: named among the
+/// arguments, or in the configuration, or evo's own default. evo makes
+/// a session's bearer for the usher over it.
+fn client_socket(args: &evo::cli::Args) -> PathBuf {
+    if let Some(named) = &args.socket {
+        return named.clone();
+    }
+    let read = match &args.config {
+        Some(path) => StewardConfig::load_from_required(path),
+        None => StewardConfig::load(),
+    };
+    match read {
+        Ok(config) => config.steward.socket_path,
+        // A configuration that cannot be read stops evo's own start a
+        // moment later, in evo's words.
+        Err(_) => PathBuf::from("/var/run/evo/evo.sock"),
+    }
 }
 
 /// The settings groups a household may keep with its owner: the usher
@@ -64,9 +101,9 @@ async fn main() -> anyhow::Result<()> {
 /// evo lets whoever stands before a home player raise the household's
 /// level of protection, with nothing presented, and asks for the
 /// device's password to lower it again. On an usher that would let any
-/// caller who reaches the unit keep every paired browser from the
+/// caller who reaches the unit keep everyone who has signed in from the
 /// counter, and a unit that runs as a service has no password to lower
-/// it with. Who may ask an usher is settled by pairing alone, so no
+/// it with. Who may ask an usher is settled by signing in alone, so no
 /// level protects anything here.
 struct NoHousehold;
 
@@ -84,25 +121,24 @@ impl HouseholdGroupTable for NoHousehold {
     }
 }
 
-/// Make the code a first browser pairs on, where the unit is to take one
-/// from a file and the file is not there. Said on standard error, where
-/// the code is kept and never the code: the steward's own log is not
-/// open yet, and a service's journal keeps the line.
-fn pairing_code() {
-    let Some(path) = std::env::var_os(pairing::NAMED_BY).map(PathBuf::from)
-    else {
+/// Make the unit's code, where the unit is to take one from a file and
+/// the file is not there. Said on standard error, where the code is
+/// kept and never the code: the steward's own log is not open yet, and
+/// a service's journal keeps the line.
+fn units_code() {
+    let Some(path) = std::env::var_os(code::NAMED_BY).map(PathBuf::from) else {
         return;
     };
-    match pairing::provide(&path) {
+    match code::provide(&path) {
         Ok(true) => eprintln!(
-            "{PROGRAM}: a pairing code was made for this start; it is \
+            "{PROGRAM}: the unit's code was made for this start; it is \
              kept in {}",
             path.display()
         ),
         Ok(false) => {}
         Err(e) => eprintln!(
-            "{PROGRAM}: no pairing code could be made in {}: {e}; a \
-             browser pairs on a code once that file holds one and the \
+            "{PROGRAM}: the unit's code could not be made in {}: {e}; \
+             the unit is set up once that file holds a code and the \
              steward is started again",
             path.display()
         ),

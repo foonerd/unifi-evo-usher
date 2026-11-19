@@ -1,0 +1,28 @@
+# The usher at the extended level of security, for a site that asks more
+# of a unit than the ordinary level does: setting the unit up takes the
+# unit's code beside a name and a password, a password is longer, a
+# session is shorter, and no browser is kept signed in.
+#
+# It is named after the Compose file of the unit, alone or behind a
+# proxy, and adds to it:
+#
+#   USHER_VERSION=<version> docker compose -f compose.yaml -f extended.yaml up -d
+#
+# beside a file `unit-code` that holds the code, readable by the account
+# 10001. A unit in a container makes no code of its own, and has no
+# place to show one: it is given the code as the secret `unit_code`.
+# docs/deploying.md says the rest.
+#
+#   USHER_CODE  the file with the unit's code (default ./unit-code)
+services:
+  usher:
+    environment:
+      USHER_SECURITY: extended
+      # The variable's name is evo's.
+      EVO_PAIR_PRESEED_FILE: /run/secrets/unit_code
+    secrets:
+      - unit_code
+
+secrets:
+  unit_code:
+    file: ${USHER_CODE:-./unit-code}

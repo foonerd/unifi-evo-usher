@@ -6,8 +6,12 @@
 #   scripts/try.sh [port [directory]]
 #
 # The port is 8443 unless another is named. What the steward keeps goes
-# into the directory named, which is kept; with none named, into a
-# directory made for the run and removed after it.
+# into the directory named, which is kept, its people among it; with
+# none named, into a directory made for the run and removed after it.
+#
+# Whoever opens the face first sets the usher up, with a name and a
+# password. With USHER_SECURITY=extended in the environment it runs at
+# the extended level, where setting it up takes the unit's code as well.
 set -euo pipefail
 ROOT=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
@@ -26,8 +30,9 @@ fi
 cargo build --locked -p evo-usher-steward
 
 mkdir -p "$DIR/state"
-if [ ! -s "$DIR/pairing-code" ]; then
-  od -An -N6 -tx1 /dev/urandom | tr -d ' \n' > "$DIR/pairing-code"
+LEVEL=${USHER_SECURITY:-standard}
+if [ "$LEVEL" = extended ] && [ ! -s "$DIR/unit-code" ]; then
+  (umask 077 && od -An -N6 -tx1 /dev/urandom | tr -d ' \n' > "$DIR/unit-code")
 fi
 
 cat > "$DIR/evo.toml" <<CONFIG
@@ -65,11 +70,20 @@ CONFIG
 
 echo "try: the face is at https://127.0.0.1:$PORT/"
 echo "try: the steward's certificate is signed by its own authority, $DIR/state/https/ca.crt; a browser that does not have it warns"
-echo "try: the pairing code, where the steward asks for one, is $(cat "$DIR/pairing-code"), kept in $DIR/pairing-code"
-echo "try: a wrong code spends it until the steward is started again"
+if [ -s "$DIR/state/usher/people.json" ]; then
+  echo "try: this usher is set up: sign in with the name and the password it was set up with"
+  echo "try: to set it up anew, remove $DIR/state/usher/people.json"
+else
+  echo "try: nobody has set this usher up yet: whoever opens the face first does, with a name and a password"
+fi
+if [ "$LEVEL" = extended ]; then
+  echo "try: it runs at the extended level; the unit's code, which setting it up takes, is $(cat "$DIR/unit-code"), kept in $DIR/unit-code"
+fi
 echo "try: Ctrl-C stops the steward"
 
-EVO_HTTPS_LISTEN_ADDR="127.0.0.1:$PORT" \
+USHER_SECURITY="$LEVEL" \
+  EVO_HTTPS_LISTEN_ADDR="127.0.0.1:$PORT" \
   EVO_HTTPS_STATIC_DIR="$ROOT/ui" \
-  EVO_PAIR_PRESEED_FILE="$DIR/pairing-code" \
+  EVO_PAIR_PRESEED_FILE="$DIR/unit-code" \
+  EVO_HTTPS_STATE_DIR="$DIR/state" \
   target/debug/evo-usher-steward --config "$DIR/evo.toml"

@@ -1,17 +1,17 @@
-//! The code a first browser pairs on, where the unit was given none.
+//! The unit's code: what setting a unit of the extended level up takes,
+//! beside a name and a password, and what whoever is at the unit itself
+//! reads there.
 //!
-//! evo takes that code from the file `EVO_PAIR_PRESEED_FILE` names, once
-//! at every start. A unit that is installed and started as a service has
+//! The code is in the file `EVO_PAIR_PRESEED_FILE` names, which is evo's
+//! name for it. A unit that is installed and started as a service has
 //! nobody to write the file before it starts, so the usher's steward
 //! writes it: a code of its own making, where the file named is not
 //! there. A file that is there is left as it is, the code in it the
-//! operator's; an empty one is evo's sign that no browser pairs on a
-//! code.
+//! operator's.
 //!
 //! Where the file is named in a directory that is made anew for every
 //! start, as a service's runtime directory is, the code is new at every
-//! start, and one that was used or seen is good for nothing after the
-//! next.
+//! start, and one that was seen is good for nothing after the next.
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read as _, Write as _};
@@ -47,8 +47,8 @@ pub fn provide(path: &Path) -> io::Result<bool> {
         file.sync_all()
     });
     if let Err(e) = written {
-        // An empty file would say that no browser pairs on a code, at
-        // this start and at every one after it.
+        // An empty file would be a code nobody can give, at this start
+        // and at every one after it.
         let _ = fs::remove_file(path);
         return Err(e);
     }
@@ -71,7 +71,7 @@ mod tests {
     #[test]
     fn a_code_is_made_where_none_is_given() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("pairing-code");
+        let path = dir.path().join("unit-code");
         assert!(provide(&path).unwrap());
         let code = fs::read_to_string(&path).unwrap();
         assert_eq!(code.len(), 2 * BYTES, "{code}");
@@ -98,7 +98,7 @@ mod tests {
     #[test]
     fn a_code_that_is_given_is_left_as_it_is() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("pairing-code");
+        let path = dir.path().join("unit-code");
         for given in ["the-operators-own", ""] {
             fs::write(&path, given).unwrap();
             assert!(!provide(&path).unwrap());
@@ -109,7 +109,7 @@ mod tests {
     #[test]
     fn a_code_that_cannot_be_kept_is_an_error_and_leaves_nothing() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("no-such-directory/pairing-code");
+        let path = dir.path().join("no-such-directory/unit-code");
         assert!(provide(&path).is_err());
         assert!(!path.exists());
     }

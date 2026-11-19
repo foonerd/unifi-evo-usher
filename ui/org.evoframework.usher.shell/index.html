@@ -13,25 +13,57 @@
   <h1 class="brand" data-brand>Usher</h1>
   <button type="button" id="menu-button" class="quiet" aria-expanded="false" aria-controls="menu" hidden>Menu</button>
   <nav id="menu" aria-label="Pages" hidden><ul></ul></nav>
-  <p id="line" role="status">Asking the steward.</p>
+  <div class="standing">
+    <p id="line" role="status">Asking the steward.</p>
+    <p id="who" hidden><span id="who-name"></span> <button type="button" id="sign-out" class="quiet">Sign out</button></p>
+  </div>
 </header>
 
 <main id="shelves"></main>
 
-<dialog id="pairing" aria-labelledby="pairing-title">
-  <form id="pairing-form" method="dialog">
-    <p class="brand" data-brand>Usher</p>
-    <h2 id="pairing-title">Pair this browser</h2>
-    <p>The steward asks who is asking. Type the pairing code the unit was given before it was first started. A code pairs one browser, once, and a wrong guess spends it: look it over before it is sent.</p>
-    <label for="pairing-code">Pairing code</label>
-    <input id="pairing-code" name="code" type="text" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" required>
-    <p id="pairing-said" role="alert"></p>
+<dialog id="entry" aria-labelledby="entry-title" closedby="none">
+  <p class="brand" data-brand>Usher</p>
+  <div id="entry-form"></div>
+</dialog>
+
+<template id="set-up">
+  <form id="set-up-form" novalidate>
+    <h2 id="entry-title">Set up this usher</h2>
+    <p>Nobody has set this usher up yet. Choose the name and the password you will sign in with from now on. You are its first administrator, and can add other people afterwards.</p>
+    <label for="set-up-name">Your name</label>
+    <input id="set-up-name" name="name" type="text" autocomplete="username" autocapitalize="words" spellcheck="false" maxlength="64" required>
+    <label for="set-up-password">Password</label>
+    <input id="set-up-password" name="password" type="password" autocomplete="new-password" maxlength="128" required>
+    <p class="hint" id="set-up-advice"></p>
+    <label for="set-up-again">The same password again</label>
+    <input id="set-up-again" name="again" type="password" autocomplete="new-password" maxlength="128" required>
+    <div id="set-up-code-part" hidden>
+      <label for="set-up-code">The unit's code</label>
+      <input id="set-up-code" name="code" type="text" autocomplete="one-time-code" autocapitalize="off" spellcheck="false">
+      <p class="hint">This usher is set to extended security: setting it up takes the code that is read on the unit itself.</p>
+    </div>
+    <p class="said" id="set-up-said" role="alert"></p>
     <div class="row">
-      <button type="submit" value="pair">Pair</button>
-      <button type="button" id="pairing-leave" class="quiet">Not now</button>
+      <button type="submit">Set up</button>
     </div>
   </form>
-</dialog>
+</template>
+
+<template id="sign-in">
+  <form id="sign-in-form" novalidate>
+    <h2 id="entry-title">Sign in</h2>
+    <label for="sign-in-name">Name</label>
+    <input id="sign-in-name" name="name" type="text" autocomplete="username" autocapitalize="off" spellcheck="false" maxlength="64" required>
+    <label for="sign-in-password">Password</label>
+    <input id="sign-in-password" name="password" type="password" autocomplete="current-password" maxlength="128" required>
+    <label class="check" for="sign-in-keep" id="sign-in-keep-part"><input id="sign-in-keep" name="keep" type="checkbox"> Keep me signed in on this device</label>
+    <p class="said" id="sign-in-said" role="alert"></p>
+    <div class="row">
+      <button type="submit">Sign in</button>
+    </div>
+    <p class="hint">Forgotten your password? Another administrator can set a new one for you, under People. Where there is no other, whoever keeps the unit can have it set up anew.</p>
+  </form>
+</template>
 
 <script type="module" src="shell.js"></script>
 </body>

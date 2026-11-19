@@ -1,18 +1,16 @@
 // The steward, as a page speaks to it: every operation is the steward's
 // own, sent to `/api/v1/<operation>` on the address the page came from,
-// and what happens on the steward arrives over one WebSocket.
+// what happens on the steward arrives over one WebSocket, and who may
+// come in is asked of the usher's own routes under `/usher/v1`.
 
 /**
- * Where the bearer is kept. evo's shells and its kiosk keep it under this
- * name, so a kiosk that mints a bearer for its screen hands it to
- * whichever shell is open.
+ * Where the session's bearer is kept. evo's shells keep theirs under this
+ * name. It is kept for the browser's session, and beyond it only where
+ * whoever signed in asked to be kept signed in on the device.
  */
 const BEARER = "evoBearer";
 
-/** The pairing a unit without a screen of its own offers a first browser. */
-const FIRST_PAIRING = "bootstrap";
-
-/** A refusal by the steward, or by a plugin behind it. */
+/** A refusal by the steward, by the usher, or by a plugin behind them. */
 export class Refusal extends Error {
   /**
    * @param {number} status the HTTP status
@@ -28,34 +26,52 @@ export class Refusal extends Error {
     this.reason = reason;
   }
 
-  /** Whether another credential than the one presented would be let in. */
+  /** Whether signing in would let the caller in. */
   get asksForCredential() {
-    return (
-      this.status === 401 ||
-      this.reason === "verb_capability_scope_not_granted"
-    );
+    return this.status === 401 || this.reason === "bearer_required";
+  }
+}
+
+/** @param {"sessionStorage" | "localStorage"} where @returns {Storage | null} */
+function store(where) {
+  try {
+    return window[where];
+  } catch {
+    return null;
   }
 }
 
 /** @returns {string | null} the bearer this browser holds */
 export function bearer() {
   try {
-    return localStorage.getItem(BEARER);
+    return (
+      store("sessionStorage")?.getItem(BEARER) ?? store("localStorage")?.getItem(BEARER) ?? null
+    );
   } catch {
     return null;
   }
 }
 
-/** @param {string | null} token the bearer to hold, or null to hold none */
-function hold(token) {
-  try {
-    if (token === null) {
-      localStorage.removeItem(BEARER);
-    } else {
-      localStorage.setItem(BEARER, token);
+/**
+ * Hold the session's bearer, for this session or on the device; or hold
+ * none.
+ *
+ * @param {string | null} token
+ * @param {boolean} [kept] whether it is kept beyond the session
+ */
+function hold(token, kept = false) {
+  for (const where of /** @type {const} */ (["sessionStorage", "localStorage"])) {
+    try {
+      store(where)?.removeItem(BEARER);
+    } catch {
+      // A browser that keeps nothing has nothing to forget.
     }
+  }
+  if (token === null) return;
+  try {
+    store(kept ? "localStorage" : "sessionStorage")?.setItem(BEARER, token);
   } catch {
-    // A browser that keeps nothing pairs again when it is opened again.
+    // A browser that keeps nothing signs in again when it is opened again.
   }
 }
 
@@ -98,32 +114,26 @@ function refusalOf(status, said, text) {
 }
 
 /**
- * Ask the steward for one of its operations.
+ * Ask at an address, with the bearer this browser holds, and read the
+ * answer as JSON.
  *
- * @param {string} name the operation
- * @param {Record<string, unknown>} [payload] what it takes
- * @returns {Promise<any>} what it answers
+ * @param {string} address
+ * @param {"GET" | "DELETE" | "PUT" | "POST"} method
+ * @param {Record<string, unknown> | null} carried what goes in the body
+ * @param {boolean} withBearer whether the bearer held is presented
+ * @returns {Promise<any>}
  * @throws {Refusal}
  */
-export async function op(name, payload = {}) {
-  const method = methodOf(name);
+async function ask(address, method, carried, withBearer) {
   /** @type {Record<string, string>} */
   const headers = { Accept: "application/json" };
-  const token = bearer();
+  const token = withBearer ? bearer() : null;
   if (token) headers.Authorization = `Bearer ${token}`;
-  let address = `/api/v1/${name}`;
   /** @type {RequestInit} */
   const asked = { method, headers, cache: "no-store" };
-  if (method === "GET" || method === "DELETE") {
-    const query = new URLSearchParams();
-    for (const [key, value] of Object.entries(payload)) {
-      query.set(key, typeof value === "string" ? value : JSON.stringify(value));
-    }
-    const asked = query.toString();
-    if (asked !== "") address += `?${asked}`;
-  } else {
+  if (carried !== null) {
     headers["Content-Type"] = "application/json";
-    asked.body = JSON.stringify(payload);
+    asked.body = JSON.stringify(carried);
   }
 
   let answer;
@@ -139,15 +149,37 @@ export async function op(name, payload = {}) {
   } catch {
     said = null;
   }
-  const refused =
-    said !== null && typeof said === "object" && "error" in said;
+  const refused = said !== null && typeof said === "object" && "error" in said;
   if (!answer.ok || said === null || refused) {
     const refusal = refusalOf(answer.status, said, text);
-    // A bearer the steward no longer knows is of no further use.
-    if (refusal.status === 401 && token) hold(null);
+    // A session that has ended is of no further use.
+    if (refusal.status === 401 && token && bearer() === token) hold(null);
     throw refusal;
   }
   return said;
+}
+
+/**
+ * Ask the steward for one of its operations.
+ *
+ * @param {string} name the operation
+ * @param {Record<string, unknown>} [payload] what it takes
+ * @returns {Promise<any>} what it answers
+ * @throws {Refusal}
+ */
+export async function op(name, payload = {}) {
+  const method = methodOf(name);
+  let address = `/api/v1/${name}`;
+  if (method === "GET") {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(payload)) {
+      query.set(key, typeof value === "string" ? value : JSON.stringify(value));
+    }
+    const asked = query.toString();
+    if (asked !== "") address += `?${asked}`;
+    return ask(address, method, null, true);
+  }
+  return ask(address, method, payload, true);
 }
 
 /** @param {string} text @returns {string} */
@@ -193,23 +225,83 @@ export async function request(shelf, type, payload = {}) {
 }
 
 /**
- * Pair this browser with the steward on the code the unit was given
- * before it was first started. A code pairs one browser, once.
+ * Ask one of the usher's own routes: who may come in, and the people.
+ * What is sent goes in the body and never in the address.
  *
- * @param {string} code
+ * @param {string} route
+ * @param {Record<string, unknown> | null} [carried] what it takes; with
+ *   none, the route is read
+ * @returns {Promise<any>}
  * @throws {Refusal}
  */
-export async function pair(code) {
-  const said = await op("pair_complete", { pair_id: FIRST_PAIRING, code });
-  if (typeof said.token !== "string") {
-    throw new Refusal(200, "contract_violation", null, "The steward's answer carries no bearer.");
+export function usher(route, carried = null) {
+  return ask(`/usher/v1/${route}`, carried === null ? "GET" : "POST", carried, true);
+}
+
+/**
+ * What state the unit is in: whether it is set up yet, and how strict it
+ * is. Anyone is told.
+ *
+ * @returns {Promise<{ set_up: boolean, level: string, least_password: number, keeps: boolean }>}
+ */
+export function state() {
+  return ask("/usher/v1/state", "GET", null, false);
+}
+
+/**
+ * Set a new unit up with its first administrator, who is then signed in.
+ *
+ * @param {string} name
+ * @param {string} password
+ * @param {string | null} code the unit's code, where the unit asks it
+ * @returns {Promise<{ name: string }>}
+ * @throws {Refusal}
+ */
+export async function setUp(name, password, code) {
+  /** @type {Record<string, unknown>} */
+  const carried = { name, password };
+  if (code !== null) carried.code = code;
+  const said = await ask("/usher/v1/set_up", "POST", carried, false);
+  return taken(said, false);
+}
+
+/**
+ * Sign in with a name and a password.
+ *
+ * @param {string} name
+ * @param {string} password
+ * @param {boolean} keep whether to be kept signed in on this device
+ * @returns {Promise<{ name: string }>}
+ * @throws {Refusal}
+ */
+export async function signIn(name, password, keep) {
+  const said = await ask("/usher/v1/sign_in", "POST", { name, password, keep }, false);
+  return taken(said, said?.kept === true);
+}
+
+/** @param {any} said @param {boolean} kept @returns {{ name: string }} */
+function taken(said, kept) {
+  if (typeof said?.token !== "string") {
+    throw new Refusal(200, "contract_violation", null, "The usher's answer carries no session.");
   }
-  hold(said.token);
+  hold(said.token, kept);
+  return { name: String(said.name ?? "") };
+}
+
+/** Sign out: the usher ends the session, and the browser forgets it. */
+export async function signOut() {
+  try {
+    await usher("sign_out", {});
+  } catch {
+    // A session the usher no longer knows is as good as ended.
+  }
+  hold(null);
 }
 
 /**
  * What happens on the steward, for as long as the page is open. The line
- * is taken up again by itself when it drops.
+ * is taken up again by itself when it drops, and anew when another
+ * session's bearer is held than the one it was joined with.
  *
  * @param {(happening: { type: string } & Record<string, unknown>) => void} onHappening
  * @param {(joined: boolean) => void} onLine told when the line is up or down
@@ -218,6 +310,8 @@ export async function pair(code) {
 export function watch(onHappening, onLine) {
   /** @type {WebSocket | null} */
   let line = null;
+  /** The bearer the line was joined with. @type {string | null} */
+  let joinedWith = null;
   /** @type {ReturnType<typeof setTimeout> | undefined} */
   let again;
   let wait = 1000;
@@ -228,15 +322,17 @@ export function watch(onHappening, onLine) {
     const scheme = location.protocol === "https:" ? "wss" : "ws";
     const token = bearer();
     if (!token) {
-      // The steward opens the line to a paired browser only. Until this
-      // one is paired there is nothing to join, and nothing is down.
-      again = setTimeout(join, 1000);
+      // The steward opens the line to who has signed in only. Until
+      // someone has, there is nothing to join, and nothing is down.
+      again = setTimeout(join, 500);
       return;
     }
-    line = new WebSocket(`${scheme}://${location.host}/api/v1/ws`, [`evo.bearer.${token}`]);
-    line.onopen = () => {
+    joinedWith = token;
+    const joining = new WebSocket(`${scheme}://${location.host}/api/v1/ws`, [`evo.bearer.${token}`]);
+    line = joining;
+    joining.onopen = () => {
       wait = 1000;
-      line?.send(
+      joining.send(
         JSON.stringify({
           frame_type: "subscribe",
           subscription_id: "happenings",
@@ -246,7 +342,7 @@ export function watch(onHappening, onLine) {
       );
       onLine(true);
     };
-    line.onmessage = (message) => {
+    joining.onmessage = (message) => {
       let frame;
       try {
         frame = JSON.parse(message.data);
@@ -263,19 +359,29 @@ export function watch(onHappening, onLine) {
         onHappening(happening);
       }
     };
-    line.onclose = () => {
-      line = null;
+    joining.onclose = () => {
+      if (line === joining) line = null;
       if (ended) return;
-      onLine(false);
-      again = setTimeout(join, wait);
-      wait = Math.min(wait * 2, 15000);
+      // Signed out, or signed in as another: nothing is down, the line
+      // is joined anew once there is a session to join it with.
+      const stillTheSame = bearer() === joinedWith;
+      if (stillTheSame) onLine(false);
+      again = setTimeout(join, stillTheSame ? wait : 0);
+      if (stillTheSame) wait = Math.min(wait * 2, 15000);
     };
   };
+
+  // Another session than the one the line was joined with: the line is
+  // let go, and taken up with the new one.
+  const sameSession = setInterval(() => {
+    if (line !== null && bearer() !== joinedWith) line.close();
+  }, 500);
 
   join();
   return () => {
     ended = true;
     clearTimeout(again);
+    clearInterval(sameSession);
     line?.close();
   };
 }

@@ -1,5 +1,5 @@
 // Whose face this is: the mark and the name the shell wears, in the bar
-// and on the pairing screen. They are drawn here and nowhere else, so
+// and on the screen a person comes in by. They are drawn here and nowhere else, so
 // that what is worn is changed in one place.
 
 /** The name the face goes by. */

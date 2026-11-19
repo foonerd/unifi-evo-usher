@@ -20,9 +20,13 @@ use std::time::{Duration, Instant};
 use base64::Engine as _;
 use serde_json::{json, Value};
 
-/// The code the unit is given before it is first started, for a first
-/// browser to pair on.
-pub const PAIRING_CODE: &str = "pair-me-once";
+/// The code a unit of the extended level is given before it is first
+/// started, for whoever sets it up to read on the unit.
+pub const UNITS_CODE: &str = "read-on-the-unit";
+
+/// A password long enough at either level, and one more of the kind.
+pub const PASSWORD: &str = "three small owls sing";
+pub const OTHER_PASSWORD: &str = "a lantern in the nave";
 
 /// An address outside every private range, as a caller from beyond the
 /// network presents itself.
@@ -103,6 +107,64 @@ pub struct Steward {
     /// The port its HTTPS listener is on.
     pub port: u16,
     web: reqwest::blocking::Client,
+    /// What the listener is believed on: its own certificate authority.
+    rules: Arc<rustls::ClientConfig>,
+}
+
+/// A line to the steward's WebSocket, as a test holds one.
+pub struct Line {
+    socket: tungstenite::WebSocket<
+        rustls::StreamOwned<rustls::ClientConnection, TcpStream>,
+    >,
+    /// The subprotocol the steward opened the line on, where it named
+    /// one.
+    pub named: Option<String>,
+}
+
+impl Line {
+    /// Send one frame.
+    pub fn send(&mut self, frame: &Value) {
+        self.socket
+            .send(tungstenite::Message::Text(frame.to_string()))
+            .expect("the line takes a frame");
+    }
+
+    /// The next frame that `wanted` holds of, within a few seconds; none
+    /// where the line stays silent or is closed.
+    pub fn hear(&mut self, wanted: impl Fn(&Value) -> bool) -> Option<Value> {
+        let until = Instant::now() + Duration::from_secs(8);
+        while Instant::now() < until {
+            match self.socket.read() {
+                Ok(tungstenite::Message::Text(text)) => {
+                    let frame: Value = serde_json::from_str(&text).ok()?;
+                    if wanted(&frame) {
+                        return Some(frame);
+                    }
+                }
+                Ok(tungstenite::Message::Close(_)) => return None,
+                Ok(_) => {}
+                Err(tungstenite::Error::Io(silence))
+                    if matches!(
+                        silence.kind(),
+                        std::io::ErrorKind::WouldBlock
+                            | std::io::ErrorKind::TimedOut
+                    ) => {}
+                Err(_) => return None,
+            }
+        }
+        None
+    }
+
+    /// Ask one operation over the line, as a request frame: the outcome.
+    pub fn ask(&mut self, id: u64, op: &str, payload: Value) -> Value {
+        self.send(&json!({
+            "frame_type": "request", "request_id": id, "op": op,
+            "payload": payload,
+        }));
+        self.hear(|frame| frame["response_to"] == json!(id))
+            .map(|frame| frame["outcome"].clone())
+            .expect("the line answers a request")
+    }
 }
 
 impl Steward {
@@ -112,28 +174,94 @@ impl Steward {
         Self::start_with(dir, true)
     }
 
-    /// Start the steward on `dir`, with its UI root or with none.
+    /// Start the steward on `dir`, with its UI root or with none, at the
+    /// ordinary level.
     pub fn start_with(dir: &Path, face: bool) -> Self {
-        let code = dir.join("pairing-code");
+        Self::start_as_found(dir, face, None)
+    }
+
+    /// Start the steward on `dir` at the extended level, given its code
+    /// as a unit in a container is.
+    pub fn start_extended(dir: &Path) -> Self {
+        let code = dir.join("unit-code");
         if !code.exists() {
-            fs::write(&code, PAIRING_CODE).unwrap();
+            fs::write(&code, UNITS_CODE).unwrap();
         }
-        Self::start_as_found(dir, face)
+        Self::start_as_found(dir, true, Some("extended"))
     }
 
-    /// Start the steward on `dir` as an installed unit is started: given
-    /// no pairing code, only the name of the file it takes one from.
-    pub fn start_given_no_code(dir: &Path) -> Self {
-        Self::start_as_found(dir, true)
+    /// Start the steward on `dir` at the extended level as an installed
+    /// unit is started: given no code, only the name of the file it
+    /// takes one from.
+    pub fn start_extended_given_no_code(dir: &Path) -> Self {
+        Self::start_as_found(dir, true, Some("extended"))
     }
 
-    /// The pairing code the unit has, as its operator reads it.
-    pub fn pairing_code(&self) -> String {
-        fs::read_to_string(self.dir.join("pairing-code")).unwrap()
+    /// The code the unit has, as whoever is at the unit reads it.
+    pub fn units_code(&self) -> String {
+        fs::read_to_string(self.dir.join("unit-code")).unwrap()
     }
 
-    /// Start the steward on `dir` and on whatever pairing code is there.
-    fn start_as_found(dir: &Path, face: bool) -> Self {
+    /// Where the unit keeps its people.
+    pub fn people_file(&self) -> PathBuf {
+        self.dir.join("state/usher/people.json")
+    }
+
+    /// One of the usher's own routes: the status, and what it said.
+    pub fn usher(
+        &self,
+        method: &str,
+        route: &str,
+        body: Option<Value>,
+        who: &Caller,
+    ) -> (u16, Value) {
+        let (status, text) = self.put_to(
+            method,
+            &format!("/usher/v1/{route}"),
+            body.as_ref(),
+            &[],
+            who,
+        );
+        (
+            status,
+            serde_json::from_str(&text).unwrap_or(Value::String(text)),
+        )
+    }
+
+    /// Set a new unit up with its first administrator, as whoever opens
+    /// it first does: the caller that results, signed in.
+    pub fn set_up(&self, name: &str, password: &str) -> Caller {
+        let who = Caller::beyond();
+        let (status, said) = self.usher(
+            "POST",
+            "set_up",
+            Some(json!({ "name": name, "password": password })),
+            &who,
+        );
+        assert_eq!(status, 200, "{said}");
+        who.with(said["token"].as_str().expect("a session"))
+    }
+
+    /// Sign in: the status, and what the usher said.
+    pub fn sign_in(&self, name: &str, password: &str) -> (u16, Value) {
+        self.usher(
+            "POST",
+            "sign_in",
+            Some(json!({ "name": name, "password": password })),
+            &Caller::beyond(),
+        )
+    }
+
+    /// Sign in, and be the caller who did.
+    pub fn signed_in(&self, name: &str, password: &str) -> Caller {
+        let (status, said) = self.sign_in(name, password);
+        assert_eq!(status, 200, "{said}");
+        Caller::beyond().with(said["token"].as_str().expect("a session"))
+    }
+
+    /// Start the steward on `dir`, at the level named or at the ordinary
+    /// one, and on whatever code is there.
+    fn start_as_found(dir: &Path, face: bool, level: Option<&str>) -> Self {
         let socket = dir.join("evo.sock");
         let config = dir.join("evo.toml");
         let catalogue =
@@ -195,7 +323,7 @@ discovery_enabled = false
         )
         .unwrap();
         fs::create_dir_all(dir.join("state")).unwrap();
-        let code = dir.join("pairing-code");
+        let code = dir.join("unit-code");
         let port = free_port();
         let mut command = Command::new(env!("CARGO_BIN_EXE_evo-usher-steward"));
         command
@@ -203,12 +331,20 @@ discovery_enabled = false
             .arg(&config)
             .env("EVO_HTTPS_LISTEN_ADDR", format!("127.0.0.1:{port}"))
             .env("EVO_PAIR_PRESEED_FILE", &code)
+            // As a unit has it: evo writes a revoked bearer down under
+            // the directory this names, and reads the list back from
+            // the same place only where it is named.
+            .env("EVO_HTTPS_STATE_DIR", dir.join("state"))
             .env_remove("EVO_HTTPS_STATIC_DIR")
             .env_remove("EVO_AUTH_TIER")
+            .env_remove("USHER_SECURITY")
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         if face {
             command.env("EVO_HTTPS_STATIC_DIR", &ui);
+        }
+        if let Some(level) = level {
+            command.env("USHER_SECURITY", level);
         }
         let mut child = command.spawn().unwrap();
 
@@ -235,13 +371,14 @@ discovery_enabled = false
             sleep(Duration::from_millis(100));
         }
 
-        let web = web_believing(&fs::read(&authority).unwrap());
+        let rules = believing(&fs::read(&authority).unwrap());
         let steward = Self {
             child,
             dir: dir.to_path_buf(),
             socket,
             port,
-            web,
+            web: web_with(&rules),
+            rules: Arc::new(rules),
         };
         let until = Instant::now() + Duration::from_secs(30);
         while steward
@@ -386,6 +523,67 @@ discovery_enabled = false
         )
     }
 
+    /// Open the WebSocket as a browser does, the bearer named as a
+    /// subprotocol, or as a program does, the bearer in a header: the
+    /// line, or the status the steward refused it with.
+    pub fn line(
+        &self,
+        bearer: &str,
+        as_subprotocol: bool,
+    ) -> Result<Line, u16> {
+        use tungstenite::client::IntoClientRequest as _;
+        let mut request = format!("wss://127.0.0.1:{}/api/v1/ws", self.port)
+            .into_client_request()
+            .unwrap();
+        let (name, value) = if as_subprotocol {
+            ("Sec-WebSocket-Protocol", format!("evo.bearer.{bearer}"))
+        } else {
+            ("Authorization", format!("Bearer {bearer}"))
+        };
+        request.headers_mut().insert(name, value.parse().unwrap());
+        request
+            .headers_mut()
+            .insert("X-Forwarded-For", FROM_BEYOND.parse().unwrap());
+        let to = TcpStream::connect(("127.0.0.1", self.port)).unwrap();
+        to.set_read_timeout(Some(Duration::from_millis(250)))
+            .unwrap();
+        let named = rustls::pki_types::ServerName::try_from("127.0.0.1")
+            .unwrap()
+            .to_owned();
+        let secured = rustls::StreamOwned::new(
+            rustls::ClientConnection::new(self.rules.clone(), named).unwrap(),
+            to,
+        );
+        let mut shaking =
+            tungstenite::ClientHandshake::start(secured, request, None)
+                .unwrap()
+                .handshake();
+        // The handshake is read in short looks, as everything on the
+        // line is.
+        let until = Instant::now() + Duration::from_secs(20);
+        loop {
+            match shaking {
+                Ok((socket, answer)) => {
+                    let named = answer
+                        .headers()
+                        .get("Sec-WebSocket-Protocol")
+                        .and_then(|named| named.to_str().ok())
+                        .map(str::to_string);
+                    return Ok(Line { socket, named });
+                }
+                Err(tungstenite::HandshakeError::Interrupted(mid))
+                    if Instant::now() < until =>
+                {
+                    shaking = mid.handshake();
+                }
+                Err(tungstenite::HandshakeError::Failure(
+                    tungstenite::Error::Http(answer),
+                )) => return Err(answer.status().as_u16()),
+                Err(why) => panic!("the line was not opened: {why}"),
+            }
+        }
+    }
+
     /// A file the steward serves: the status, its type, and its text.
     pub fn file(&self, path: &str) -> (u16, String, String) {
         let answer = self
@@ -440,22 +638,26 @@ fn unwrapped(answer: Value) -> Value {
     }
 }
 
-/// A client that believes the steward on its own certificate authority
-/// and on nothing else.
-fn web_believing(authority: &[u8]) -> reqwest::blocking::Client {
+/// The rules of a client that believes the steward on its own
+/// certificate authority and on nothing else.
+fn believing(authority: &[u8]) -> rustls::ClientConfig {
     let mut roots = rustls::RootCertStore::empty();
     for certificate in rustls_pemfile::certs(&mut &authority[..]) {
         roots.add(certificate.unwrap()).unwrap();
     }
-    let rules = rustls::ClientConfig::builder_with_provider(Arc::new(
+    rustls::ClientConfig::builder_with_provider(Arc::new(
         rustls::crypto::ring::default_provider(),
     ))
     .with_safe_default_protocol_versions()
     .unwrap()
     .with_root_certificates(roots)
-    .with_no_client_auth();
+    .with_no_client_auth()
+}
+
+/// A client for HTTPS under those rules.
+fn web_with(rules: &rustls::ClientConfig) -> reqwest::blocking::Client {
     reqwest::blocking::Client::builder()
-        .use_preconfigured_tls(rules)
+        .use_preconfigured_tls(rules.clone())
         .https_only(true)
         .timeout(Duration::from_secs(40))
         .build()

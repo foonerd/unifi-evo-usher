@@ -6,7 +6,7 @@ What it is built to be: a core that holds the UniFi key, mints the vouchers on t
 
 ## Status
 
-0.3.12 stands on the evo steward, has a face, and is installed as a service. `evo-usher-steward` is the steward with the usher's catalogue and three plugins: the controller, which mints vouchers on a UniFi Network controller; the counter, which keeps the voucher types on offer and hands a guest a voucher of one of them, one assigned for handing out before one minted for the asking; and the stock, which holds the vouchers assigned. It serves the usher's face to a browser, in which a controller is looked at and set, its vouchers are listed, assigned for handing out and revoked, the wireless network vouchers are for is chosen, the voucher types are kept and a guest is handed a voucher. It is in the archive, in a package of its own, which makes a machine a unit, and in the image; the package is proven on a machine made for it, where it is installed, started as a service, asked as a browser asks, started again and removed. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else.
+0.3.13 stands on the evo steward, has a face, and is installed as a service. `evo-usher-steward` is the steward with the usher's catalogue and three plugins: the controller, which mints vouchers on a UniFi Network controller; the counter, which keeps the voucher types on offer and hands a guest a voucher of one of them, one assigned for handing out before one minted for the asking; and the stock, which holds the vouchers assigned. It serves the usher's face to a browser, in which a controller is looked at and set, its vouchers are listed, assigned for handing out and revoked, the wireless network vouchers are for is chosen, the voucher types are kept and a guest is handed a voucher. It is in the archive, in a package of its own, which makes a machine a unit, and in the image; the package is proven on a machine made for it, where it is installed, started as a service, asked as a browser asks, started again and removed. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else.
 
 The controller plugin is written from Ubiquiti's published description of the UniFi Network API, version 11.0.97, and is held to a simulated controller written from the same description. It has been run from the usher's face against a UniFi Network application, version 11.0.99: the controller set, its version, its sites, its vouchers and its wireless networks read, a wireless network chosen, and vouchers assigned and handed out.
 
@@ -96,7 +96,7 @@ EVO_HTTPS_STATIC_DIR=/opt/evo/ui
 
 turn the listener on and name the UI root, which is also listed in the steward's configuration under `plugins.search_roots`. The steward's certificate is signed by an authority of its own, made when it first starts and kept as `https/ca.crt` beside its state; a browser believes the steward once that authority is installed in it.
 
-The face has a bar with the usher's mark and name, and a menu. What is stocked stands on pages, one shown at a time: Counter, the page a browser opens on, then Vouchers, Voucher types, Network and Controller. A page has an address of its own, `#/` and its name, so back, forward and a reload keep to it. What stands on a page that is not shown stays as it was left and still hears what the others do. The menu is used with the keyboard as with a pointer, marks the page that is shown, and folds into a button on a narrow screen. What is stocked and named by no page stands on a last page, More; a page with nothing stocked is not offered. The mark and the name are drawn in one place, the shell's `brand.js`, and the pairing screen wears them too.
+The face has a bar with the usher's mark and name, and a menu. What is stocked stands on pages, one shown at a time: Counter, the page a browser opens on, then Vouchers, Voucher types, Network and Controller. A page has an address of its own, `#/` and its name, so back, forward and a reload keep to it. What stands on a page that is not shown stays as it was left and still hears what the others do. The menu is used with the keyboard as with a pointer, marks the page that is shown, and folds into a button on a narrow screen. What is stocked and named by no page stands on a last page, More; a page with nothing stocked is not offered. The mark and the name are drawn in one place, the shell's `brand.js`, and the forms a person comes in by wear them too. A sixth page, People, is the shell's own and stands last.
 
 The shell is drawn in the theme the steward says is active, and in the usher's own, Frost, while none is. A theme is a directory in the UI root under the theme's name, with a `theme.css` that sets the theme's tokens as custom properties under the names the evo family's shells bind: `--background`, `--foreground`, `--card`, `--primary` and their kin. Another theme goes into the UI root and is made the active one with the steward's `activate_theme`; every open screen is then drawn in it at once. Frost says it is AAA, and the steward takes a theme's word for that, so a test holds it: every colour Frost writes in stands at 7 to 1 or more against every surface it is written on.
 
@@ -106,17 +106,17 @@ A shell loads a widget pack as the module `index.js` in the pack's directory. Th
 
 ### Who may ask
 
-Pairing is the one way in. A request that presents no valid bearer is refused at the steward's HTTPS listener, with 401, before evo sees it, unless it asks for a file of the face, for pairing, or for which shell is active, which the door asks before a browser is paired. That holds for every operation the steward has, the WebSocket among them, and for a caller on the same machine, on the same network and from beyond it alike. evo by itself answers a caller who presents nothing, and has a bearer made for one for the asking; the usher's steward puts a gate before evo's routes, and a test asks every operation evo lists, with no bearer and with a forged one.
+Signing in is the one way in. People sign in with a name and a password they can remember, which the usher checks itself; a session then lasts twelve hours, or thirty days on a browser the person asks to be kept signed in on. A request that presents no live session is refused at the steward's HTTPS listener, with 401, before evo sees it, unless it asks for a file of the face, for the unit's state, to set a new unit up, to sign in, or which shell is active, which the door asks first. That holds for every operation the steward has, the WebSocket among them, and for a caller on the same machine, on the same network and from beyond it alike. A test asks every operation evo lists and every route of the usher's own, as six kinds of caller.
 
-Every request that sets, reads or spends what lets guests on to the network asks, of whoever holds a bearer, for evo's `network_admin` capability, declared verb by verb in the plugins' manifests.
+Whoever opens a new unit first sets it up, with a name and a password, and is its first administrator. On the page People an administrator adds a person, sets a new password and removes one; a new password and a removal sign that person out everywhere at once, and the last administrator is not removed. A password is 12 characters or more and nothing else is asked of it: a few words in a row do. It is kept as an Argon2id hash. Five wrong tries in a row hold a name for fifteen minutes, and an unknown name is answered as a wrong password is.
 
-A browser comes by the capability by pairing. A unit without a screen of its own takes a pairing code from the file `EVO_PAIR_PRESEED_FILE` names; the shell asks for the code when the steward first refuses it, and the steward answers with a bearer, which the browser keeps. A code pairs one browser, once, and a wrong guess spends it until the unit is next started.
+How strict a unit is, is its administrator's choice at start: `USHER_SECURITY` is `standard`, which is the default, or `extended`; anything else stops the start. At the extended level setting a unit up takes the unit's code as well, which only whoever reads the unit's files has (`sudo cat /run/evo/unit-code`), a password is 16 characters or more, a session lasts eight hours, and no browser is kept signed in.
 
-Where the file named is not there, the usher's steward makes a code of its own and writes it there, for its owner alone to read; a file that is there is the operator's, and is left as it is. The service names the file in a directory that is new whenever it starts, so a unit has a new code at every start, and one that was used or seen pairs nothing after the next.
+A session is good for the usher's pages and for nothing of the steward's own administration. The usher has evo make it, over the steward's client socket, with the capabilities of the person's role and no others; evo's long bearer is never shown to anyone or typed. evo's own pairing is closed. A password that is lost is put right by whoever has the unit's files: the file of people is taken away, and the unit asks to be set up anew.
 
-A caller on the same network who presents nothing is refused as one from beyond the network is. evo gives such a caller the capability by default, and the usher's steward withholds it; so a unit's face is on every address of the machine.
+A caller on the same network who presents nothing is refused as one from beyond the network is, and no level of protection evo keeps for a home player takes anything from a person who is signed in.
 
-Who may ask is settled by pairing alone. evo lets a household raise a level of protection over a home player's settings, with nothing presented, and takes the device's password to lower it again; the usher's steward names no settings group for it, so no level keeps a paired browser from anything here, whoever sets one.
+Every request that sets, reads or spends what lets guests on to the network asks, of a session, for evo's `network_admin` capability, declared verb by verb in the plugins' manifests.
 
 ## A unit
 
@@ -135,18 +135,12 @@ On a machine with Fedora, RHEL, AlmaLinux or Rocky Linux the same unit comes as 
 | `/opt/evo/catalogue/default.toml` | The usher's catalogue. |
 | `/etc/evo/evo.toml` | The steward's configuration. It is the operator's to change, and is kept when a newer package comes. |
 | `evo.service` | The service. It runs the steward as the account `evo`, which the package makes, from when the machine starts. |
-| `/var/lib/evo/` | What the steward keeps: the controller and its key, the voucher types, the vouchers held, the record of hand-outs, the browsers paired. It stays when the package is removed and goes when it is purged. |
-| `/run/evo/` | The steward's client socket and the pairing code, while the service runs. |
+| `/var/lib/evo/` | What the steward keeps: the controller and its key, the voucher types, the vouchers held, the record of hand-outs, the people who sign in. It stays when the package is removed and goes when it is purged. |
+| `/run/evo/` | The steward's client socket and, at the extended level, the unit's code, while the service runs. |
 
 The paths are evo's own defaults, and the service is evo-core's reference unit with what a distribution chooses: the program, the account, the face on port 8443 of every address, and protections of the usher's own on top of evo's. The steward runs without privilege, without a capability and without a device, sees the machine's files read-only apart from what it keeps, and its system calls are filtered. What is to differ on one unit, the address of the face for one, goes into a drop-in (`sudo systemctl edit evo`), which a newer package leaves alone.
 
-The face is at `https://<the unit>:8443/`. The steward's certificate is signed by an authority of its own, `/var/lib/evo/state/https/ca.crt`, and names the unit `localhost`: a browser that reaches it by another name is warned, also with the authority installed, which is why a site puts a proxy with its own certificate in front. The first browser is paired with the code the unit made when it started:
-
-```sh
-sudo cat /run/evo/pairing-code
-```
-
-For the next browser the service is started again (`sudo systemctl restart evo`), which makes a new code. A browser that is paired stays paired.
+The face is at `https://<the unit>:8443/`. The steward's certificate is signed by an authority of its own, `/var/lib/evo/state/https/ca.crt`, and names the unit `localhost`: a browser that reaches it by another name is warned, also with the authority installed, which is why a site puts a proxy with its own certificate in front. Open it and set it up: a name and a password, and the unit has its first administrator. A unit that is updated from an earlier version has nobody yet and is set up the same way; everything else it keeps stays as it was. It is updated where only its administrators reach it, and opened at once.
 
 The archive carries the same for a machine that takes no Debian package: the program under `bin/`, the UI root as `ui/`, `catalogue/usher.toml`, `etc/evo.toml`, `systemd/evo.service`, and `sysusers.d/evo.conf` for the account, each for the place the table names.
 
@@ -154,11 +148,10 @@ The image is the same unit on an empty image, with no shell. The steward runs in
 
 ```sh
 docker run --publish 8443:8443 --volume usher:/var/lib/evo \
-  --volume "$PWD/pairing-code:/etc/evo/pairing-code:ro" \
   ghcr.io/foonerd/unifi-evo-usher:<version>
 ```
 
-A unit in a container is given its pairing code, as the file `/etc/evo/pairing-code`, which the account 10001 must be able to read: nobody could read one the steward made there. Without the file no browser pairs.
+A unit in a container is set up from a browser as any other is. At the extended level it is given its code, as the file `/etc/evo/unit-code`, which the account 10001 must be able to read; `packaging/docker/extended.yaml` does that.
 
 [docs/deploying.md](docs/deploying.md) says how a unit is run in Docker, put behind nginx, Apache httpd, Caddy or Traefik with the site's certificate, and set up on a Synology, and what is the least to set for it to be safe. `packaging/docker/compose.yaml` runs the unit by itself; the examples under `packaging/proxy/` run it behind each proxy.
 
@@ -256,7 +249,7 @@ builds the programs for one architecture into `out/`, proves them static and, on
 sudo scripts/prove-unit.sh dist/evo-usher-steward_<version>_<arch>.deb
 ```
 
-proves the steward's package on a machine that is made for the proof and thrown away after it, as CI does on one of each architecture: it installs the package, has systemd start the service, asks the face as a browser asks it, pairs a browser with the code the unit made, starts the service again, and removes and purges the package. It refuses a machine that has evo already.
+proves the steward's package on a machine that is made for the proof and thrown away after it, as CI does on one of each architecture: it installs the package, has systemd start the service, asks the face as a browser asks it, sets the unit up, signs in and out, runs it at the extended level with the unit's code, starts the service again, and removes and purges the package. It refuses a machine that has evo already.
 
 `sudo scripts/prove-unit.sh dist/evo-usher-steward-<version>-1.<machine>.rpm` proves the RPM the same way on a machine of an RPM system, to what removing it leaves. `scripts/prove-unit-rpm.sh` runs that proof where there is no such machine, as CI does: in a container of AlmaLinux 9 that systemd runs, which is given every privilege of the machine it is on.
 

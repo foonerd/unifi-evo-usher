@@ -21,17 +21,31 @@ ExecStart=/opt/evo/bin/evo-usher-steward
 User=evo
 Group=evo
 
-# The face, to every browser that reaches the machine. A caller who
-# presents nothing is refused what lets guests on; a browser comes by it
-# by pairing. For a machine that is its own screen:
+# The face, to every browser that reaches the machine. A caller who has
+# not signed in is refused everything but the face and the way to sign
+# in. For a machine that is its own screen:
 # EVO_HTTPS_LISTEN_ADDR=127.0.0.1:8443
 Environment=EVO_HTTPS_LISTEN_ADDR=0.0.0.0:8443
 Environment=EVO_HTTPS_STATIC_DIR=/opt/evo/ui
 
-# The code a first browser pairs on. The steward makes one where the
-# file is not there, and the directory is new at every start: so is the
-# code. It is read with `sudo cat /run/evo/pairing-code`.
-Environment=EVO_PAIR_PRESEED_FILE=/run/evo/pairing-code
+# How strict the usher is: its administrator's choice. At the ordinary
+# level, `standard`, whoever opens a new unit first sets it up, with a
+# name and a password. At `extended`, setting it up takes the code below
+# as well, passwords are longer, sessions shorter, and no browser is
+# kept signed in. Set in a drop-in (`sudo systemctl edit evo`), or here:
+#Environment=USHER_SECURITY=extended
+
+# The code a unit of the extended level is set up with. The steward makes
+# one where the file is not there, and the directory is new at every
+# start: so is the code. It is read with `sudo cat /run/evo/unit-code`.
+# At the ordinary level none is made and none is asked. The variable's
+# name is evo's.
+Environment=EVO_PAIR_PRESEED_FILE=/run/evo/unit-code
+
+# Where the steward keeps what it is believed by, and the usher its
+# people beside it. It is evo's own default, named so that everything
+# that reads or writes there goes by the one name.
+Environment=EVO_HTTPS_STATE_DIR=/var/lib/evo/state
 
 Restart=on-failure
 RestartSec=5s

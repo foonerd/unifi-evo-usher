@@ -13,7 +13,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.3.12"
+version = "0.3.13"
 edition = "2021"
 license = "MIT"
 publish = false
@@ -40,6 +40,14 @@ unused_qualifications = "warn"
 # out; the rewrite this lint proposes does not satisfy them.
 [workspace.lints.clippy]
 manual_async_fn = "allow"
+
+# Hashing a password is made to cost; built without optimisation it costs
+# more than a test of signing in can wait on.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3
 
 # What ships carries no symbols: the programs name their own commit and
 # target, and a release names its build in build.json.

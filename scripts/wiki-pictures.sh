@@ -30,7 +30,11 @@ USHER_SCHEME=${USHER_SCHEME:-dark} USHER_PICTURE="$made/face.png" \
 # What the tests call a picture, and what the manual calls it.
 pictures="
 face.png:counter-voucher.png
-face-pairing.png:pairing.png
+face-set-up.png:set-up.png
+face-set-up-code.png:set-up-code.png
+face-sign-in.png:sign-in.png
+face-people.png:people.png
+face-people-password.png:people-password.png
 face-controller-key.png:controller-key.png
 face-controller.png:controller.png
 face-network.png:network.png

@@ -1,6 +1,6 @@
 //! The steward as a unit that is installed and started as a service:
-//! what it says it is, the pairing code it makes where it was given
-//! none, and what the packages put beside it.
+//! what it says it is, the level of security it is started at, and
+//! what the packages put beside it.
 
 mod common;
 
@@ -8,8 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use common::{short_dir, Caller, Steward};
-use serde_json::{json, Value};
+use serde_json::Value;
 
 /// What the packages are made from.
 fn packaging() -> PathBuf {
@@ -42,39 +41,33 @@ fn the_steward_says_which_build_of_the_usher_it_is() {
 }
 
 #[test]
-fn a_unit_given_no_pairing_code_makes_one_a_browser_pairs_on() {
-    let dir = short_dir();
-    let steward = Steward::start_given_no_code(dir.path());
-    let code = steward.pairing_code();
-    assert_eq!(code.len(), 12, "{code}");
-    assert!(code.chars().all(|c| c.is_ascii_hexdigit()), "{code}");
-
-    let beyond = Caller::beyond();
-    let (status, paired) = steward.op(
-        "pair_complete",
-        json!({"pair_id": "bootstrap", "code": code}),
-        &beyond,
-    );
-    assert_eq!(status, 200, "{paired}");
-    let bearer = paired["token"].as_str().expect("a bearer").to_string();
-    assert_eq!(
-        steward.ask_as(
-            &beyond.with(&bearer),
-            "access.controller",
-            "info",
-            json!({})
+fn the_level_of_security_is_said_at_the_start_and_a_mistyped_one_stops_it() {
+    // A unit that is told a level there is not does not start as the
+    // laxer one: it says what it was told, and ends.
+    let output = Command::new(env!("CARGO_BIN_EXE_evo-usher-steward"))
+        .env("USHER_SECURITY", "extendet")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let said = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        said.contains(
+            "USHER_SECURITY is 'standard' or 'extended', not 'extendet'"
         ),
-        json!({"set": false}),
-        "paired on the code the unit made, the caller is answered"
+        "{said}"
     );
-    assert_eq!(steward.stop(), Some(0));
-
-    // A code that is there is the unit's code: it is not made anew over
-    // one that is kept. A service's code is new at every start because
-    // the directory it is kept in is.
-    let steward = Steward::start_given_no_code(dir.path());
-    assert_eq!(steward.pairing_code(), code);
-    assert_eq!(steward.stop(), Some(0));
+    // The service names the level where its administrator chooses it,
+    // and starts at the ordinary one until one is chosen.
+    let unit =
+        fs::read_to_string(packaging().join("systemd/evo.service")).unwrap();
+    assert!(
+        unit.lines()
+            .any(|line| line == "#Environment=USHER_SECURITY=extended"),
+        "the service does not name the level"
+    );
+    assert!(!unit
+        .lines()
+        .any(|line| line.starts_with("Environment=USHER_SECURITY")));
 }
 
 #[test]
@@ -126,7 +119,10 @@ fn the_unit_starts_the_program_the_packages_install() {
     for variable in [
         "EVO_HTTPS_LISTEN_ADDR=0.0.0.0:8443",
         "EVO_HTTPS_STATIC_DIR=/opt/evo/ui",
-        "EVO_PAIR_PRESEED_FILE=/run/evo/pairing-code",
+        "EVO_PAIR_PRESEED_FILE=/run/evo/unit-code",
+        // Named, though it is evo's own default: evo keeps a revoked
+        // access token through a restart only where it is.
+        "EVO_HTTPS_STATE_DIR=/var/lib/evo/state",
     ] {
         assert!(
             unit.lines().any(|l| l == format!("Environment={variable}")),

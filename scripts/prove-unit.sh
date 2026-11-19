@@ -1,7 +1,8 @@
 #!/bin/bash
 # Proof that the steward's package makes a machine a unit: installed on
 # this machine, started by systemd under every protection of its service,
-# asked as a browser asks, started again, removed, and, where the
+# set up and signed in to as a browser does it, asked as a browser asks,
+# started again, run at the extended level, removed, and, where the
 # package is Debian's, purged.
 #
 #   sudo scripts/prove-unit.sh <evo-usher-steward_<version>_<arch>.deb>
@@ -42,7 +43,12 @@ esac
 
 FACE=https://127.0.0.1:8443
 AUTHORITY=/var/lib/evo/state/https/ca.crt
-CODE=/run/evo/pairing-code
+CODE=/run/evo/unit-code
+PEOPLE=/var/lib/evo/state/usher/people.json
+LEVEL=/etc/systemd/system/evo.service.d/level.conf
+# Who the proof sets the unit up as, and signs in as. Made up.
+NAME="Anna"
+PASSWORD="three small owls sing"
 work=$(mktemp -d)
 
 fail() {
@@ -51,7 +57,7 @@ fail() {
   journalctl -u evo.service --no-pager -n 60 >&2 || true
   exit 1
 }
-trap 'rm -rf "$work"' EXIT
+trap 'rm -rf "$work"; rm -f "$LEVEL"; rmdir "$(dirname "$LEVEL")" 2> /dev/null || true' EXIT
 
 # One of the steward's operations, asked over HTTPS as a browser asks:
 # the status goes to standard output, the answer into $work/answer.
@@ -63,6 +69,22 @@ ask() {
   [ -z "$bearer" ] || with+=(--header "Authorization: Bearer $bearer")
   [ -z "$payload" ] || with+=(--header "Content-Type: application/json" --data "$payload")
   curl "${with[@]}" "$FACE/api/v1/$name"
+}
+
+# One of the usher's own routes, asked the same way.
+#
+#   usher <route> [<payload> [<bearer>]]
+usher() {
+  local route="$1" payload="${2:-}" bearer="${3:-}"
+  local -a with=(--silent --show-error --cacert "$AUTHORITY" --max-time 40 --output "$work/answer" --write-out '%{http_code}')
+  [ -z "$bearer" ] || with+=(--header "Authorization: Bearer $bearer")
+  [ -z "$payload" ] || with+=(--header "Content-Type: application/json" --data "$payload")
+  curl "${with[@]}" "$FACE/usher/v1/$route"
+}
+
+# A name and a password, as the routes that take them do.
+named() {
+  jq -cn --arg name "$1" --arg password "$2" '{name: $name, password: $password}'
 }
 
 # A request to a shelf, as `ask` takes it.
@@ -121,10 +143,32 @@ echo "prove-unit: the face"
 curl --silent --cacert "$AUTHORITY" --max-time 10 "$FACE/" | grep -q 'door.js' || fail "the door is not served"
 [ "$(ask describe_active_ui_selection)" = 200 ] || fail "the door is not told which shell is active: $(cat "$work/answer")"
 echo "  ok    the door is served, and is told which shell to open"
-for part in org.evoframework.usher.shell/shell.js org.evoframework.usher.widgets/index.js org.evoframework.usher.theme.frost/theme.css; do
+for part in org.evoframework.usher.shell/index.html org.evoframework.usher.shell/shell.css org.evoframework.usher.theme.frost/theme.css; do
   [ "$(curl --silent --cacert "$AUTHORITY" --max-time 10 --output /dev/null --write-out '%{http_code}' "$FACE/$part")" = 200 ] || fail "$part is not served"
 done
-echo "  ok    the shell, the widgets and the theme are served"
+# Every module a browser loads for the face is served: the shell's and
+# the widget pack's own, and whatever each imports from beside it. One
+# that is missing leaves a browser with an empty page.
+modules=0
+for pack in org.evoframework.usher.shell/shell.js org.evoframework.usher.widgets/index.js; do
+  dir=${pack%/*}
+  seen=" "
+  queue=${pack##*/}
+  while [ -n "$queue" ]; do
+    module=${queue%% *}
+    queue=${queue#"$module"}
+    queue=${queue# }
+    case "$seen" in *" $module "*) continue ;; esac
+    seen="$seen$module "
+    [ "$(curl --silent --cacert "$AUTHORITY" --max-time 10 --output "$work/module" --write-out '%{http_code}' "$FACE/$dir/$module")" = 200 ] || fail "$dir/$module, which the face loads, is not served"
+    modules=$((modules + 1))
+    for named in $(grep -oE 'from "\./[A-Za-z0-9_-]+\.js"' "$work/module" | sed -e 's/^from "\.\///' -e 's/"$//'); do
+      queue="${queue:+$queue }$named"
+    done
+  done
+done
+[ "$modules" -ge 12 ] || fail "the face is made of $modules modules; it was not walked"
+echo "  ok    the shell, the widgets and the theme are served, every one of the $modules modules the face loads among them"
 
 echo "prove-unit: who may ask"
 info=$(request access.controller info '{}')
@@ -135,21 +179,45 @@ mint='{"name":"for nobody","reason":"asked for with no bearer","scopes":[{"kind"
 [ "$(ask list_bearer_tokens)" = 401 ] || fail "a caller who presents nothing is told of the unit's bearers: $(cat "$work/answer")"
 [ "$(ask describe_ui_stockings)" = 401 ] || fail "a caller who presents nothing is told what is stocked: $(cat "$work/answer")"
 echo "  ok    a caller who presents nothing is refused, and no bearer is made for one"
-[ "$(stat -c '%U %a' "$CODE")" = "evo 600" ] || fail "the pairing code is $(stat -c '%U %a' "$CODE"), not the steward's alone"
-code=$(cat "$CODE")
-[[ "$code" =~ ^[0-9a-f]{12}$ ]] || fail "the pairing code is not twelve hexadecimal digits"
-[ "$(ask pair_complete "$(jq -cn --arg code "$code" '{pair_id: "bootstrap", code: $code}')")" = 200 ] || fail "the code the unit made pairs no browser: $(cat "$work/answer")"
+
+echo "prove-unit: setting up and signing in"
+[ "$(usher state)" = 200 ] || fail "the unit does not say what state it is in: $(cat "$work/answer")"
+jq -e '.set_up == false and .level == "standard" and .least_password == 12 and .keeps == true' "$work/answer" > /dev/null || fail "a new unit says of itself: $(cat "$work/answer")"
+[ ! -e "$CODE" ] || fail "a unit of the ordinary level made a code, which it asks nobody for"
+echo "  ok    a new unit says that nobody has set it up, and at the ordinary level it makes no code"
+[ "$(usher sign_in "$(named "$NAME" "$PASSWORD")")" = 409 ] || fail "a unit nobody set up signs someone in: $(cat "$work/answer")"
+[ "$(usher set_up "$(named "$NAME" "owls")")" = 400 ] || fail "a unit is set up with a password of four characters: $(cat "$work/answer")"
+[ "$(usher set_up "$(named "$NAME" "$PASSWORD")")" = 200 ] || fail "whoever opens a new unit first does not set it up: $(cat "$work/answer")"
 bearer=$(jq -r '.token' "$work/answer")
-[ "$(ask request "$info" "$bearer")" = 200 ] || fail "a paired caller is refused: $(cat "$work/answer")"
+[ "$(usher set_up "$(named "Mallory" "$PASSWORD")")" = 409 ] || fail "a unit is set up a second time: $(cat "$work/answer")"
+[ "$(usher me '' "$bearer")" = 200 ] || fail "whoever set the unit up is not signed in: $(cat "$work/answer")"
+jq -e --arg name "$NAME" '.name == $name and .role == "administrator"' "$work/answer" > /dev/null || fail "the unit says of who set it up: $(cat "$work/answer")"
+echo "  ok    whoever opens it first sets it up with a name and a password, is its administrator and is signed in; nobody sets it up a second time"
+[ "$(stat -c '%U %a' "$PEOPLE")" = "evo 600" ] || fail "the people are kept as $(stat -c '%U %a' "$PEOPLE"), not for the steward alone"
+! grep -q -F "$PASSWORD" "$PEOPLE" || fail "the password stands in the file of the people as it was typed"
+grep -q -F '$argon2id$' "$PEOPLE" || fail "the password is not kept as an Argon2id hash"
+echo "  ok    the people are kept for the steward alone, a password as a hash of it"
+[ "$(usher sign_in "$(named "$NAME" "three small owls sang")")" = 401 ] || fail "a wrong password signs in: $(cat "$work/answer")"
+[ "$(usher sign_in "$(named "Nobody" "$PASSWORD")")" = 401 ] || fail "a name nobody has signs in: $(cat "$work/answer")"
+[ "$(usher sign_in "$(named "anna" "$PASSWORD")")" = 200 ] || fail "the name and the password do not sign in: $(cat "$work/answer")"
+second=$(jq -r '.token' "$work/answer")
+[ "$(usher people '' "$second")" = 200 ] || fail "who has signed in is not told of the people: $(cat "$work/answer")"
+[ "$(usher sign_out '{}' "$second")" = 200 ] || fail "signing out is refused: $(cat "$work/answer")"
+[ "$(usher people '' "$second")" = 401 ] || fail "a session is answered after it was signed out of: $(cat "$work/answer")"
+[ "$(ask describe_ui_stockings '' "$second")" = 401 ] || fail "the steward answers a session that was signed out of: $(cat "$work/answer")"
+echo "  ok    the name and the password sign in, a wrong one does not, and a session is refused once it is signed out of"
+[ "$(ask pair_complete '{"pair_id":"bootstrap","code":"000000000000"}' "")" = 401 ] || fail "evo's pairing is open beside signing in: $(cat "$work/answer")"
+[ "$(ask create_bearer_token "$mint" "$bearer")" != 200 ] || fail "who has signed in has a bearer of evo's made: $(cat "$work/answer")"
+[ "$(ask request "$info" "$bearer")" = 200 ] || fail "who has signed in is refused: $(cat "$work/answer")"
 [ "$(answered)" = '{"set":false}' ] || fail "the controller plugin answered $(answered)"
-[ "$(ask describe_ui_stockings '' "$bearer")" = 200 ] || fail "the steward does not tell a paired browser what is stocked: $(cat "$work/answer")"
+[ "$(ask describe_ui_stockings '' "$bearer")" = 200 ] || fail "the steward does not tell who has signed in what is stocked: $(cat "$work/answer")"
 for kind in usher.counter usher.types usher.controller usher.vouchers usher.networks usher.reserve; do
   grep -q "\"$kind\"" "$work/answer" || fail "nothing is drawn as $kind: $(cat "$work/answer")"
 done
-echo "  ok    the code the unit made pairs a browser, it is answered, and every widget kind has its place"
+echo "  ok    who has signed in is answered, and every widget kind has its place; there is no other way in"
 
 echo "prove-unit: the voucher types"
-# Ask the counter as the paired browser does.
+# Ask the counter as a browser someone is signed in at does.
 counter() { ask request "$(request issue.counter "$1" "$2")" "$bearer"; }
 [ "$(counter types '{}')" = 200 ] || fail "the voucher types are not told: $(cat "$work/answer")"
 answered | jq -e '.types == [] and .default == null and .disabled == []' > /dev/null || fail "a new unit has voucher types nobody defined: $(answered)"
@@ -165,12 +233,52 @@ echo "prove-unit: what is kept"
 systemctl restart evo.service
 up
 [ "$(systemctl show -p NRestarts --value evo.service)" = 0 ] || fail "the service was started again by itself"
-[ "$(cat "$CODE")" != "$code" ] || fail "the pairing code is the same after a restart"
-[ "$(ask pair_complete "$(jq -cn --arg code "$code" '{pair_id: "bootstrap", code: $code}')")" = 403 ] || fail "the code of the last start still pairs: $(cat "$work/answer")"
-echo "  ok    started again, the unit has a new code and takes the old one no more"
-[ "$(ask request "$(request issue.counter types '{}')" "$bearer")" = 200 ] || fail "the paired browser is refused after a restart: $(cat "$work/answer")"
+[ "$(usher me '' "$bearer")" = 200 ] || fail "who was signed in is signed out by a restart: $(cat "$work/answer")"
+[ "$(ask request "$(request issue.counter types '{}')" "$bearer")" = 200 ] || fail "who was signed in is refused after a restart: $(cat "$work/answer")"
 answered | jq -e '(.types | map(.name)) == ["Stay", "Day"] and .default == "Day" and .disabled == ["Stay"]' > /dev/null || fail "the voucher types, their order, the default and what is disabled were not kept through a restart: $(answered)"
-echo "  ok    the paired browser is still answered, and the voucher types are kept as they were defined"
+[ "$(usher people '' "$second")" = 401 ] || fail "a session that was signed out of is answered after a restart: $(cat "$work/answer")"
+echo "  ok    started again, who was signed in still is, who signed out is not, and the voucher types are kept as they were defined"
+
+echo "prove-unit: the extended level"
+# Whoever has the unit's files takes the people away, and the unit asks
+# to be set up again. It is started at the extended level for that, as
+# its service file says how.
+grep -q '^#Environment=USHER_SECURITY=extended$' "$(systemctl show -p FragmentPath --value evo.service)" || fail "the service file does not say how the extended level is chosen"
+systemctl stop evo.service
+rm "$PEOPLE"
+mkdir -p "$(dirname "$LEVEL")"
+printf '[Service]\nEnvironment=USHER_SECURITY=extended\n' > "$LEVEL"
+systemctl daemon-reload
+systemctl start evo.service
+up
+[ "$(usher state)" = 200 ] || fail "the unit does not say what state it is in: $(cat "$work/answer")"
+jq -e '.set_up == false and .level == "extended" and .least_password == 16 and .keeps == false' "$work/answer" > /dev/null || fail "a unit of the extended level whose people were taken away says of itself: $(cat "$work/answer")"
+[ "$(usher me '' "$bearer")" = 401 ] || fail "a session outlives the people it was a person's among: $(cat "$work/answer")"
+echo "  ok    its people taken away, the unit asks to be set up again, and nobody who was signed in still is"
+[ "$(stat -c '%U %a' "$CODE")" = "evo 600" ] || fail "the unit's code is $(stat -c '%U %a' "$CODE"), not the steward's alone"
+code=$(cat "$CODE")
+[[ "$code" =~ ^[0-9a-f]{12}$ ]] || fail "the unit's code is not twelve hexadecimal digits"
+with_code() {
+  jq -cn --arg name "$NAME" --arg password "$1" --arg code "$2" '{name: $name, password: $password, code: $code}'
+}
+[ "$(usher set_up "$(named "$NAME" "$PASSWORD")")" = 403 ] || fail "a unit of the extended level is set up without its code: $(cat "$work/answer")"
+[ "$(usher set_up "$(with_code "$PASSWORD" "000000000000")")" = 403 ] || fail "a unit of the extended level is set up with a wrong code: $(cat "$work/answer")"
+[ "$(usher set_up "$(with_code "fifteen letters" "$code")")" = 400 ] || fail "the extended level takes a password of fifteen characters: $(cat "$work/answer")"
+[ "$(usher set_up "$(with_code "$PASSWORD" "$code")")" = 200 ] || fail "the code read on the unit does not set it up: $(cat "$work/answer")"
+bearer=$(jq -r '.token' "$work/answer")
+[ "$(ask request "$(request issue.counter types '{}')" "$bearer")" = 200 ] || fail "who set the unit up anew is refused: $(cat "$work/answer")"
+answered | jq -e '(.types | map(.name)) == ["Stay", "Day"]' > /dev/null || fail "what the unit kept went with its people: $(answered)"
+echo "  ok    at the extended level the unit makes a code for the steward alone, and is set up with it and a longer password; what it kept is as it was"
+rm "$LEVEL"
+rmdir "$(dirname "$LEVEL")"
+systemctl daemon-reload
+systemctl restart evo.service
+up
+[ "$(usher state)" = 200 ] || fail "the unit does not say what state it is in: $(cat "$work/answer")"
+jq -e '.set_up == true and .level == "standard"' "$work/answer" > /dev/null || fail "back at the ordinary level the unit says of itself: $(cat "$work/answer")"
+[ ! -e "$CODE" ] || fail "back at the ordinary level the unit made a code"
+[ "$(usher me '' "$bearer")" = 200 ] || fail "who was signed in is signed out by a change of level: $(cat "$work/answer")"
+echo "  ok    back at the ordinary level, its people are who they were"
 
 echo "prove-unit: the protections"
 systemd-analyze security evo.service --no-pager | tail -n 1
@@ -185,7 +293,7 @@ echo "prove-unit: stopping and removing"
 systemctl stop evo.service
 [ "$(systemctl show -p Result --value evo.service)" = success ] || fail "the service did not stop cleanly: $(systemctl show -p Result --value evo.service)"
 [ ! -e /run/evo ] || fail "/run/evo is still there after the service stopped"
-echo "  ok    stopped cleanly, and its socket and its code are gone"
+echo "  ok    stopped cleanly, and its socket is gone"
 systemctl start evo.service
 up
 # The configuration that is not as the package brought it: rpm keeps

@@ -3,32 +3,29 @@
 #
 #   USHER_VERSION=<version> docker compose up -d
 #
-# beside a file `pairing-code` that holds the code a first browser pairs
-# on, readable by the account 10001. docs/deploying.md says the rest.
+# Whoever opens the face first sets the unit up, with a name and a
+# password. docs/deploying.md says the rest.
 #
 #   USHER_VERSION       the version to run; there is no "latest"
 #   USHER_IMAGE         the image, where it is not ghcr.io/foonerd/unifi-evo-usher
 #   USHER_ADDRESS       the address the face is published on (default: every one)
 #   USHER_PORT          the port it is published on (default 8443)
-#   USHER_PAIRING_CODE  the file with the pairing code (default ./pairing-code)
 services:
   usher:
     image: ${USHER_IMAGE:-ghcr.io/foonerd/unifi-evo-usher}:${USHER_VERSION:?name the version of the usher to run, as USHER_VERSION}
     restart: unless-stopped
     # The unit runs as the image's one account, numbered 10001, with no
     # capability, no way to gain a privilege, and a root file system it
-    # cannot write to. What it keeps is in the volume `kept`; its client
-    # socket is in memory. A unit in a container makes no pairing code of
-    # its own: it is given one, as the secret `pairing_code`.
+    # cannot write to. What it keeps is in the volume `kept`, its people
+    # among it; its client socket is in memory. Whoever opens a new unit
+    # first sets it up, with a name and a password: it is run at the
+    # ordinary level of security. packaging/docker/extended.yaml, named
+    # after this file, runs it at the extended one.
     read_only: true
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
-    environment:
-      EVO_PAIR_PRESEED_FILE: /run/secrets/pairing_code
-    secrets:
-      - pairing_code
     volumes:
       - kept:/var/lib/evo
     tmpfs:
@@ -38,7 +35,3 @@ services:
 
 volumes:
   kept:
-
-secrets:
-  pairing_code:
-    file: ${USHER_PAIRING_CODE:-./pairing-code}
