@@ -86,7 +86,7 @@ export function compose(snapshot) {
       if (!takes(shelf.accepts_widgets, entry.widget)) {
         refused = `the shelf does not take ${entry.widget}`;
       } else if (kind === undefined) {
-        refused = `the steward knows no widget kind ${entry.widget}`;
+        refused = `nothing here can show ${entry.widget}`;
       } else {
         const within =
           rank(size) >= rank(kind.min_size) && rank(size) <= rank(kind.max_size);

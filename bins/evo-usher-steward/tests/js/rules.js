@@ -71,7 +71,7 @@ hold(
 hold(
   "a kind the steward does not know is not drawn",
   shown[1].stockings[1].refused,
-  "the steward knows no widget kind k.gone",
+  "nothing here can show k.gone",
 );
 hold(
   "a kind that fits no size of the shelf is not drawn",

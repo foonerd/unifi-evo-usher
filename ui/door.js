@@ -37,13 +37,13 @@ async function open() {
       cache: "no-store",
     });
     if (!answer.ok) {
-      throw new Error(`the steward answered ${answer.status}`);
+      throw new Error(`the usher answered ${answer.status}`);
     }
     location.replace(shellAddress(await answer.json()));
   } catch (why) {
     if (line) {
       line.textContent =
-        "The steward does not answer. The door asks again by itself.";
+        "The usher does not answer. Trying again.";
     }
     console.warn("door:", why);
     setTimeout(open, AGAIN_MS);

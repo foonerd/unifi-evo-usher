@@ -228,7 +228,7 @@ export function controller(element, context) {
         el(
           "p",
           { class: "usher-hint" },
-          "Made in the controller, under Settings, Control Plane, Integrations. It is sent to the steward and kept there; this page keeps none of it.",
+          "Made in the controller, under Settings, Control Plane, Integrations. It is sent to the usher and kept there; this page keeps none of it.",
         ),
         el(
           "div",
@@ -242,7 +242,7 @@ export function controller(element, context) {
   };
 
   const load = async () => {
-    show(el("p", {}, "Asking the steward."));
+    show(el("p", {}, "Loading..."));
     say("");
     try {
       const info = await ask("info");

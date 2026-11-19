@@ -590,7 +590,7 @@ function draw(snapshot) {
     }
   }
   if (!stocked) {
-    drawn.unshift(notice("The steward has nothing stocked that has a face."));
+    drawn.unshift(notice("There is nothing to show yet."));
   }
   shelves.replaceChildren(...drawn);
   offer(pages);
@@ -656,8 +656,8 @@ function happened(happening) {
 /** @param {boolean} joined */
 function lineIs(joined) {
   line.textContent = joined
-    ? "Joined to the steward."
-    : "The steward does not answer. Trying again.";
+    ? "Connected"
+    : "Connection lost. Trying again.";
   line.classList.toggle("up", joined);
   line.classList.toggle("down", !joined);
   // What was missed while the line was down is looked at afresh.

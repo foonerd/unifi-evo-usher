@@ -375,7 +375,7 @@ fn a_new_usher_is_set_up_and_its_controller_set_from_the_screen() {
     // And the line to the steward is joined.
     browser.wait(
         "the line",
-        r#"document.getElementById("line").textContent === "Joined to the steward.""#,
+        r#"document.getElementById("line").textContent === "Connected""#,
     );
     go_to(&mut browser, "Controller");
     browser.wait(
@@ -974,7 +974,7 @@ fn a_new_usher_is_set_up_and_its_controller_set_from_the_screen() {
     // The shell hears the steward: its line is joined.
     browser.wait(
         "the line",
-        r#"document.getElementById("line").textContent === "Joined to the steward.""#,
+        r#"document.getElementById("line").textContent === "Connected""#,
     );
     assert_eq!(steward.stop(), Some(0));
 }
@@ -2085,7 +2085,7 @@ fn people_sign_in_and_out_and_are_looked_after_on_a_page_of_their_own() {
     );
     browser.wait(
         "the line",
-        r#"document.getElementById("line").textContent === "Joined to the steward.""#,
+        r#"document.getElementById("line").textContent === "Connected""#,
     );
 
     // The page of the people: the last in the menu. Anna is on it,
@@ -2411,7 +2411,7 @@ fn people_sign_in_and_out_and_are_looked_after_on_a_page_of_their_own() {
     );
     browser.wait(
         "the line again",
-        r#"document.getElementById("line").textContent === "Joined to the steward.""#,
+        r#"document.getElementById("line").textContent === "Connected""#,
     );
 
     // Signed out: the session is ended at the usher and forgotten by the
@@ -2714,10 +2714,7 @@ fn the_door_opens_the_shell_the_steward_says_is_active() {
         "the door to say so",
         r#"document.getElementById("door")?.textContent.includes("does not answer") && document.getElementById("door").textContent"#,
     );
-    assert!(
-        waiting.as_str().unwrap().contains("asks again"),
-        "{waiting}"
-    );
+    assert_eq!(waiting, "The usher does not answer. Trying again.");
     stand.says(Some(json!({"ui_shell": "org.example.other"})));
     let then = browser.wait(
         "a shell",

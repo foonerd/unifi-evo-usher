@@ -110,7 +110,7 @@ function refusalOf(status, said, text) {
       typeof error.message === "string" ? error.message : text,
     );
   }
-  return new Refusal(status, "error", null, text || `the steward answered ${status}`);
+  return new Refusal(status, "error", null, text || `the usher answered ${status}`);
 }
 
 /**
@@ -140,7 +140,7 @@ async function ask(address, method, carried, withBearer) {
   try {
     answer = await fetch(address, asked);
   } catch {
-    throw new Refusal(0, "unavailable", "steward_silent", "The steward does not answer.");
+    throw new Refusal(0, "unavailable", "steward_silent", "The usher does not answer.");
   }
   const text = await answer.text();
   let said = null;
@@ -218,7 +218,7 @@ export async function request(shelf, type, payload = {}) {
     payload_b64: toBase64(JSON.stringify(payload)),
   });
   if (typeof said.payload_b64 !== "string") {
-    throw new Refusal(200, "contract_violation", null, "The steward's answer carries no payload.");
+    throw new Refusal(200, "contract_violation", null, "The usher's answer carries no payload.");
   }
   const text = fromBase64(said.payload_b64);
   return text === "" ? {} : JSON.parse(text);

@@ -2,6 +2,10 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## [0.3.15] - 2026-11-19
+
+- The pages say what they mean to whoever uses them, and no longer name the steward. The line in the bar says "Connected", "Connecting..." while it is not yet, and "Connection lost. Trying again." where it was "Joined to the steward." and "The steward does not answer. Trying again."; a part that is being asked for says "Loading..."; a page with nothing on it says "There is nothing to show yet."; what is said of the controller's key names the usher as where it is kept
+
 ## [0.3.14] - 2026-11-19
 
 - `evo-usher-steward --healthy` says whether a unit is up: 0 where the steward answers on its socket and its HTTPS listener takes a connection, 1 and one line that says which fails where not. The image and every Compose file ask it, and the proxy of each example is started only once the unit is up
