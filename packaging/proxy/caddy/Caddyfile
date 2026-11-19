@@ -1,0 +1,22 @@
+# Caddy in front of the usher: the site's certificate towards the
+# browser, HTTPS towards the unit.
+#
+# The unit's own certificate is signed by the unit's authority and names
+# the unit `localhost`: Caddy holds it to that authority and that name.
+# Caddy passes a WebSocket on by itself.
+#
+# With the `tls` line taken out, and ports 80 and 443 of the name
+# reachable from the internet, Caddy gets a certificate from Let's
+# Encrypt by itself and renews it.
+
+# The name the site gives the usher.
+usher.example.org {
+	tls /usher/site.crt /usher/site.key
+
+	reverse_proxy https://usher:8443 {
+		transport http {
+			tls_trust_pool file /usher/unit-ca.crt
+			tls_server_name localhost
+		}
+	}
+}

@@ -1,0 +1,34 @@
+# Traefik in front of the usher: the site's certificate towards the
+# browser, HTTPS towards the unit.
+#
+# The unit's own certificate is signed by the unit's authority and names
+# the unit `localhost`: Traefik holds it to that authority and that name.
+# Traefik passes a WebSocket on by itself.
+
+http:
+  routers:
+    usher:
+      entryPoints:
+        - websecure
+      # The name the site gives the usher.
+      rule: Host(`usher.example.org`)
+      service: usher
+      tls: {}
+
+  services:
+    usher:
+      loadBalancer:
+        serversTransport: unit
+        servers:
+          - url: https://usher:8443
+
+  serversTransports:
+    unit:
+      serverName: localhost
+      rootCAs:
+        - /usher/unit-ca.crt
+
+tls:
+  certificates:
+    - certFile: /usher/site.crt
+      keyFile: /usher/site.key

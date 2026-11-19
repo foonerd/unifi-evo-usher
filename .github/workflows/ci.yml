@@ -5,8 +5,9 @@ name: ci
 # the image made from what was built, then the steward's package installed
 # and run as a service on a machine of each architecture, the Debian
 # package on the machine itself and the RPM in a container of an RPM
-# system that systemd runs. What was built and what was packed are kept
-# with the run.
+# system that systemd runs; and the image run as a unit in a container,
+# alone and behind each proxy the repository has an example for. What was
+# built and what was packed are kept with the run.
 on:
   push:
     branches: [main]
@@ -88,6 +89,27 @@ jobs:
           name: unifi-evo-usher-packages
           path: dist
           if-no-files-found: error
+
+  container:
+    name: a unit in a container, alone and behind each proxy
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: unifi-evo-usher-amd64
+          path: out/amd64
+      # The artifact store keeps no file modes.
+      - name: What the build made, runnable again
+        run: chmod 755 out/amd64/bin/*
+      - name: The image, for this machine
+        run: scripts/image.sh --here
+      # The Compose file and the proxy examples as they stand in the
+      # repository: the unit under the least privilege, then behind
+      # nginx, Apache httpd, Caddy and Traefik, asked as a browser asks.
+      - name: The unit alone, then behind each proxy
+        run: scripts/prove-proxy.sh
 
   unit:
     name: a unit, ${{ matrix.arch }}
