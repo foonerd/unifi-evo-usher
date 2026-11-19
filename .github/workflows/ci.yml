@@ -3,8 +3,10 @@ name: ci
 # Every push: the workshop pass, then every architecture built on a machine
 # of its own (nothing is emulated) with its proof, then the packages and
 # the image made from what was built, then the steward's package installed
-# and run as a service on a machine of each architecture. What was built
-# and what was packed are kept with the run.
+# and run as a service on a machine of each architecture, the Debian
+# package on the machine itself and the RPM in a container of an RPM
+# system that systemd runs. What was built and what was packed are kept
+# with the run.
 on:
   push:
     branches: [main]
@@ -77,6 +79,8 @@ jobs:
           for arch in amd64 arm64; do mv "artifacts/unifi-evo-usher-$arch" "out/$arch"; done
           chmod 755 out/*/bin/*
           ls -la out/*/bin
+      - name: The tool an RPM is made with
+        run: sudo apt-get update && sudo apt-get install -y rpm
       - run: scripts/package.sh
       - run: scripts/image.sh --check
       - uses: actions/upload-artifact@v7
@@ -105,3 +109,25 @@ jobs:
       # package is installed on it as on any unit.
       - name: The steward's package, installed and run as a service
         run: sudo scripts/prove-unit.sh dist/evo-usher-steward_*_${{ matrix.arch }}.deb
+
+  unit-rpm:
+    name: a unit from the RPM, ${{ matrix.arch }}
+    needs: package
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64, machine: x86_64, runner: ubuntu-24.04 }
+          - { arch: arm64, machine: aarch64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: unifi-evo-usher-packages
+          path: dist
+      # The machine is Ubuntu's, so the RPM is installed where one
+      # belongs: in a container of AlmaLinux 9 that systemd runs, made
+      # for the run and thrown away after it.
+      - name: The steward's RPM, installed and run as a service
+        run: scripts/prove-unit-rpm.sh dist/evo-usher-steward-*.${{ matrix.machine }}.rpm

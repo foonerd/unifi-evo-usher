@@ -16,11 +16,22 @@
 #                                                  service that runs it
 #   dist/<program>_<version>_<arch>.deb            another program, on its
 #                                                  own, under /opt/evo/bin
+#   dist/<program>-<version>-1.<machine>.rpm       each of those as an RPM,
+#                                                  from the tree its Debian
+#                                                  package is made of; the
+#                                                  architecture goes by the
+#                                                  name RPM has for it,
+#                                                  x86_64 or aarch64
+#
+# A Debian package is made with dpkg-deb and an RPM with rpmbuild, each
+# the tool of its own kind; Debian and Ubuntu have rpmbuild in the
+# package rpm. Both are made on one machine for every architecture:
+# nothing in them is compiled here.
 #
 # A licence goes wherever what it covers goes. The steward contains the
 # evo framework, so evo's licence is in the archive and in the steward's
-# package; the station carries the typeface Inter, so the licence Inter
-# comes under is in the archive and in the station's package.
+# packages; the station carries the typeface Inter, so the licence Inter
+# comes under is in the archive and in the station's packages.
 #
 # Every file is checked against the digest build.json recorded for it, so a
 # build that came through a workflow's artifact store is the build that was
@@ -56,6 +67,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [ -n "$arches" ] || arches="$ARCHES"
+for tool in dpkg-deb rpmbuild; do
+  command -v "$tool" > /dev/null || { echo "package: $tool is not on this machine; a Debian package is made with dpkg-deb (the package dpkg) and an RPM with rpmbuild (the package rpm)" >&2; exit 1; }
+done
 version=$(workspace_version)
 # The commit's time, for every date in what is packed.
 epoch=$(git log -1 --format=%ct 2> /dev/null) || { echo "package: this is not a checkout with a commit" >&2; exit 1; }
@@ -91,6 +105,62 @@ pack_deb() {
   find "$root" -exec touch -h -d "@$epoch" {} +
   SOURCE_DATE_EPOCH="$epoch" dpkg-deb --root-owner-group -Zxz --build "$root" "$deb" > /dev/null
   echo "[OK] $deb: $(stat -c %s "$deb") bytes"
+}
+
+# An RPM of the tree a Debian package was made of: the same files in the
+# same places, but for the licences, which an RPM has under
+# /usr/share/licenses, the usher's own as LICENSE. The same package for
+# the same tree: the build's time and every file's are the commit's, the
+# machine that built it is not named, and the payload is packed on one
+# thread.
+#
+#   pack_rpm <deb root> <program> <arch> <spec> [<definition>...]
+#
+# A definition is `<name> <value>`, as the spec reads it.
+pack_rpm() {
+  local root="$1" program="$2" arch="$3" spec="$4"
+  shift 4
+  local top="$stage/rpm-$arch-$program" machine definition file
+  local -a defined=()
+  machine=$(arch_machine "$arch")
+  mkdir -p "$top"
+  cp -a "$root" "$top/tree"
+  rm -rf "$top/tree/DEBIAN"
+  mkdir -p "$top/tree/usr/share/licenses"
+  mv "$top/tree/usr/share/doc/$program" "$top/tree/usr/share/licenses/$program"
+  mv "$top/tree/usr/share/licenses/$program/copyright" "$top/tree/usr/share/licenses/$program/LICENSE"
+  rmdir "$top/tree/usr/share/doc"
+  # What the tree has of configuration, as the Debian package's conffiles
+  # say it: kept when a newer package comes, and when the package goes if
+  # it was changed.
+  {
+    echo "%defattr(-,root,root,-)"
+    if [[ -d "$top/tree/etc/evo" ]]; then
+      (cd "$top/tree" && find etc/evo -type d | LC_ALL=C sort | sed 's|.*|%dir "/&"|')
+      (cd "$top/tree" && find etc/evo -type f | LC_ALL=C sort | sed 's|.*|%config(noreplace) "/&"|')
+    fi
+  } > "$top/config.list"
+  find "$top/tree" -exec touch -h -d "@$epoch" {} +
+  for definition in "$@"; do
+    defined+=(--define "$definition")
+  done
+  SOURCE_DATE_EPOCH="$epoch" rpmbuild -bb --quiet --target "$machine" \
+    --define "_topdir $top/build" \
+    --define "_rpmdir $top/out" \
+    --define "_build_name_fmt %%{NAME}-%%{VERSION}-%%{RELEASE}.%%{ARCH}.rpm" \
+    --define "_buildhost unifi-evo-usher" \
+    --define "use_source_date_epoch_as_buildtime 1" \
+    --define "clamp_mtime_to_source_date_epoch 1" \
+    --define "_binary_payload w6.xzdio" \
+    --define "usher_version $version" \
+    --define "usher_summary $(program_summary "$program")" \
+    --define "usher_tree $top/tree" \
+    --define "usher_config $top/config.list" \
+    "${defined[@]}" "$spec" > "$top/rpmbuild.log" 2>&1 || { cat "$top/rpmbuild.log" >&2; echo "package: $program was not made an RPM for $arch" >&2; exit 1; }
+  file="$program-$version-1.$machine.rpm"
+  [[ -f "$top/out/$file" ]] || { cat "$top/rpmbuild.log" >&2; echo "package: rpmbuild made no $file" >&2; exit 1; }
+  mv "$top/out/$file" "dist/$file"
+  echo "[OK] dist/$file: $(stat -c %s "dist/$file") bytes"
 }
 
 # What every package of unifi-evo-usher says of itself.
@@ -165,5 +235,10 @@ for arch in $arches; do
       } > "$root/DEBIAN/control"
     fi
     pack_deb "$root" "dist/${program}_${version}_${arch}.deb"
+    case "$program" in
+      "$SERVICE")        pack_rpm "$root" "$program" "$arch" packaging/rpm/evo-usher-steward.spec ;;
+      evo-usher-station) pack_rpm "$root" "$program" "$arch" packaging/rpm/program.spec "usher_name $program" "usher_licence MIT AND OFL-1.1" ;;
+      *)                 pack_rpm "$root" "$program" "$arch" packaging/rpm/program.spec "usher_name $program" "usher_licence MIT" ;;
+    esac
   done
 done

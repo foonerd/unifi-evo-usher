@@ -1,9 +1,10 @@
 #!/bin/bash
 # The release's assets signed, twice over:
-#   1. Inside every archive (a zip or a tar.gz; a Debian package is left
-#      as it was built): MANIFEST, every file's SHA-256 and path from the
-#      archive's root, and MANIFEST.sig, its Ed25519 signature. A machine
-#      given the archive by hand verifies it with no network.
+#   1. Inside every archive (a zip or a tar.gz; a Debian package and an
+#      RPM are left as they were built): MANIFEST, every file's SHA-256
+#      and path from the archive's root, and MANIFEST.sig, its Ed25519
+#      signature. A machine given the archive by hand verifies it with no
+#      network.
 #   2. Beside the assets: DIST/SHA256SUMS, every file's SHA-256, and
 #      DIST/SHA256SUMS.sig, for the online path and for a check by hand.
 # Every signature is checked against PUB, the public key the repository
