@@ -373,4 +373,91 @@ hold("no plugin's name, the usher's own", themeAddress("../etc"), `/${OWN_THEME}
 // A fingerprint, as it is compared by eye.
 hold("pairs of digits", paired("ab01cd02"), "ab:01:cd:02");
 
+// A time, as the face writes one: in the browser's own time zone as the
+// browser writes it, and in another as a clock there shows it, with a
+// word on which zone that is.
+const place = await import("/org.evoframework.usher.shell/site.js");
+const moment = Date.UTC(2026, 0, 1, 0, 0);
+const minute = { dateStyle: "medium", timeStyle: "short" };
+const here = (how) => new Date(moment).toLocaleString(undefined, how);
+hold("a moment, in the browser's own zone", place.written(moment, "minute", null), here(minute));
+hold("a day", place.written(moment, "day", null), here({ dateStyle: "medium" }));
+hold(
+  "the zone that is the browser's own is not said",
+  place.written(moment, "minute", place.ownZone()),
+  here(minute),
+);
+hold("a date as it is written", place.written("2026-01-01T00:00:00Z", "minute", null), here(minute));
+hold("a date", place.written(new Date(moment), "minute", null), here(minute));
+// Half an hour off every other zone's clock, or far from it.
+const far = place.ownZone() === "Asia/Kolkata" ? "Pacific/Honolulu" : "Asia/Kolkata";
+const there = (how) => new Date(moment).toLocaleString(undefined, { ...how, timeZone: far });
+const elsewhere = place.written(moment, "minute", far);
+hold("elsewhere, as a clock there shows it", elsewhere.startsWith(`${there(minute)} `), true);
+hold("with which zone that is", elsewhere.length > there(minute).length + 2, true);
+hold("not as a clock here shows it", elsewhere.startsWith(here(minute)), false);
+hold(
+  "the day elsewhere, with which zone",
+  place.written(moment, "day", far).startsWith(`${there({ dateStyle: "medium" })} `),
+  true,
+);
+hold(
+  "a zone the browser does not know is not guessed at",
+  place.written(moment, "minute", "Mars/Olympus_Mons"),
+  here(minute),
+);
+hold(
+  "no moment told",
+  [null, undefined, {}, "", Number.NaN].map((when) => place.written(when, "minute", far)),
+  ["", "", "", "", ""],
+);
+hold("what is written and is no date", place.written("yesterday", "minute", far), "yesterday");
+
+// What the page of the site offers and checks before the shelf is asked.
+const sitePage = await import("/org.evoframework.usher.widgets/site.js");
+hold(
+  "UTC first, then the zones the browser knows",
+  sitePage.zones(null, ["Africa/Abidjan", "Europe/Warsaw"]),
+  ["UTC", "Africa/Abidjan", "Europe/Warsaw"],
+);
+hold("UTC once", sitePage.zones(null, ["Africa/Abidjan", "UTC"]), ["UTC", "Africa/Abidjan"]);
+hold(
+  "the zone that is kept is offered, known here or not",
+  sitePage.zones("Mars/Olympus_Mons", ["Europe/Warsaw"]),
+  ["UTC", "Europe/Warsaw", "Mars/Olympus_Mons"],
+);
+hold("and once", sitePage.zones("Europe/Warsaw", ["Europe/Warsaw"]), ["UTC", "Europe/Warsaw"]);
+hold(
+  "the browser's own list",
+  [sitePage.zones(null)[0], sitePage.zones(null).includes("Europe/Warsaw"), sitePage.zones(null).length > 300],
+  ["UTC", true, true],
+);
+hold("a part of a KiB is one", [1, 1024, 1025, 262144].map(sitePage.kib), [1, 1, 2, 256]);
+const bounds = { logo_bytes: 262144, logo_width: 1024, logo_height: 512 };
+const begins = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+const fileOf = (length) => Uint8Array.from({ length }, (_, at) => begins[at] ?? 0);
+hold("a PNG, by its beginning", sitePage.amissFile(fileOf(64), bounds), null);
+hold("the longest a logo is", sitePage.amissFile(fileOf(262144), bounds), null);
+hold(
+  "one byte longer",
+  sitePage.amissFile(fileOf(262145), bounds),
+  "This file is 257 KiB. A logo is 256 KiB at most.",
+);
+hold(
+  "no PNG, whatever it is called",
+  [new TextEncoder().encode("GIF89a, and so on"), new Uint8Array(0), fileOf(7)].map((file) =>
+    sitePage.amissFile(file, bounds),
+  ),
+  Array(3).fill("This file is not a PNG picture. A logo is a PNG file."),
+);
+hold("the largest picture", sitePage.amissPicture(1024, 512, bounds), null);
+hold(
+  "a picture too wide, and one too high",
+  [sitePage.amissPicture(1025, 2, bounds), sitePage.amissPicture(2, 513, bounds)],
+  [
+    "This picture is 1025 by 2 pixels. A logo is 1024 by 512 pixels at most.",
+    "This picture is 2 by 513 pixels. A logo is 1024 by 512 pixels at most.",
+  ],
+);
+
 return failed;

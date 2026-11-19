@@ -34,6 +34,12 @@
 # another authority than the unit's and must then pass nothing on: it
 # believes the unit by the unit's authority and by nothing else.
 #
+# In every case the unit is given a name and a time zone for its site
+# where it is started, as the Compose files pass them on: anyone is told
+# the name before the unit is set up, its administrator finds both and
+# sets others, and a unit that is started again by itself goes by what
+# was set and not by what it was started with.
+#
 # It needs docker with compose, openssl, curl, jq and python3, publishes
 # on the loopback address alone, and takes away what it started.
 set -euo pipefail
@@ -47,6 +53,12 @@ NAME=usher.example.org
 # Who the proof sets a unit up as, and signs in as. Made up.
 PERSON="Anna"
 PASSWORD="three small owls sing"
+
+# What a unit's site is called and the time zone it keeps where the unit
+# is started, and what its administrator then sets. Made up.
+export USHER_SITE_NAME="Parish Hall" USHER_TIME_ZONE="Europe/Warsaw"
+SET_NAME="Hall of St Mary"
+SET_ZONE="Europe/London"
 
 proxies=${*:-alone extended nginx apache caddy traefik}
 # The Compose files of a case, the first the one the unit is in.
@@ -353,6 +365,10 @@ prove() {
   [ "$status" = 200 ] || fail "the unit does not say what state it is in: $status $(cat "$dir/answer")"
   jq -e --arg level "$level" --argjson least "$least" '.set_up == false and .level == $level and .least_password == $least' "$dir/answer" > /dev/null \
     || fail "a new unit says of itself: $(cat "$dir/answer")"
+  # And what its site is called, as it was started with: the form it is
+  # set up by wears the name. Nothing else of the site is said.
+  jq -e --arg name "$USHER_SITE_NAME" '.site == {name: $name, logo: null}' "$dir/answer" > /dev/null \
+    || fail "a new unit that was started with a name says of its site: $(cat "$dir/answer")"
   # Whoever opens it first sets it up, with a name and a password; at
   # the extended level with the unit's code as well.
   person() {
@@ -381,6 +397,24 @@ prove() {
   else
     echo "  ok    who has not signed in is refused; whoever opens the unit first sets it up, and is answered"
   fi
+
+  # The site: the unit goes by the name and the time zone it was started
+  # with until its administrator sets others, and anyone is told the
+  # name.
+  status=$(post /api/v1/request "$(request site.settings get '{}')" -H "Authorization: Bearer $bearer")
+  [ "$status" = 200 ] || fail "the site is not told to who has signed in: $status $(cat "$dir/answer")"
+  jq -r '.payload_b64' "$dir/answer" | base64 -d \
+    | jq -e --arg name "$USHER_SITE_NAME" --arg zone "$USHER_TIME_ZONE" '.name == $name and .time_zone == $zone and .set_here == false and .logo == null' > /dev/null \
+    || fail "the unit does not go by the name and the time zone it was started with: $(jq -r '.payload_b64' "$dir/answer" | base64 -d)"
+  said=$(jq -cn --arg name "$SET_NAME" --arg zone "$SET_ZONE" '{name: $name, time_zone: $zone}')
+  status=$(post /api/v1/request "$(request site.settings set "$said")")
+  [ "$status" = 401 ] || fail "a caller who has not signed in sets the site: $status $(cat "$dir/answer")"
+  status=$(post /api/v1/request "$(request site.settings set "$said")" -H "Authorization: Bearer $bearer")
+  [ "$status" = 200 ] || fail "the site's name and time zone are not set: $status $(cat "$dir/answer")"
+  status=$(ask /usher/v1/state)
+  jq -e --arg name "$SET_NAME" '.site == {name: $name, logo: null}' "$dir/answer" > /dev/null \
+    || fail "before anyone has signed in, the unit says of its site: $status $(cat "$dir/answer")"
+  echo "  ok    the unit goes by the name and the time zone it was started with; its administrator sets others, and anyone is told the name"
 
   # The name and the password sign in, a wrong one does not, and a
   # session is refused once it is signed out of.
@@ -429,7 +463,15 @@ prove() {
     done
     status=$(ask /usher/v1/state)
     jq -e '.set_up == true' "$dir/answer" > /dev/null || fail "started again, the unit says of itself: $status $(cat "$dir/answer")"
-    echo "  ok    started again, the unit has its people and still answers who was signed in"
+    # What its administrator set of the site stands, though the unit is
+    # started with the first name and time zone as before.
+    jq -e --arg name "$SET_NAME" '.site.name == $name' "$dir/answer" > /dev/null || fail "started again, the unit says of its site: $(cat "$dir/answer")"
+    status=$(post /api/v1/request "$(request site.settings get '{}')" -H "Authorization: Bearer $bearer")
+    [ "$status" = 200 ] || fail "the site is not told after a restart: $status $(cat "$dir/answer")"
+    jq -r '.payload_b64' "$dir/answer" | base64 -d \
+      | jq -e --arg name "$SET_NAME" --arg zone "$SET_ZONE" '.name == $name and .time_zone == $zone and .set_here == true' > /dev/null \
+      || fail "what was set of the site was not kept through a restart: $(jq -r '.payload_b64' "$dir/answer" | base64 -d)"
+    echo "  ok    started again, the unit has its people, still answers who was signed in, and goes by the name and the time zone that were set"
     if [ "$proxy" = alone ]; then
       # A password that is lost: whoever has the unit puts a file of
       # nobody in the place of its people, and the unit is set up anew.

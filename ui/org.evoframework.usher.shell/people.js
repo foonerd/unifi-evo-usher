@@ -6,6 +6,8 @@
 // when it is done with: a browser and a password manager then see what
 // was typed for what it was.
 
+import { day as dayOf } from "./site.js";
+
 /**
  * What a good password is, in a sentence.
  *
@@ -32,14 +34,14 @@ export function amiss(password, again) {
 }
 
 /**
- * The day a person was made, as it is written.
+ * The day a person was made, as it is written where the site keeps time.
  *
  * @param {unknown} ms milliseconds since 1970
  * @returns {string} empty where no day is told
  */
 export function day(ms) {
   if (typeof ms !== "number" || !Number.isFinite(ms) || ms <= 0) return "";
-  return new Date(ms).toLocaleDateString(undefined, { dateStyle: "medium" });
+  return dayOf(ms);
 }
 
 /**

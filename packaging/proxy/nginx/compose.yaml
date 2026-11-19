@@ -14,6 +14,8 @@
 #   USHER_VERSION       the version to run; there is no "latest"
 #   USHER_IMAGE         the image, where it is not ghcr.io/foonerd/unifi-evo-usher
 #   USHER_NAME          the name of the container and of the unit (default usher)
+#   USHER_SITE_NAME     what the place is called, until one is saved on the page Site
+#   USHER_TIME_ZONE     the time zone it keeps, as Europe/Warsaw, until one is saved there
 #   USHER_AUTHORITY     the unit's authority (default ./unit-ca.crt)
 #   SITE_CERT, SITE_KEY the site's certificate and its key (default ./site.crt, ./site.key)
 #   SITE_ADDRESS        the address the proxy is published on (default: every one)
@@ -29,6 +31,8 @@ services:
     restart: unless-stopped
     environment:
       USHER_SECURITY: standard
+      USHER_SITE_NAME: ${USHER_SITE_NAME:-}
+      USHER_TIME_ZONE: ${USHER_TIME_ZONE:-}
     read_only: true
     cap_drop:
       - ALL

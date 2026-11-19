@@ -61,6 +61,211 @@ fn the_stock_is_kept_through_the_steward_and_across_a_restart() {
     assert_eq!(steward.stop(), Some(0));
 }
 
+/// A logo to give: a PNG file of one colour.
+fn png(width: u32, height: u32) -> Vec<u8> {
+    evo_usher_site::png::sample(width, height, [0, 90, 200, 255])
+}
+
+/// A file as a logo travels: in base64.
+fn carried(file: &[u8]) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.encode(file)
+}
+
+#[test]
+fn the_site_is_kept_through_the_steward_and_across_a_restart() {
+    let dir = short_dir();
+    let logo = png(300, 84);
+    // A file near the longest a logo is: it travels whole.
+    let long = png(255, 256);
+    assert!(long.len() > 255 * 1024 && long.len() <= 256 * 1024);
+
+    let steward = Steward::start(dir.path());
+    let new = json!({
+        "name": "", "time_zone": null, "language": null, "logo": null,
+        "set_here": false,
+        "limits": {
+            "name_characters": 64, "logo_bytes": 262144,
+            "logo_width": 1024, "logo_height": 512,
+        },
+    });
+    // What a site is called and looks like is no secret: a program on
+    // the machine that has shown no capability reads it. It changes
+    // nothing.
+    assert_eq!(steward.local("site.settings", "get", json!({})), new);
+    for (request, payload) in [
+        ("set", json!({ "name": "Mallory's", "time_zone": null })),
+        ("put_logo", json!({ "png_b64": carried(&logo) })),
+        ("remove_logo", json!({})),
+    ] {
+        let refused = steward.local("site.settings", request, payload);
+        assert_eq!(
+            refused["error"]["class"], "permission_denied",
+            "{request}: {refused}"
+        );
+    }
+    assert_eq!(steward.ask("site.settings", "get", json!({})), new);
+
+    assert_eq!(
+        steward.ask(
+            "site.settings",
+            "set",
+            json!({ "name": " Parish Hall ", "time_zone": "Europe/Warsaw" })
+        ),
+        json!({ "name": "Parish Hall", "time_zone": "Europe/Warsaw" })
+    );
+    assert_eq!(
+        steward.ask(
+            "site.settings",
+            "put_logo",
+            json!({ "png_b64": carried(&long) })
+        ),
+        json!({ "width": 255, "height": 256, "bytes": long.len() })
+    );
+    assert_eq!(
+        steward.ask(
+            "site.settings",
+            "put_logo",
+            json!({ "png_b64": carried(&logo) })
+        ),
+        json!({ "width": 300, "height": 84, "bytes": logo.len() })
+    );
+
+    // What is not a logo is refused in words for a screen, and the logo
+    // the site has stays.
+    for (file, words) in [
+        (
+            b"GIF89a, and so on".to_vec(),
+            "This file is not a PNG picture. A logo is a PNG file.",
+        ),
+        (
+            logo[..logo.len() - 9].to_vec(),
+            "This PNG file is cut short or damaged, and cannot be a logo.",
+        ),
+        (
+            png(1025, 2),
+            "This picture is 1025 by 2 pixels. A logo is 1024 by 512 pixels \
+             at most.",
+        ),
+        (
+            png(300, 300),
+            "This file is 352 KiB. A logo is 256 KiB at most.",
+        ),
+    ] {
+        let refused = steward.ask(
+            "site.settings",
+            "put_logo",
+            json!({ "png_b64": carried(&file) }),
+        );
+        assert!(
+            refused["error"]["message"]
+                .as_str()
+                .is_some_and(|said| said.ends_with(words)),
+            "{words}: {refused}"
+        );
+    }
+    let refused = steward.ask(
+        "site.settings",
+        "set",
+        json!({ "name": "n".repeat(65), "time_zone": null }),
+    );
+    assert!(
+        refused["error"]["message"]
+            .as_str()
+            .is_some_and(|said| said.ends_with(
+                "A site's name is 64 characters at most; this one has 65."
+            )),
+        "{refused}"
+    );
+    assert_eq!(steward.stop(), Some(0), "the steward stops when told");
+
+    // Kept where a plugin keeps what is its own, the logo as the file it
+    // was given.
+    let steward = Steward::start(dir.path());
+    assert_eq!(
+        std::fs::read(steward.site_dir().join("logo.png")).unwrap(),
+        logo
+    );
+    let kept = steward.ask("site.settings", "get", json!({}));
+    assert_eq!(kept["name"], "Parish Hall", "{kept}");
+    assert_eq!(kept["time_zone"], "Europe/Warsaw");
+    assert_eq!(kept["set_here"], true);
+    assert_eq!(
+        kept["logo"],
+        json!({
+            "png_b64": carried(&logo), "width": 300, "height": 84,
+            "bytes": logo.len(),
+        })
+    );
+    assert_eq!(
+        steward.ask("site.settings", "remove_logo", json!({})),
+        json!({ "removed": true })
+    );
+    assert_eq!(
+        steward.ask("site.settings", "get", json!({}))["logo"],
+        Value::Null
+    );
+    assert_eq!(steward.stop(), Some(0));
+}
+
+#[test]
+fn a_unit_is_given_its_first_name_and_time_zone_where_it_is_started() {
+    let dir = short_dir();
+    let given = [
+        ("USHER_SITE_NAME", "Parish Hall"),
+        ("USHER_TIME_ZONE", "Europe/Warsaw"),
+    ];
+    let steward = Steward::start_given(dir.path(), &given);
+    let site = steward.ask("site.settings", "get", json!({}));
+    assert_eq!(site["name"], "Parish Hall", "{site}");
+    assert_eq!(site["time_zone"], "Europe/Warsaw");
+    assert_eq!(site["set_here"], false);
+    assert_eq!(steward.stop(), Some(0));
+
+    // Until an administrator sets the site, a unit goes by what it is
+    // started with: a line of the Compose file that was mistyped is put
+    // right in the Compose file.
+    let steward = Steward::start_given(
+        dir.path(),
+        &[
+            ("USHER_SITE_NAME", "St Mary's Hall"),
+            ("USHER_TIME_ZONE", ""),
+        ],
+    );
+    let site = steward.ask("site.settings", "get", json!({}));
+    assert_eq!(site["name"], "St Mary's Hall", "{site}");
+    assert_eq!(site["time_zone"], Value::Null);
+    // What an administrator sets stands from then on, whatever the unit
+    // is started with.
+    steward.ask(
+        "site.settings",
+        "set",
+        json!({ "name": "St Mary's Hall, front desk", "time_zone": "UTC" }),
+    );
+    assert_eq!(steward.stop(), Some(0));
+    let steward = Steward::start_given(dir.path(), &given);
+    let site = steward.ask("site.settings", "get", json!({}));
+    assert_eq!(site["name"], "St Mary's Hall, front desk", "{site}");
+    assert_eq!(site["time_zone"], "UTC");
+    assert_eq!(site["set_here"], true);
+    assert_eq!(steward.stop(), Some(0));
+
+    // A value that is not as a name or a time zone is leaves the unit
+    // without one, and the unit starts all the same.
+    let other = short_dir();
+    let steward = Steward::start_given(
+        other.path(),
+        &[
+            ("USHER_SITE_NAME", "St Mary's"),
+            ("USHER_TIME_ZONE", "Warsaw time"),
+        ],
+    );
+    let site = steward.ask("site.settings", "get", json!({}));
+    assert_eq!(site["name"], "St Mary's", "{site}");
+    assert_eq!(site["time_zone"], Value::Null);
+    assert_eq!(steward.stop(), Some(0));
+}
+
 #[test]
 fn what_no_plugin_stocks_is_refused_by_the_steward() {
     let dir = short_dir();

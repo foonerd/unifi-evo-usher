@@ -26,5 +26,10 @@
     "id": "controller",
     "label": "Controller",
     "shelves": [{ "shelf": "access.controller", "widgets": ["usher.controller"] }]
+  },
+  {
+    "id": "site",
+    "label": "Site",
+    "shelves": [{ "shelf": "site.settings" }]
   }
 ]

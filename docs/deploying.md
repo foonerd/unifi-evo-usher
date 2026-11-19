@@ -12,8 +12,8 @@ Every command and setting here is marked with where it comes from:
 
 - **One listener.** The steward serves HTTPS on port 8443: the face, the API under `/api/v1`, and a WebSocket at `/api/v1/ws`, over which the face hears what happens. A browser names its bearer on that WebSocket in the `Sec-WebSocket-Protocol` header. There is no plain-HTTP listener for a proxy to speak to: a proxy speaks HTTPS to the unit.
 - **Its own certificate.** The unit makes an authority of its own when it first starts, `/var/lib/evo/state/https/ca.crt`, and serves a certificate signed by it, renewed by itself. That certificate names the unit `localhost` and `127.0.0.1` and nothing else. A browser that reaches the unit by any other name is warned, also with the authority installed. A site that wants no warning puts a proxy with the site's certificate in front of the unit.
-- **What it keeps.** Everything is under `/var/lib/evo`: the controller's address and key, the unit's authority with its private key, the key bearers are signed with, the voucher types, the vouchers held, the record of what was handed out, and the people who can sign in, each with a hash of their password. Whoever has that directory has the unit.
-- **Who is answered.** Whoever has signed in, with a name and a password. A caller who has not is given the files of the face and the way to sign in; every other request, the WebSocket among them, is answered 401, from whatever address it comes (**proven**: a test asks every operation the steward has, with no bearer, with a forged one, and with one of the steward's own making that is no person's session). [Who comes in](#who-comes-in) says the rest.
+- **What it keeps.** Everything is under `/var/lib/evo`: the controller's address and key, the unit's authority with its private key, the key bearers are signed with, the voucher types, the vouchers held, the record of what was handed out, the site's name, logo and time zone, and the people who can sign in, each with a hash of their password. Whoever has that directory has the unit.
+- **Who is answered.** Whoever has signed in, with a name and a password. A caller who has not is given the files of the face, the site's name and logo, which the form wears, and the way to sign in; every other request, the WebSocket among them, is answered 401, from whatever address it comes (**proven**: a test asks every operation the steward has, with no bearer, with a forged one, and with one of the steward's own making that is no person's session). [Who comes in](#who-comes-in) says the rest.
 
 ## In Docker
 
@@ -43,6 +43,8 @@ A variable of the shell goes before the file, so `USHER_VERSION=<version> docker
 | `USHER_NAME` | every file | What the container is called on the machine, and what the unit calls itself. | `usher` |
 | `USHER_ADDRESS` | `compose.yaml` | The address the face is published on; `127.0.0.1` for a unit that only a proxy on the same machine reaches. | Every address. |
 | `USHER_PORT` | `compose.yaml` | The port the face is published on. | `8443` |
+| `USHER_SITE_NAME` | every file | What the place the unit serves is called, until a name is saved on the page Site. | The unit has no name of its own, and goes by the usher's. |
+| `USHER_TIME_ZONE` | every file | The time zone the place keeps, by its name, as `Europe/Warsaw`, until one is saved on the page Site. | Each screen shows a time as its own browser keeps it. |
 | `USHER_CODE` | `extended.yaml` | The file with the unit's code, readable by the account 10001. | `./unit-code` |
 | `SITE_CERT`, `SITE_KEY` | the proxy examples | The site's certificate and its key. | `./site.crt`, `./site.key` |
 | `USHER_AUTHORITY` | the proxy examples | The unit's own authority, as it was taken from the unit. | `./unit-ca.crt` |
@@ -53,6 +55,7 @@ A variable of the shell goes before the file, so `USHER_VERSION=<version> docker
 - **A name.** The container is called `usher`, and the unit knows itself by the same name, unless `USHER_NAME` says another. With a name of its own one unit is run from the file, not several.
 - **Started again.** `restart: unless-stopped`: the unit is started again when it ends by itself and when the machine starts, and is left alone once it was stopped by hand.
 - **The level of security.** The file runs the unit at the ordinary level, and says so. `packaging/docker/extended.yaml`, named after it, runs it at the extended one, where setting the unit up takes the unit's code as well, which that file gives it: see [Who comes in](#who-comes-in). **Proven**, at both levels.
+- **The site's name and its time zone.** `USHER_SITE_NAME` and `USHER_TIME_ZONE` give a unit what it is called and the time zone it keeps from its first start, so that the form it is set up by wears the name already. They are the first values and no more: once an administrator saves a name and a time zone on the page Site, what was saved stands, and these are not read again. [The site](#the-site) says the rest. **Proven**: the proof starts every unit with both, finds the name told before anyone has signed in, and sets another name and time zone as an administrator; the unit by itself is then started again, with the first ones still given, and goes by what was set.
 - **The least privilege.** The unit runs as the image's one account, numbered 10001, with every capability dropped, no way to gain a privilege, and a root file system it cannot write to. The steward needs none of them. **Proven**: the proof looks at the container for each of the four and then uses the unit.
 - **What it keeps.** A named volume, `kept`, at `/var/lib/evo`. Docker gives a new named volume to the image's account, so nothing has to be set. A folder of the machine can stand in its place; it must then belong to the account 10001 and be closed to others (**from the documentation** of Docker's bind mounts; not run here).
 - **Its socket.** `/run/evo` is kept in memory; the steward's client socket lives there.
@@ -67,8 +70,22 @@ A newer version is run by naming it in `USHER_VERSION` and `docker compose up -d
 
 ### What there is no setting for yet
 
-- **The time zone.** The unit keeps time in UTC, and each browser shows times in its own zone. The image carries no zone data, so a `TZ` variable changes nothing (**run here**: a unit given one wrote its log in UTC as before); the Compose files have none.
 - **The language.** The pages are in English.
+- **The time zone of the unit's own log.** The site's time zone is what the screens show a time in. The unit's log is written in UTC whatever is set: the image carries no zone data, so a `TZ` variable changes nothing (**run here**: a unit given one wrote its log in UTC as before); the Compose files have none.
+
+## The site
+
+What the place a unit serves is called, how it looks and what time it keeps is set on the page Site, by an administrator, and kept by the unit with everything else it keeps.
+
+- **The name.** One line, 64 characters at most. It stands in the bar, in the browser's tab, on the forms a unit is set up and signed in to by, and above a voucher that is shown to a guest. A unit with no name goes by the usher's own.
+- **The logo.** A PNG file, 256 KiB at most, its picture 1024 by 512 pixels at most. It stands where the usher's mark does, as high as a line of the bar, and above a voucher shown to a guest. The page shows a file that was chosen as it will stand on a dark page and on a light one before it is saved. A file that is no PNG, one that is cut short or damaged, and one beyond those limits are refused, in words; the unit keeps the file as it was given. Removed, the usher's own mark stands in its place.
+- **The time zone.** One of the zones the browser lists, by its name, or each browser's own. With a time zone set, every time on the screens (when a voucher was made, when it was handed out, when a person was added) is shown as a clock there shows it, and a screen whose browser keeps another zone says which zone that is. With each browser's own, a screen shows a time as its browser keeps it.
+
+The name and the logo are told to anyone who can reach the unit, signed in or not: they are what the form a person signs in by wears. Nothing else of the site is told without a session (**proven** by a test).
+
+A unit can be given its name and its time zone where it is started: [`USHER_SITE_NAME` and `USHER_TIME_ZONE`](#the-values-of-a-site) in Docker, and for an installed unit the same two as `Environment=` lines of a drop-in (`sudo systemctl edit evo`), which `packaging/systemd/evo.service` shows as comments (**proven** by `scripts/prove-unit.sh`). A unit goes by them until an administrator saves a name and a time zone on the page; from then on what was saved stands, and a restart with other values changes nothing. A value that is no name or no time zone is left out: the unit says so in its log, and starts all the same (**proven** by a test, the line in the log apart). There is no variable for the logo: it is chosen on the page.
+
+All of it is asked of one place, the shelf `site.settings` of the unit's catalogue, by the bar, the forms and the counter alike.
 
 ## Behind a proxy
 

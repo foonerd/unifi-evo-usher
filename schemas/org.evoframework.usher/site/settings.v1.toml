@@ -1,0 +1,122 @@
+# Schema for the `site.settings` shelf at shape version 1.
+#
+# The request types and payloads a plugin stocking `site.settings` at
+# shape 1 answers. Payloads are JSON objects, in and out.
+
+schema_version = 1
+rack = "site"
+shelf = "settings"
+shape = 1
+
+description = """
+What the place the unit serves is called, how it looks and what time it
+keeps: the site's name, its logo and its time zone. They are kept in one
+place, so that every screen and every ticket shows the same.
+
+The name is one line of text, 64 characters at most; an empty name is no
+name. The logo is a PNG file, 256 KiB at most, its picture 1024 by 512
+pixels at most. It is read as far as it takes to know that it is a PNG,
+whole and undamaged, and how large its picture is, and is kept and
+answered as the file it was given. The time zone is the name of one in
+the IANA time zone database, such as `Europe/Warsaw`, or null: with
+none, every screen shows a time in the time zone of its own browser. A
+time zone is held to the form of such a name; whether a zone of that
+name exists is for whoever shows a time to know.
+
+The site as answered is `{ name: string, time_zone: string | null,
+language: string | null, logo: { png_b64: string, width: integer,
+height: integer, bytes: integer } | null, set_here: bool, limits: {
+name_characters: integer, logo_bytes: integer, logo_width: integer,
+logo_height: integer } }`. `png_b64` is the PNG file in base64, with
+padding; `width` and `height` are its picture's, in pixels; `bytes` is
+the file's length. `language` is a language tag; no request of this
+shape sets one, and it is null. `limits` are the ones above, for a
+caller to say before a name is typed or a file is chosen.
+
+A unit can be given a name and a time zone where it is started, in the
+variables `USHER_SITE_NAME` and `USHER_TIME_ZONE` of its environment.
+They stand for as long as none was set with `set`, and `set_here` is
+false for as long. From the first `set` on, what was set stands and the
+environment is not read: what an administrator set is not undone by a
+restart. A value of the environment that is not as a name or a time
+zone is here is left out, and said in the log.
+
+What is kept is kept through a restart: a change is on disk before it is
+answered. A request that is not as its payload is described, or that
+breaks a limit, is refused as permanent, in words for a screen; a change
+that could not be written down, as transient.
+"""
+
+[[requests]]
+request_type = "get"
+description = """
+The site as it stands. Returns the site, as above. Nothing it answers is
+a secret: it is what the forms and the guest are shown.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "set"
+description = """
+Set the name and the time zone. Payload `{ name: string, time_zone:
+string | null }`. The name is kept without the blanks around it. Returns
+`{ name: string, time_zone: string | null }`, as kept.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "put_logo"
+description = """
+Give the site a logo, in place of any it has. Payload `{ png_b64: string
+}`: the PNG file in base64. Returns `{ width: integer, height: integer,
+bytes: integer }`. A file that is no PNG, one cut short or damaged, one
+longer than the limit and a picture larger than the limit are refused,
+and the logo the site had stays.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "remove_logo"
+description = """
+Take the site's logo away. Returns `{ removed: bool }`: whether it had
+one.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[acceptance]]
+name = "the-site-is-kept"
+detail = """
+After `set` of a name and a time zone, `put_logo` of a PNG file and a
+restart of the plugin, `get` returns that name, that time zone and that
+file, byte for byte.
+"""
+
+[[acceptance]]
+name = "the-limits-hold"
+detail = """
+`set` of a name of 65 characters is refused, and of 64 is kept.
+`put_logo` of a file of 256 KiB and one byte is refused, as is one whose
+picture is 1025 pixels wide or 513 high, as is a file that does not
+begin as a PNG does, as is a PNG cut short. After each, `get` returns
+the logo the site had.
+"""
+
+[[acceptance]]
+name = "the-environment-gives-the-first-values-only"
+detail = """
+Started with a name and a time zone in its environment and nothing kept,
+`get` returns them with `set_here` false. After `set` of another name
+and a restart with the same environment, `get` returns the name that was
+set, with `set_here` true.
+"""
+
+[[acceptance]]
+name = "a-logo-is-taken-away"
+detail = """
+After `put_logo` and `remove_logo`, `get` returns `logo: null`, and
+`remove_logo` again returns `{ removed: false }`.
+"""

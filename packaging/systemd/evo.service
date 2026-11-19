@@ -35,6 +35,13 @@ Environment=EVO_HTTPS_STATIC_DIR=/opt/evo/ui
 # kept signed in. Set in a drop-in (`sudo systemctl edit evo`), or here:
 #Environment=USHER_SECURITY=extended
 
+# What the place the unit serves is called, and the time zone it keeps,
+# by its name, as Europe/Warsaw. A unit goes by these until an
+# administrator saves a name and a time zone on the page Site; what is
+# saved there stands from then on. Set in a drop-in, or here:
+#Environment="USHER_SITE_NAME=Parish Hall"
+#Environment=USHER_TIME_ZONE=Europe/Warsaw
+
 # The code a unit of the extended level is set up with. The steward makes
 # one where the file is not there, and the directory is new at every
 # start: so is the code. It is read with `sudo cat /run/evo/unit-code`.

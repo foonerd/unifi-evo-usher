@@ -9,11 +9,12 @@ members = [
     "bins/evo-usher-steward",
     "plugins/org.evoframework.usher.controller.unifi",
     "plugins/org.evoframework.usher.counter",
+    "plugins/org.evoframework.usher.site",
     "plugins/org.evoframework.usher.stock",
 ]
 
 [workspace.package]
-version = "0.3.15"
+version = "0.3.16"
 edition = "2021"
 license = "MIT"
 publish = false
@@ -29,6 +30,10 @@ evo = { git = "https://github.com/foonerd/evo-core.git", tag = "v0.1.13.2" }
 evo-plugin-sdk = { git = "https://github.com/foonerd/evo-core.git", tag = "v0.1.13.2" }
 evo-plugin-test = { git = "https://github.com/foonerd/evo-core.git", tag = "v0.1.13.2" }
 evo-auth-bearer = { git = "https://github.com/foonerd/evo-core.git", tag = "v0.1.13.2" }
+# What evo hands a distribution's hookup to ask a shelf with: the usher's
+# own routes ask the catalogue's shelves through it, as any caller does.
+evo-runtime-http = { git = "https://github.com/foonerd/evo-core.git", tag = "v0.1.13.2" }
+evo-projection-core = { git = "https://github.com/foonerd/evo-core.git", tag = "v0.1.13.2" }
 
 # One set of lints for every crate; CI denies warnings.
 [workspace.lints.rust]

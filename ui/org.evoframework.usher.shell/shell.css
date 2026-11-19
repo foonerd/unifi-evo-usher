@@ -97,6 +97,23 @@ body {
   height: 2rem;
 }
 
+/* A site's own logo stands where the mark does, as high as the mark and
+   as wide as its picture makes it, within what a bar can give. */
+.brand-logo {
+  flex: none;
+  width: auto;
+  max-width: min(12rem, 45vw);
+  height: 2rem;
+  object-fit: contain;
+}
+
+/* A name of the site's own may be long: it gives way before the menu
+   does. */
+.brand-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .mark-slip {
   fill: var(--primary);
 }

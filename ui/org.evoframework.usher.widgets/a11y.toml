@@ -38,6 +38,15 @@ keyboard = { focusable = true, interactions = [] }
 screen_reader = { announces = ["usher.reserve.changed"] }
 motion = { animates = true, honours_prefers_reduced_motion = true }
 
+["usher.site"]
+kind_id = "usher.site"
+aria_role = "region"
+aria_label_source = "inner_text"
+contrast = "aaa"
+keyboard = { focusable = true, interactions = [] }
+screen_reader = { announces = ["usher.site.changed"] }
+motion = { animates = true, honours_prefers_reduced_motion = true }
+
 ["usher.types"]
 kind_id = "usher.types"
 aria_role = "region"

@@ -149,7 +149,7 @@ fn held(browser: &mut Browser) -> Value {
 
 /// The pages of the face: what the menu calls each, its address, and the
 /// widgets that stand on it. The last is the shell's own.
-const PAGES: [(&str, &str, &[&str]); 6] = [
+const PAGES: [(&str, &str, &[&str]); 7] = [
     ("Counter", "#/counter", &["usher.counter"]),
     (
         "Vouchers",
@@ -159,6 +159,7 @@ const PAGES: [(&str, &str, &[&str]); 6] = [
     ("Voucher types", "#/types", &["usher.types"]),
     ("Network", "#/network", &["usher.networks"]),
     ("Controller", "#/controller", &["usher.controller"]),
+    ("Site", "#/site", &["usher.site"]),
     ("People", "#/people", &[]),
 ];
 
@@ -365,7 +366,8 @@ fn a_new_usher_is_set_up_and_its_controller_set_from_the_screen() {
             "usher.reserve",
             "usher.types",
             "usher.networks",
-            "usher.controller"
+            "usher.controller",
+            "usher.site"
         ])
     );
     assert_eq!(
@@ -1769,6 +1771,8 @@ fn the_menu_leads_from_page_to_page() {
     browser.act("history.back();");
     at(&mut browser, "People");
     browser.act("history.back();");
+    at(&mut browser, "Site");
+    browser.act("history.back();");
     at(&mut browser, "Controller");
     browser.act("history.back();");
     at(&mut browser, "Network");
@@ -2385,7 +2389,7 @@ fn people_sign_in_and_out_and_are_looked_after_on_a_page_of_their_own() {
     assert_eq!(
         over,
         json!({
-            "fragment": "#/people", "typed": "Half typed", "widgets": 6,
+            "fragment": "#/people", "typed": "Half typed", "widgets": 7,
             "who": false, "line": "Not signed in.",
         })
     );
@@ -2581,6 +2585,16 @@ fn the_extended_level_asks_the_units_code_and_keeps_no_browser_signed_in() {
     let holds = held(&mut browser);
     assert!(holds["session"].is_string(), "{holds}");
     assert_eq!(holds["kept"], Value::Null, "{holds}");
+    // Signed in, the face is drawn and hears the steward: its line is
+    // joined.
+    browser.wait(
+        "the face, drawn",
+        r#"menuEntries().length > 0 && widget("usher.counter") !== null"#,
+    );
+    browser.wait(
+        "the line",
+        r#"document.getElementById("line").textContent === "Connected""#,
+    );
     assert_eq!(steward.stop(), Some(0));
 }
 
@@ -2595,6 +2609,737 @@ fn the_rules_of_the_face_hold_in_a_browser() {
     browser.go(&format!("{}/door.css", steward.address()));
     let failed = browser.look(include_str!("js/rules.js"));
     assert_eq!(failed, json!([]), "these did not hold");
+    assert_eq!(steward.stop(), Some(0));
+}
+
+/// Choose a file in the Site page's field for a logo, as a person does:
+/// one of this name and kind, holding these bytes.
+fn choose_logo(browser: &mut Browser, name: &str, kind: &str, file: &[u8]) {
+    use base64::Engine as _;
+    let carried = base64::engine::general_purpose::STANDARD.encode(file);
+    browser.act(&format!(
+        r#"
+        const bytes = Uint8Array.from(atob({carried}), (c) => c.charCodeAt(0));
+        const given = new DataTransfer();
+        given.items.add(new File([bytes], {name}, {{ type: {kind} }}));
+        const field = widget("usher.site").querySelector('input[type="file"]');
+        field.files = given.files;
+        field.dispatchEvent(new Event("change", {{ bubbles: true }}));
+        "#,
+        carried = json!(carried),
+        name = json!(name),
+        kind = json!(kind),
+    ));
+}
+
+/// A logo made up for the test: an emblem, a disc with a doorway in it,
+/// and two bars where a name would be written, on a clear ground.
+fn made_up_logo() -> Vec<u8> {
+    evo_usher_site::png::drawn(300, 84, |across, down| {
+        let (across, down) = (across as i32, down as i32);
+        let (x, y) = (across - 42, down - 42);
+        if x * x + y * y <= 40 * 40 {
+            let doorway = (x.abs() <= 12 && (-6..=26).contains(&y))
+                || x * x + (y + 6) * (y + 6) <= 12 * 12;
+            return if doorway {
+                [255, 255, 255, 255]
+            } else {
+                [14, 124, 134, 255]
+            };
+        }
+        if (100..290).contains(&across) && (20..40).contains(&down) {
+            return [226, 138, 43, 255];
+        }
+        if (100..230).contains(&across) && (52..62).contains(&down) {
+            return [128, 140, 160, 255];
+        }
+        [0, 0, 0, 0]
+    })
+}
+
+/// What the Site page last said of the logo, once it says this.
+fn logo_said(browser: &mut Browser, words: &str, trouble: bool) {
+    browser.wait(
+        words,
+        &format!(
+            r#"(() => {{
+              const said = widget("usher.site").querySelector(".usher-site-logo .usher-said");
+              return said.textContent === {words} && said.classList.contains("usher-trouble") === {trouble};
+            }})()"#,
+            words = json!(words),
+        ),
+    );
+}
+
+/// The brand as it stands in a place of the page: whether the usher's
+/// own mark is drawn there, how wide the picture of a site's logo is
+/// where one is, and the name beside it.
+fn brand_in(browser: &mut Browser, place: &str) -> Value {
+    browser.look(&format!(
+        r#"
+        const brand = document.querySelector({place});
+        const logo = brand.querySelector("img.brand-logo");
+        return {{
+          mark: onScreen(brand.querySelector("svg.mark")),
+          logo: logo === null ? null : [onScreen(logo), logo.complete, logo.naturalWidth, logo.naturalHeight, logo.alt],
+          name: brand.querySelector(".brand-name").textContent,
+        }};
+        "#,
+        place = json!(place),
+    ))
+}
+
+#[test]
+fn a_site_is_given_its_name_its_time_zone_and_its_logo_from_the_screen() {
+    let Some(mut browser) = Browser::open() else {
+        return;
+    };
+    browser.size(1280, 900);
+    // The browser keeps India's time, whatever the machine keeps, half
+    // an hour off every clock in Europe: a time the site keeps is told
+    // from one the browser keeps.
+    browser.keeps("Asia/Kolkata");
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let simulated = runtime.block_on(Simulated::start());
+    let dir = short_dir();
+    // A unit that was given a name where it was started, as a container
+    // is from its Compose file.
+    let steward =
+        Steward::start_given(dir.path(), &[("USHER_SITE_NAME", "Parish Hall")]);
+    let nobody = Caller::beyond();
+    let logo = made_up_logo();
+
+    // Before anyone has set the unit up, the form it is set up by wears
+    // that name, in the bar and on the form, beside the usher's own
+    // mark: it has no logo yet.
+    browser.from(FROM_BEYOND);
+    browser.go(&format!("{}/", steward.address()));
+    browser.wait(
+        "the form that sets an usher up, wearing the site's name",
+        r#"document.getElementById("set-up-form") !== null && document.querySelector('#entry .brand-name')?.textContent === "Parish Hall""#,
+    );
+    let worn = json!({ "mark": true, "logo": null, "name": "Parish Hall" });
+    assert_eq!(brand_in(&mut browser, ".bar .brand"), worn);
+    assert_eq!(brand_in(&mut browser, "#entry .brand"), worn);
+    assert_eq!(browser.look("return document.title;"), "Parish Hall");
+
+    // A unit whose controller is set, whose network is chosen, and that
+    // has a type to hand out: what is looked at here is the site.
+    let presented = steward.ask(
+        "access.controller",
+        "probe",
+        json!({ "base": simulated.base() }),
+    );
+    steward.ask(
+        "access.controller",
+        "set",
+        json!({
+            "base": simulated.base(),
+            "key": simulated.key(),
+            "fingerprint": presented["fingerprint"],
+        }),
+    );
+    let networks = steward.ask("networks.directory", "networks", json!({}));
+    let guests = networks["sites"][0]["networks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|network| network["name"] == "Guests")
+        .expect("the simulated controller has a Guests network")["id"]
+        .clone();
+    steward.ask(
+        "networks.directory",
+        "choose",
+        json!({ "site": simulated.site(), "network": guests }),
+    );
+    let put = steward.ask(
+        "issue.counter",
+        "put_type",
+        json!({
+            "name": "Day guest", "minutes": 1440, "guests": 1,
+            "megabytes": null, "down_kbps": null, "up_kbps": null,
+        }),
+    );
+    assert!(put.get("error").is_none(), "{put}");
+    let anna = signed_in_already(&mut browser, &steward);
+    browser.go(&format!("{}/", steward.address()));
+    go_to(&mut browser, "Site");
+
+    // The page of the site: its name and its time zone in one form, and
+    // its logo under it. What a name and a logo may be is said before
+    // anything is typed or chosen. The name is the one the unit was
+    // started with, and the page says so.
+    browser.wait(
+        "the site, as it stands",
+        r#"widget("usher.site")?.querySelector('[name="name"]') != null"#,
+    );
+    let page = browser.look(
+        r#"
+        const site = widget("usher.site");
+        const name = site.querySelector('[name="name"]');
+        const zone = site.querySelector('[name="time_zone"]');
+        const file = site.querySelector('input[type="file"]');
+        const zones = [...zone.options].map((option) => [option.value, option.textContent]);
+        return {
+          heading: site.querySelector("h3").textContent,
+          region: [site.getAttribute("role"), document.getElementById(site.getAttribute("aria-labelledby"))?.textContent],
+          name: [name.value, name.maxLength, name.labels[0]?.textContent],
+          zone: [zone.value, zone.labels[0]?.textContent, zones.slice(0, 2)],
+          offers: ["Europe/Warsaw", "America/New_York"].map((zone) => zones.some(([value]) => value === zone)),
+          many: zones.length > 300,
+          // The browser says which zone it keeps, under the one or the
+          // other of the names India's has.
+          own: ["Asia/Kolkata", "Asia/Calcutta"].filter((zone) =>
+            site.innerText.includes(`this browser keeps ${zone}.`)).length,
+          given: site.querySelector(".usher-site-given")?.textContent,
+          file: [file.accept, file.labels[0]?.textContent],
+          limits: site.querySelector(".usher-site-logo .usher-hint").textContent,
+          shown: site.querySelector(".usher-site-shown").innerText,
+          can: [...site.querySelectorAll("button")].map((b) => [b.textContent, b.disabled]),
+        };
+        "#,
+    );
+    assert_eq!(
+        page,
+        json!({
+            "heading": "Name, time zone and logo",
+            "region": ["region", "Name, time zone and logo"],
+            "name": ["Parish Hall", 64, "Name"],
+            "zone": ["", "Time zone", [["", "Each browser's own"], ["UTC", "UTC"]]],
+            "offers": [true, true],
+            "many": true,
+            "own": 1,
+            "given": "These were given to the unit where it was started. What is saved here takes their place, and stays through a restart.",
+            "file": ["image/png,.png", "Choose a PNG file"],
+            "limits": "A PNG file, 256 KiB at most, its picture 1024 by 512 pixels at most. It stands where the usher's mark does, as high as a line of the bar, so a wide logo with little room around it reads best. One with a clear ground stands on dark pages and on light.",
+            "shown": "No logo is set. The usher wears its own mark.",
+            "can": [["Save", false], ["Save the logo", true], ["Remove the logo", true]],
+        })
+    );
+
+    // A name and a time zone, saved: the bar goes by the name at once,
+    // and so does the browser's tab. Whoever saved is still at the
+    // button.
+    browser.act(
+        r#"
+        const site = widget("usher.site");
+        type(site.querySelector('[name="name"]'), "  St Mary's Hall ");
+        const zone = site.querySelector('[name="time_zone"]');
+        zone.value = "Europe/Warsaw";
+        zone.dispatchEvent(new Event("change", { bubbles: true }));
+        site.querySelector('button[type="submit"]').focus();
+        site.querySelector("form").requestSubmit();
+        "#,
+    );
+    browser.wait(
+        "the name and the time zone, saved",
+        r#"widget("usher.site").querySelector(".usher-site-settings .usher-said")?.textContent === "Saved.""#,
+    );
+    let saved = browser.look(
+        r#"
+        const site = widget("usher.site");
+        return {
+          name: site.querySelector('[name="name"]').value,
+          zone: site.querySelector('[name="time_zone"]').value,
+          given: site.querySelector(".usher-site-given"),
+          at: document.activeElement?.textContent,
+          title: document.title,
+        };
+        "#,
+    );
+    assert_eq!(
+        saved,
+        json!({
+            "name": "St Mary's Hall", "zone": "Europe/Warsaw", "given": null,
+            "at": "Save", "title": "Site - St Mary's Hall",
+        })
+    );
+    assert_eq!(
+        brand_in(&mut browser, ".bar .brand"),
+        json!({ "mark": true, "logo": null, "name": "St Mary's Hall" })
+    );
+    let kept = steward.ask("site.settings", "get", json!({}));
+    assert_eq!(kept["name"], "St Mary's Hall", "{kept}");
+    assert_eq!(kept["time_zone"], "Europe/Warsaw");
+    assert_eq!(kept["set_here"], true);
+
+    // A name the shelf does not take is refused in its words, and the
+    // name that was kept stays.
+    browser.act(
+        r#"
+        const site = widget("usher.site");
+        const name = site.querySelector('[name="name"]');
+        name.removeAttribute("maxlength");
+        type(name, "n".repeat(65));
+        site.querySelector("form").requestSubmit();
+        "#,
+    );
+    browser.wait(
+        "the refusal of a name too long",
+        r#"(() => {
+          const said = widget("usher.site").querySelector(".usher-site-settings .usher-said");
+          return said.classList.contains("usher-trouble") && said.textContent === "A site's name is 64 characters at most; this one has 65.";
+        })()"#,
+    );
+    assert_eq!(
+        steward.ask("site.settings", "get", json!({}))["name"],
+        "St Mary's Hall"
+    );
+    browser.act(
+        r#"type(widget("usher.site").querySelector('[name="name"]'), "St Mary's Hall");"#,
+    );
+
+    // A file that is no logo is refused before it is sent, in the words
+    // the shelf refuses it in, and nothing is there to save: one that is
+    // no PNG whatever it is called, a picture too large, a file too
+    // long.
+    for (name, kind, file, words) in [
+        (
+            "logo.png",
+            "image/png",
+            b"GIF89a, and so on".to_vec(),
+            "This file is not a PNG picture. A logo is a PNG file.",
+        ),
+        (
+            "wide.png",
+            "image/png",
+            evo_usher_site::png::sample(1025, 2, [0, 0, 0, 255]),
+            "This picture is 1025 by 2 pixels. A logo is 1024 by 512 pixels at most.",
+        ),
+        (
+            "long.png",
+            "image/png",
+            evo_usher_site::png::sample(300, 300, [0, 0, 0, 255]),
+            "This file is 352 KiB. A logo is 256 KiB at most.",
+        ),
+    ] {
+        choose_logo(&mut browser, name, kind, &file);
+        logo_said(&mut browser, words, true);
+        assert_eq!(
+            browser.look(
+                r#"
+                const site = widget("usher.site");
+                return [
+                  site.querySelector('input[type="file"]').value,
+                  site.querySelector(".usher-looks"),
+                  [...site.querySelectorAll("button")].find((b) => b.textContent === "Save the logo").disabled,
+                ];
+                "#
+            ),
+            json!(["", null, true]),
+            "{name}"
+        );
+    }
+    assert_eq!(
+        steward.ask("site.settings", "get", json!({}))["logo"],
+        Value::Null
+    );
+    // A PNG that was cut short is one a browser may still draw. It is
+    // the shelf that refuses it, when it is saved, and nothing is kept
+    // or worn.
+    choose_logo(
+        &mut browser,
+        "cut.png",
+        "image/png",
+        &logo[..logo.len() - 20],
+    );
+    browser.wait(
+        "the file that was cut short, drawn as far as it goes",
+        r#"widget("usher.site").querySelectorAll(".usher-look img").length === 2"#,
+    );
+    browser.act(
+        r#"[...widget("usher.site").querySelectorAll("button")].find((b) => b.textContent === "Save the logo").click();"#,
+    );
+    logo_said(
+        &mut browser,
+        "This PNG file is cut short or damaged, and cannot be a logo.",
+        true,
+    );
+    assert_eq!(
+        steward.ask("site.settings", "get", json!({}))["logo"],
+        Value::Null
+    );
+    assert_eq!(brand_in(&mut browser, ".bar .brand")["logo"], Value::Null);
+
+    // A PNG within the limits is shown as it will stand in the bar,
+    // beside the name, on a dark page and on a light one, before it is
+    // saved. The bar does not wear it yet.
+    choose_logo(&mut browser, "hall.png", "image/png", &logo);
+    browser.wait(
+        "the logo as it will look",
+        r#"[...widget("usher.site").querySelectorAll(".usher-look img")].filter((img) => img.complete && img.naturalWidth === 300).length === 2"#,
+    );
+    let looks = browser.look(
+        r#"
+        const site = widget("usher.site");
+        const grounds = [...site.querySelectorAll(".usher-look")].map((look) => {
+          const ground = look.querySelector("div");
+          return [
+            look.querySelector("figcaption").textContent,
+            getComputedStyle(ground).backgroundColor,
+            ground.querySelector("span").textContent,
+            look.querySelector("img").alt,
+            Math.round(look.querySelector("img").getBoundingClientRect().height),
+          ];
+        });
+        return {
+          grounds,
+          bar: Math.round(document.querySelector(".bar .brand svg.mark").getBoundingClientRect().height),
+          said: site.querySelector(".usher-site-shown > p.usher-hint").textContent,
+          save: [...site.querySelectorAll("button")].find((b) => b.textContent === "Save the logo").disabled,
+        };
+        "#,
+    );
+    let high = looks["bar"].as_u64().unwrap();
+    assert_eq!(
+        looks,
+        json!({
+            "grounds": [
+                ["On a dark page", "rgb(10, 14, 20)", "St Mary's Hall", "The logo on a dark page", high],
+                ["On a light page", "rgb(255, 255, 255)", "St Mary's Hall", "The logo on a light page", high],
+            ],
+            "bar": high,
+            "said": format!(
+                "The file chosen: 300 by 84 pixels, {} KiB. It is not saved yet.",
+                logo.len().div_ceil(1024)
+            ),
+            "save": false,
+        })
+    );
+    assert_eq!(
+        brand_in(&mut browser, ".bar .brand")["logo"],
+        Value::Null,
+        "nothing is worn that is not saved"
+    );
+
+    // Saved, it is worn at once: in the bar, where the usher's mark
+    // stood, as high as the mark was, the name beside it.
+    browser.act(
+        r#"[...widget("usher.site").querySelectorAll("button")].find((b) => b.textContent === "Save the logo").click();"#,
+    );
+    logo_said(&mut browser, "The logo is saved.", false);
+    browser.wait(
+        "the logo in the bar",
+        r#"document.querySelector(".bar .brand img.brand-logo")?.naturalWidth === 300"#,
+    );
+    let in_the_bar = json!({
+        "mark": false, "logo": [true, true, 300, 84, ""], "name": "St Mary's Hall",
+    });
+    assert_eq!(brand_in(&mut browser, ".bar .brand"), in_the_bar);
+    assert_eq!(
+        browser.look(
+            r#"
+            const site = widget("usher.site");
+            return [
+              Math.round(document.querySelector(".bar .brand img.brand-logo").getBoundingClientRect().height),
+              site.querySelector(".usher-site-shown > p.usher-hint").textContent,
+              [...site.querySelectorAll("button")].map((b) => [b.textContent, b.disabled]),
+            ];
+            "#
+        ),
+        json!([
+            high,
+            format!(
+                "The logo that is set: 300 by 84 pixels, {} KiB.",
+                logo.len().div_ceil(1024)
+            ),
+            [["Save", false], ["Save the logo", true], ["Remove the logo", false]],
+        ])
+    );
+    // It is the file that was chosen, byte for byte, in the steward; and
+    // anyone is told it, with the name, for the forms to wear.
+    use base64::Engine as _;
+    let carried = base64::engine::general_purpose::STANDARD.encode(&logo);
+    let kept = steward.ask("site.settings", "get", json!({}));
+    assert_eq!(kept["logo"]["png_b64"], carried.as_str(), "{kept}");
+    let (_, state) = steward.usher("GET", "state", None, &nobody);
+    assert_eq!(
+        state["site"],
+        json!({
+            "name": "St Mary's Hall",
+            "logo": { "png_b64": carried, "width": 300, "height": 84 },
+        })
+    );
+    // For the eye: the page of the site, and the bar wearing the logo.
+    if let Some(to) = picture_of(Some("site-set")) {
+        browser.act("document.activeElement?.blur();");
+        browser.picture(&to);
+    }
+
+    // By the keyboard alone: the Tab key goes from the page's heading
+    // through the name, the time zone, saving them, the file and what
+    // can be done with the logo, and each is ringed where it stands.
+    browser
+        .act(r#"document.querySelector(".page:not([hidden]) > h2").focus();"#);
+    let at = r#"
+        const at = document.activeElement;
+        const ring = getComputedStyle(at);
+        return [at.name || at.textContent, ring.outlineStyle, ring.outlineWidth];
+    "#;
+    for stop in ["name", "time_zone", "Save", "logo", "Remove the logo"] {
+        browser.press("Tab", false);
+        assert_eq!(browser.look(at), json!([stop, "solid", "3px"]));
+    }
+
+    // The counter: a voucher handed out is put before the guest under
+    // the place's logo and its name.
+    go_to(&mut browser, "Counter");
+    browser.wait(
+        "the type at the counter",
+        r#"widget("usher.counter").querySelectorAll("button.usher-type").length === 1"#,
+    );
+    browser.act(
+        r#"widget("usher.counter").querySelector("button.usher-type").click();"#,
+    );
+    browser.wait(
+        "the voucher",
+        r#"widget("usher.counter").querySelector(".usher-voucher")?.textContent"#,
+    );
+    browser.act(
+        r#"[...widget("usher.counter").querySelectorAll("button")].find((b) => b.textContent === "Show to the guest").click();"#,
+    );
+    browser.wait(
+        "the voucher before the guest, under the logo",
+        r#"widget("usher.counter").querySelector("dialog.usher-guest[open] .usher-host-logo")?.naturalWidth === 300"#,
+    );
+    let before_the_guest = browser.look(
+        r#"
+        const sheet = widget("usher.counter").querySelector("dialog.usher-guest[open]");
+        const logo = sheet.querySelector(".usher-host-logo");
+        return {
+          first: sheet.firstElementChild.className,
+          logo: [onScreen(logo), logo.complete, logo.naturalWidth, logo.alt],
+          name: sheet.querySelector(".usher-host-name").textContent,
+          then: sheet.querySelector(".usher-host").nextElementSibling.textContent,
+        };
+        "#,
+    );
+    assert_eq!(
+        before_the_guest,
+        json!({
+            "first": "usher-host", "logo": [true, true, 300, ""],
+            "name": "St Mary's Hall", "then": "Wi-Fi: Guests",
+        })
+    );
+    // For the eye: the voucher as the guest is shown it at this place.
+    if let Some(to) = picture_of(Some("site-guest")) {
+        browser.picture(&to);
+    }
+    browser.act(
+        r#"widget("usher.counter").querySelector("dialog.usher-guest button").click();"#,
+    );
+    // For the eye: the counter, under the bar that wears the logo.
+    if let Some(to) = picture_of(Some("site-worn")) {
+        browser.picture(&to);
+    }
+
+    // Every time the face shows is the site's: when the voucher was
+    // made and when it was handed out, as a clock in Warsaw shows it,
+    // half an hour off the browser's own, with a word on which zone
+    // that is.
+    go_to(&mut browser, "Vouchers");
+    browser.wait(
+        "the voucher listed as handed out",
+        r#"widget("usher.vouchers").querySelector("tbody tr")?.cells[1].textContent.startsWith("handed out")"#,
+    );
+    let times = r#"
+        const zone = "Europe/Warsaw";
+        const how = { dateStyle: "medium", timeStyle: "short" };
+        return [...widget("usher.vouchers").querySelectorAll("tbody tr time")].map((time) => {
+          const moment = new Date(time.dateTime);
+          const there = moment.toLocaleString(undefined, { ...how, timeZone: zone });
+          return {
+            moment: time.dateTime,
+            there: time.textContent.startsWith(`${there} `),
+            zone: time.textContent.slice(there.length + 1),
+            here: time.textContent.startsWith(moment.toLocaleString(undefined, how)),
+          };
+        });
+    "#;
+    let shown = browser.look(times);
+    let shown = shown.as_array().unwrap();
+    assert_eq!(shown.len(), 2, "handed out, and created: {shown:?}");
+    // Warsaw's time has two names in a year, each written two ways.
+    let warsaw = ["GMT+1", "CET", "GMT+2", "CEST"];
+    for time in shown {
+        assert_eq!(time["there"], true, "{time}");
+        assert_eq!(time["here"], false, "{time}");
+        assert!(warsaw.contains(&time["zone"].as_str().unwrap()), "{time}");
+    }
+    // The controller made the voucher at midnight by the world's clock
+    // on the first of January: one in the morning in Warsaw, in winter,
+    // and half past five in India.
+    assert_eq!(shown[1]["moment"], "2026-01-01T00:00:00.000Z", "{shown:?}");
+    assert!(
+        warsaw[..2].contains(&shown[1]["zone"].as_str().unwrap()),
+        "{shown:?}"
+    );
+    let created = browser.look(
+        r#"return widget("usher.vouchers").querySelector("tbody tr").cells[2].textContent;"#,
+    );
+    let created = created.as_str().unwrap();
+    assert!(
+        created.contains("1:00")
+            && created.contains("2026")
+            && !created.contains(":30"),
+        "{created}"
+    );
+
+    // And the day a person was added, on the page of the people.
+    go_to(&mut browser, "People");
+    let (_, people) = steward.usher("GET", "people", None, &anna);
+    let made = people["people"][0]["made_ms"].as_u64().unwrap();
+    let since = browser.wait(
+        "the day Anna was added",
+        r#"document.querySelector('[data-person="Anna"] .person-role')?.textContent"#,
+    );
+    let wanted = browser.look(&format!(
+        r#"
+        const day = new Date({made}).toLocaleString(undefined, {{ dateStyle: "medium", timeZone: "Europe/Warsaw" }});
+        return `Administrator, since ${{day}} `;
+        "#
+    ));
+    let (since, wanted) = (since.as_str().unwrap(), wanted.as_str().unwrap());
+    assert!(since.starts_with(wanted), "{since}");
+    assert!(warsaw.contains(&&since[wanted.len()..]), "{since}");
+
+    // With each browser's own time, a time is written as the browser
+    // writes it, and nothing is said of a zone. The list of vouchers is
+    // written anew as the site changes, with nothing pressed there.
+    go_to(&mut browser, "Site");
+    browser.act(
+        r#"
+        const site = widget("usher.site");
+        const zone = site.querySelector('[name="time_zone"]');
+        zone.value = "";
+        zone.dispatchEvent(new Event("change", { bubbles: true }));
+        site.querySelector("form").requestSubmit();
+        "#,
+    );
+    browser.wait(
+        "the browser's own time, saved",
+        r#"widget("usher.site").querySelector(".usher-site-settings .usher-said")?.textContent === "Saved.""#,
+    );
+    assert_eq!(
+        steward.ask("site.settings", "get", json!({}))["time_zone"],
+        Value::Null
+    );
+    browser.wait(
+        "the times as the browser writes them",
+        r#"(() => {
+          const times = [...widget("usher.vouchers").querySelectorAll("tbody tr time")];
+          const how = { dateStyle: "medium", timeStyle: "short" };
+          return times.length === 2 && times.every((time) => time.textContent === new Date(time.dateTime).toLocaleString(undefined, how));
+        })()"#,
+    );
+    go_to(&mut browser, "People");
+    browser.wait(
+        "the day as the browser writes it",
+        &format!(
+            r#"document.querySelector('[data-person="Anna"] .person-role')?.textContent === `Administrator, since ${{new Date({made}).toLocaleString(undefined, {{ dateStyle: "medium" }})}}`"#
+        ),
+    );
+
+    // Signed out, the form a person signs in by wears the logo and the
+    // name, as it does in a browser that never held a session.
+    browser.act(r#"document.getElementById("sign-out").click();"#);
+    browser.wait(
+        "the form to sign in, wearing the logo",
+        r#"document.getElementById("sign-in-form") !== null && document.querySelector('#entry .brand img.brand-logo')?.naturalWidth === 300"#,
+    );
+    assert_eq!(brand_in(&mut browser, "#entry .brand"), in_the_bar);
+    assert_eq!(brand_in(&mut browser, ".bar .brand"), in_the_bar);
+    assert_eq!(
+        browser.look(
+            r#"return [document.title, document.querySelectorAll("[data-widget]").length, sessionStorage.getItem("evoBearer"), localStorage.getItem("evoBearer")];"#
+        ),
+        json!(["St Mary's Hall", 0, null, null])
+    );
+    browser.reload();
+    browser.wait(
+        "the form to sign in again, wearing the logo",
+        r#"document.getElementById("sign-in-form") !== null && document.querySelector('#entry .brand img.brand-logo')?.naturalWidth === 300"#,
+    );
+    assert_eq!(brand_in(&mut browser, "#entry .brand"), in_the_bar);
+    // For the eye: the form a person signs in by, at this place.
+    if let Some(to) = picture_of(Some("site-sign-in")) {
+        browser.picture(&to);
+    }
+
+    // Signed in again, the logo is removed, after being asked once
+    // more; the usher's own mark stands in its place, beside the name
+    // the site keeps.
+    fill(
+        &mut browser,
+        json!({ "sign-in-name": "Anna", "sign-in-password": PASSWORD }),
+    );
+    browser.act(r#"document.getElementById("sign-in-form").requestSubmit();"#);
+    browser.wait(
+        "signed in again",
+        r#"document.getElementById("entry").open === false && menuEntries().length > 0"#,
+    );
+    go_to(&mut browser, "Site");
+    let press = |label: &str| {
+        format!(
+            r#"[...widget("usher.site").querySelectorAll("button")].find((b) => b.textContent === {label}).click();"#,
+            label = json!(label),
+        )
+    };
+    browser.wait(
+        "the logo that is set",
+        r#"[...widget("usher.site")?.querySelectorAll("button") ?? []].some((b) => b.textContent === "Remove the logo" && !b.disabled)"#,
+    );
+    browser.act(&press("Remove the logo"));
+    assert_eq!(
+        browser.look(
+            r#"
+            const options = widget("usher.site").querySelector(".usher-site-logo .row");
+            return [options.innerText.replace(/\s+/g, " "), document.activeElement.textContent];
+            "#
+        ),
+        json!(["Remove the logo? Yes, remove it No", "Yes, remove it"])
+    );
+    // Not, after all: it stays.
+    browser.act(&press("No"));
+    assert_eq!(brand_in(&mut browser, ".bar .brand"), in_the_bar);
+    browser.act(&press("Remove the logo"));
+    browser.act(&press("Yes, remove it"));
+    logo_said(
+        &mut browser,
+        "The logo is removed. The usher wears its own mark.",
+        false,
+    );
+    assert_eq!(
+        brand_in(&mut browser, ".bar .brand"),
+        json!({ "mark": true, "logo": null, "name": "St Mary's Hall" })
+    );
+    assert_eq!(
+        browser.look(
+            r#"
+            const site = widget("usher.site");
+            return [
+              site.querySelector(".usher-site-shown").innerText,
+              [...site.querySelectorAll("button")].map((b) => [b.textContent, b.disabled]),
+            ];
+            "#
+        ),
+        json!([
+            "No logo is set. The usher wears its own mark.",
+            [["Save", false], ["Save the logo", true], ["Remove the logo", true]],
+        ])
+    );
+    assert_eq!(
+        steward.ask("site.settings", "get", json!({}))["logo"],
+        Value::Null
+    );
+    let (_, state) = steward.usher("GET", "state", None, &nobody);
+    assert_eq!(
+        state["site"],
+        json!({ "name": "St Mary's Hall", "logo": null })
+    );
     assert_eq!(steward.stop(), Some(0));
 }
 

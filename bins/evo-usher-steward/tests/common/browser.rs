@@ -320,6 +320,12 @@ impl Browser {
         );
     }
 
+    /// Have the browser keep the time of a time zone, by its name, as
+    /// the machine of a reader there does.
+    pub fn keeps(&mut self, zone: &str) {
+        self.tell("Emulation.setTimezoneOverride", json!({"timezoneId": zone}));
+    }
+
     /// Give the page a window of this size, in CSS pixels.
     pub fn size(&mut self, width: u32, height: u32) {
         self.tell(

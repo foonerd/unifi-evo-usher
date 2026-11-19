@@ -10,6 +10,7 @@ import { controller } from "./controller.js";
 import { counter } from "./counter.js";
 import { networks } from "./networks.js";
 import { reserve } from "./reserve.js";
+import { site } from "./site.js";
 import { types } from "./types.js";
 import { vouchers } from "./vouchers.js";
 
@@ -23,6 +24,28 @@ import { vouchers } from "./vouchers.js";
  * @property {{ request: (shelf: string, type: string, payload?: unknown) => Promise<any> }} steward
  *   asks the plugin on a shelf, through the steward; a refusal is thrown
  *   as an `Error` whose message is in words
+ * @property {Place} [site] what the shell knows of the place the unit
+ *   serves; a shell that knows nothing of it hands none
+ */
+
+/**
+ * The place the unit serves, as a shell tells a widget of it.
+ *
+ * @typedef {object} Place
+ * @property {() => string} name what the place is called; empty where it
+ *   has no name
+ * @property {() => string | null} logo its logo, as an address a picture
+ *   is drawn from; null where it has none
+ * @property {() => string | null} timeZone the time zone it keeps, by its
+ *   name; null for each browser's own
+ * @property {(when: unknown) => string} time a moment, written to the
+ *   minute as the place keeps time
+ * @property {(when: unknown) => string} day the day of a moment, as the
+ *   place keeps time
+ * @property {() => Promise<void>} look has the shell ask the steward
+ *   again, after the place was changed
+ * @property {(told: () => void) => (() => void)} watch be told when the
+ *   place is not what it was; what it returns ends the telling
  */
 
 /** @type {Record<string, (element: HTMLElement, context: Context) => (() => void)>} */
@@ -31,6 +54,7 @@ const drawn = {
   "usher.counter": counter,
   "usher.networks": networks,
   "usher.reserve": reserve,
+  "usher.site": site,
   "usher.types": types,
   "usher.vouchers": vouchers,
 };

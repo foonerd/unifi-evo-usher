@@ -6,7 +6,7 @@ What it is built to be: a core that holds the UniFi key, mints the vouchers on t
 
 ## Status
 
-0.3.15 stands on the evo steward, has a face, and is installed as a service. `evo-usher-steward` is the steward with the usher's catalogue and three plugins: the controller, which mints vouchers on a UniFi Network controller; the counter, which keeps the voucher types on offer and hands a guest a voucher of one of them, one assigned for handing out before one minted for the asking; and the stock, which holds the vouchers assigned. It serves the usher's face to a browser, in which a controller is looked at and set, its vouchers are listed, assigned for handing out and revoked, the wireless network vouchers are for is chosen, the voucher types are kept and a guest is handed a voucher. It is in the archive, in a package of its own, which makes a machine a unit, and in the image; the package is proven on a machine made for it, where it is installed, started as a service, asked as a browser asks, started again and removed. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else.
+0.3.16 stands on the evo steward, has a face, and is installed as a service. `evo-usher-steward` is the steward with the usher's catalogue and three plugins: the controller, which mints vouchers on a UniFi Network controller; the counter, which keeps the voucher types on offer and hands a guest a voucher of one of them, one assigned for handing out before one minted for the asking; and the stock, which holds the vouchers assigned. It serves the usher's face to a browser, in which a controller is looked at and set, its vouchers are listed, assigned for handing out and revoked, the wireless network vouchers are for is chosen, the voucher types are kept and a guest is handed a voucher. It is in the archive, in a package of its own, which makes a machine a unit, and in the image; the package is proven on a machine made for it, where it is installed, started as a service, asked as a browser asks, started again and removed. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else.
 
 The controller plugin is written from Ubiquiti's published description of the UniFi Network API, version 11.0.97, and is held to a simulated controller written from the same description. It has been run from the usher's face against a UniFi Network application, version 11.0.99: the controller set, its version, its sites, its vouchers and its wireless networks read, a wireless network chosen, and vouchers assigned and handed out.
 
@@ -23,10 +23,11 @@ The catalogue, `catalogue/usher.toml`, declares what an usher is concerned with:
 | `stock` | `reserve` | Keep vouchers ready, so that one is handed out at once and without the controller. |
 | `issue` | `counter` | Hand a voucher to a guest and record who, where and when. |
 | `printing` | `labels` | Put a voucher on paper. |
+| `site` | `settings` | The site's name, its logo and its time zone, kept in one place for every screen and every ticket to ask. |
 
 It also declares the subjects the usher speaks of (controller, guest network, voucher type, voucher, point of issue, printer, place, person) and the relations between them. No rack, shelf or relation is named after a vendor or a plugin.
 
-Plugins stock the shelves. Three do so far:
+Plugins stock the shelves. Four do so far:
 
 | Plugin | Shelf | What it does |
 | --- | --- | --- |
@@ -34,6 +35,7 @@ Plugins stock the shelves. Three do so far:
 | | `networks.directory` | Lists the wireless networks of a site, each with what the controller says of it, and keeps the choice of the one vouchers are for. |
 | `org.evoframework.usher.counter` | `issue.counter` | Keeps the voucher types on offer, each the terms a voucher is minted on under a name; assigns a voucher the controller has for handing out; hands out a voucher of a type, one assigned before one minted for the asking; and writes every hand-out down. |
 | `org.evoframework.usher.stock` | `stock.reserve` | Takes vouchers in by type, hands each out once, oldest first, gives one up again, and says how many and which it holds. What it holds is kept through a restart. |
+| `org.evoframework.usher.site` | `site.settings` | Keeps what the place a unit serves is called, up to 64 characters; its logo, a PNG file of at most 256 KiB whose picture is at most 1024 by 512 pixels, kept as the file it was given; and the time zone it keeps, by its name, as `Europe/Warsaw`, or each browser's own. Reading asks for nothing; changing asks for `network_admin`. |
 
 `evo-usher-steward` is the steward with these plugins compiled in. It is started as the evo steward is, with a configuration that names the catalogue, and is asked over the steward's client socket; `bins/evo-usher-steward/tests/steward.rs` starts it, sets a simulated controller, mints on it, puts the vouchers in the stock, hands one out, stops the steward and starts it again. It also keeps a voucher type at the counter and has a voucher of it handed out, which the counter mints through the steward.
 
@@ -103,6 +105,14 @@ The shell is drawn in the theme the steward says is active, and in the usher's o
 Another shell goes into the UI root, in a directory under its own name, and is made the active one with the steward's `activate_ui_shell`, for which the steward asks a step-up. Every open screen then goes back through the door and into it. No plugin, nothing in the catalogue and nothing in the widget pack changes.
 
 A shell loads a widget pack as the module `index.js` in the pack's directory. The module exports `kinds`, the widget kinds it draws, and `mount(kind, element, context)`, which draws one into an element and returns what takes it away again. The context carries the stocking and the one way to the steward a widget has, `steward.request(shelf, request, payload)`, so a widget is the same under any shell that loads packs this way. The usher's shell loads the packs its `packs.json` names, and puts what is stocked on the pages its `pages.json` names: each page an entry in the menu, with the UI shelves, and of a shelf the widget kinds, that stand on it.
+
+### The site
+
+The page Site sets the site's name, its logo and its time zone. The bar, the browser's tab, the forms a unit is set up and signed in to by, and the voucher shown to a guest wear the site's name and logo, and the usher's own where a site has none. Every time the face shows is written in the site's time zone, and says which zone where that is not the browser's own.
+
+`USHER_SITE_NAME` and `USHER_TIME_ZONE` give a unit its name and time zone from its first start. They stand until an administrator saves a name and a time zone on the page; what was saved stands from then on.
+
+Anyone who can reach a unit is told the site's name and logo, for the forms to wear. Nothing else of the site is told without a session.
 
 ### Who may ask
 

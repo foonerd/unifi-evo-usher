@@ -34,6 +34,14 @@ max_size = "full"
 mode = "inline"
 schema_version = 1
 
+["usher.site"]
+id = "usher.site"
+min_size = "half"
+ideal_size = "full"
+max_size = "full"
+mode = "inline"
+schema_version = 1
+
 ["usher.types"]
 id = "usher.types"
 min_size = "half"

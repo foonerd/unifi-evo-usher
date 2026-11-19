@@ -1481,11 +1481,11 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-about"
-version = "0.3.15"
+version = "0.3.16"
 
 [[package]]
 name = "evo-usher-controller-unifi"
-version = "0.3.15"
+version = "0.3.16"
 dependencies = [
  "evo-plugin-sdk",
  "evo-plugin-test",
@@ -1509,14 +1509,14 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-core"
-version = "0.3.15"
+version = "0.3.16"
 dependencies = [
  "evo-usher-about",
 ]
 
 [[package]]
 name = "evo-usher-counter"
-version = "0.3.15"
+version = "0.3.16"
 dependencies = [
  "evo-plugin-sdk",
  "evo-plugin-test",
@@ -1533,14 +1533,14 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-printer"
-version = "0.3.15"
+version = "0.3.16"
 dependencies = [
  "rustix 1.1.4",
 ]
 
 [[package]]
 name = "evo-usher-render"
-version = "0.3.15"
+version = "0.3.16"
 dependencies = [
  "ab_glyph",
  "qrcode",
@@ -1548,8 +1548,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "evo-usher-site"
+version = "0.3.16"
+dependencies = [
+ "base64 0.22.1",
+ "evo-plugin-sdk",
+ "evo-plugin-test",
+ "semver",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml",
+ "tracing",
+]
+
+[[package]]
 name = "evo-usher-station"
-version = "0.3.15"
+version = "0.3.16"
 dependencies = [
  "evo-usher-about",
  "evo-usher-printer",
@@ -1558,7 +1574,7 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-steward"
-version = "0.3.15"
+version = "0.3.16"
 dependencies = [
  "anyhow",
  "argon2",
@@ -1568,9 +1584,12 @@ dependencies = [
  "evo",
  "evo-auth-bearer",
  "evo-plugin-sdk",
+ "evo-projection-core",
+ "evo-runtime-http",
  "evo-usher-about",
  "evo-usher-controller-unifi",
  "evo-usher-counter",
+ "evo-usher-site",
  "evo-usher-stock",
  "reqwest 0.12.28",
  "rustls",
@@ -1587,7 +1606,7 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-stock"
-version = "0.3.15"
+version = "0.3.16"
 dependencies = [
  "evo-plugin-sdk",
  "evo-plugin-test",

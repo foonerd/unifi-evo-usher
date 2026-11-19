@@ -26,6 +26,7 @@ use evo::household_protection::{HouseholdGroupTable, ProtectionLevel};
 use evo::AdmissionSetup;
 use evo_usher_controller_unifi::ControllerPlugin;
 use evo_usher_counter::CounterPlugin;
+use evo_usher_site::SitePlugin;
 use evo_usher_stock::StockPlugin;
 
 /// The program's name.
@@ -222,6 +223,13 @@ fn admission() -> AdmissionSetup {
                 )
                 .await
                 .map_err(|e| anyhow::anyhow!("admitting the counter: {e}"))?;
+            engine
+                .admit_singleton_respondent(
+                    SitePlugin::new(),
+                    evo_usher_site::manifest(),
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!("admitting the site: {e}"))?;
             Ok(())
         })
     })

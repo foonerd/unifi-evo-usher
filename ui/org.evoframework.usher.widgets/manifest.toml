@@ -1,7 +1,7 @@
 [plugin]
 name = "org.evoframework.usher.widgets"
 # The workspace's version; a test holds the two together.
-version = "0.3.15"
+version = "0.3.16"
 contract = 1
 kind = "widget_kind_pack"
 
@@ -17,6 +17,6 @@ evo_min_version = "0.1.13"
 os_family = "any"
 
 [widgets]
-provides = ["usher.controller", "usher.counter", "usher.networks", "usher.reserve", "usher.types", "usher.vouchers"]
+provides = ["usher.controller", "usher.counter", "usher.networks", "usher.reserve", "usher.site", "usher.types", "usher.vouchers"]
 size_envelopes_path = "size_envelopes.toml"
 accessibility_declarations_path = "a11y.toml"

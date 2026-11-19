@@ -92,6 +92,7 @@ fn the_steward_serves_the_door_the_shell_and_the_widget_pack() {
             ("types", "Voucher types"),
             ("network", "Network"),
             ("controller", "Controller"),
+            ("site", "Site"),
         ],
         "what is done most stands first"
     );
@@ -131,7 +132,7 @@ fn each_plugin_stands_on_the_ui_shelf_of_its_catalogue_shelf() {
 
     // The steward puts a plugin that says nothing of its face on the UI
     // shelf named after the shelf it stocks, with the widget that shelf
-    // is drawn with, as it does the stock. The controller plugin says
+    // is drawn with, as it does the stock and the site. The controller plugin says
     // where it stands: with two widgets on the one shelf, with one on the
     // other. So does the counter, with two on its one shelf.
     let stocked: Vec<(&str, &str, &str)> = said["entries"]
@@ -174,6 +175,7 @@ fn each_plugin_stands_on_the_ui_shelf_of_its_catalogue_shelf() {
                 "org.evoframework.usher.counter",
                 "usher.types"
             ),
+            ("site.settings", "org.evoframework.usher.site", "usher.site"),
             (
                 "stock.reserve",
                 "org.evoframework.usher.stock",
@@ -197,6 +199,7 @@ fn each_plugin_stands_on_the_ui_shelf_of_its_catalogue_shelf() {
             "usher.counter",
             "usher.networks",
             "usher.reserve",
+            "usher.site",
             "usher.types",
             "usher.vouchers"
         ]
@@ -292,7 +295,7 @@ fn a_steward_without_its_face_still_hands_out_vouchers() {
         json!({}),
         &Caller::here().with(&steward.operator()),
     );
-    assert_eq!(said["entries"].as_array().unwrap().len(), 6, "{said}");
+    assert_eq!(said["entries"].as_array().unwrap().len(), 7, "{said}");
 
     let vouchers = json!([{"id": "a", "code": "00001-00001"}]);
     assert_eq!(

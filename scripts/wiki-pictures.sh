@@ -45,6 +45,10 @@ face-guest.png:guest.png
 face-vouchers.png:vouchers.png
 face-vouchers-assigned.png:vouchers-assigned.png
 face-narrow.png:narrow.png
+face-site-set.png:site.png
+face-site-worn.png:site-worn.png
+face-site-guest.png:site-guest.png
+face-site-sign-in.png:site-sign-in.png
 "
 for pair in $pictures; do
   from=${pair%%:*}

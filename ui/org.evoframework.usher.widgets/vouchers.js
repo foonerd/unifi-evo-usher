@@ -8,7 +8,7 @@
 // it out before it has another minted. One the counter handed out is
 // shown as handed out until its guest uses it, and is not assigned.
 
-import { el, id, words } from "./dom.js";
+import { el, id, placeOf, words } from "./dom.js";
 import { HELD_CHANGED, TYPES_KEPT, VOUCHER_HANDED } from "./events.js";
 import { CONTROLLER_SET } from "./networks.js";
 import { COUNTER, RESERVE } from "./shelves.js";
@@ -87,15 +87,6 @@ function pill(word, tone = "") {
   return el("span", { class: tone === "" ? "usher-pill" : `usher-pill usher-pill-${tone}` }, word);
 }
 
-/** @param {unknown} when @returns {string} */
-function at(when) {
-  if (typeof when !== "string" || when === "") return "";
-  const date = new Date(when);
-  return Number.isNaN(date.getTime())
-    ? when
-    : date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
-
 /**
  * @param {HTMLElement} element
  * @param {import("./index.js").Context} context
@@ -105,6 +96,25 @@ export function vouchers(element, context) {
   const shelf = context.stocking.shelf;
   /** @param {string} type @param {unknown} [payload] */
   const ask = (type, payload = {}) => context.steward.request(shelf, type, payload);
+
+  const place = placeOf(context);
+  /**
+   * A moment the controller or the counter tells, as the place keeps
+   * time.
+   *
+   * @param {unknown} when a date as it is written, or seconds since 1970
+   * @returns {HTMLElement | string} nothing where no moment is told
+   */
+  const at = (when) => {
+    /** @type {Date | null} */
+    let moment = null;
+    if (typeof when === "number" && Number.isFinite(when)) moment = new Date(when * 1000);
+    else if (typeof when === "string" && when !== "") moment = new Date(when);
+    if (moment === null) return "";
+    // What is written and is no date is shown as it was written.
+    if (Number.isNaN(moment.getTime())) return String(when);
+    return el("time", { datetime: moment.toISOString() }, place.time(moment));
+  };
 
   const title = id("vouchers");
   const body = el("div");
@@ -299,11 +309,7 @@ export function vouchers(element, context) {
             ? [
                 pill("handed out", "held"),
                 el("br"),
-                el(
-                  "span",
-                  { class: "usher-hint" },
-                  at(new Date(Number(out.at) * 1000).toISOString()),
-                ),
+                el("span", { class: "usher-hint" }, at(Number(out.at))),
               ]
             : [
                 pill(
@@ -485,12 +491,16 @@ export function vouchers(element, context) {
   const again = () => look();
   document.addEventListener(CONTROLLER_SET, again);
   document.addEventListener(VOUCHER_HANDED, again);
+  // A place that keeps another time than it did: the times are written
+  // anew.
+  const unwatch = place.watch(again);
   look();
 
   return () => {
     gone = true;
     document.removeEventListener(CONTROLLER_SET, again);
     document.removeEventListener(VOUCHER_HANDED, again);
+    unwatch();
     element.replaceChildren();
   };
 }

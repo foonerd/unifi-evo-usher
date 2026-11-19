@@ -7,7 +7,7 @@
 // is shown with the symbol a phone joins that network from, and the whole
 // can be put before the guest, alone on the screen.
 
-import { el, id, svg, words } from "./dom.js";
+import { el, id, placeOf, svg, words } from "./dom.js";
 import { HELD_CHANGED, TYPES_KEPT, VOUCHER_HANDED } from "./events.js";
 import { RESERVE } from "./shelves.js";
 import { lasts, limits, written } from "./vouchers.js";
@@ -170,10 +170,24 @@ export function counter(element, context) {
    */
   const show = (got) => {
     const network = String(got?.network ?? "");
+    // Whose guest this is: the place's logo and its name, where it has
+    // them, above the voucher.
+    const place = placeOf(context);
+    const logo = place.logo();
+    const host =
+      logo === null && place.name() === ""
+        ? null
+        : el(
+            "div",
+            { class: "usher-host" },
+            logo === null ? null : el("img", { class: "usher-host-logo", src: logo, alt: "" }),
+            place.name() === "" ? null : el("p", { class: "usher-host-name" }, place.name()),
+          );
     const sheet = /** @type {HTMLDialogElement} */ (
       el(
         "dialog",
         { class: "usher-guest", "aria-label": "The voucher, for the guest" },
+        host,
         el("h4", {}, `Wi-Fi: ${network}`),
         got?.join ? symbol(got.join, `A code a phone reads to join ${network}`) : null,
         got?.join

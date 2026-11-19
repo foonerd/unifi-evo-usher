@@ -42,8 +42,9 @@ fn a_new_unit_is_set_up_by_whoever_opens_it_first() {
     let steward = Steward::start(dir.path());
     let nobody = Caller::beyond();
 
-    // Anyone is told that the unit is not set up yet, and how strict it
-    // is; nothing else.
+    // Anyone is told that the unit is not set up yet, how strict it is,
+    // and what the site is called and looks like, which a new unit has
+    // neither of; nothing else.
     let (status, state) = steward.usher("GET", "state", None, &nobody);
     assert_eq!(status, 200, "{state}");
     assert_eq!(
@@ -51,6 +52,7 @@ fn a_new_unit_is_set_up_by_whoever_opens_it_first() {
         json!({
             "set_up": false, "level": "standard",
             "least_password": 12, "keeps": true,
+            "site": { "name": "", "logo": null },
         })
     );
     // Nobody signs in to a unit that has nobody.
@@ -395,6 +397,7 @@ fn the_extended_level_takes_the_units_code_and_a_longer_password() {
         json!({
             "set_up": false, "level": "extended",
             "least_password": 16, "keeps": false,
+            "site": { "name": "", "logo": null },
         })
     );
     let set_up =
@@ -738,6 +741,117 @@ fn who_has_not_signed_in_gets_the_face_and_the_way_in_and_no_more() {
 
     // Who has signed in is answered.
     assert_eq!(types(&steward, &anna).0, 200);
+    assert_eq!(steward.stop(), Some(0));
+}
+
+#[test]
+fn anyone_is_told_the_sites_name_and_logo_and_nothing_else_of_it() {
+    use base64::Engine as _;
+    let dir = short_dir();
+    let steward = Steward::start_given(
+        dir.path(),
+        &[
+            ("USHER_SITE_NAME", "Parish Hall"),
+            ("USHER_TIME_ZONE", "Europe/Warsaw"),
+        ],
+    );
+    let nobody = Caller::beyond();
+    let ask = |who: &Caller, request: &str, payload: Value| {
+        steward.op(
+            "request",
+            json!({
+                "shelf": "site.settings",
+                "request_type": request,
+                "payload_b64": common::encoded(&payload),
+            }),
+            who,
+        )
+    };
+
+    // Before anyone has set the unit up, the form it is set up by wears
+    // the name the unit was started with. Of the site, the name and the
+    // logo are told and nothing else: no time zone.
+    let (status, state) = steward.usher("GET", "state", None, &nobody);
+    assert_eq!(status, 200, "{state}");
+    assert_eq!(
+        state,
+        json!({
+            "set_up": false, "level": "standard",
+            "least_password": 12, "keeps": true,
+            "site": { "name": "Parish Hall", "logo": null },
+        })
+    );
+    // The shelf itself is asked by nobody who has not signed in, to
+    // read or to change.
+    for (request, payload) in [
+        ("get", json!({})),
+        ("set", json!({ "name": "Mallory's", "time_zone": null })),
+        ("remove_logo", json!({})),
+    ] {
+        let (status, said) = ask(&nobody, request, payload);
+        assert_eq!(status, 401, "{request}: {said}");
+    }
+
+    // An administrator gives the site a logo and another name.
+    let anna = steward.set_up("Anna", PASSWORD);
+    let logo = evo_usher_site::png::sample(220, 62, [200, 30, 30, 255]);
+    let carried = base64::engine::general_purpose::STANDARD.encode(&logo);
+    let (status, said) =
+        ask(&anna, "put_logo", json!({ "png_b64": carried.clone() }));
+    assert_eq!(status, 200, "{said}");
+    let (status, said) = ask(
+        &anna,
+        "set",
+        json!({ "name": "St Mary's Hall", "time_zone": "Europe/Warsaw" }),
+    );
+    assert_eq!(status, 200, "{said}");
+
+    // Anyone is told the name and the logo, for the form a person signs
+    // in by to wear, and is told the same with a session as without.
+    let told = json!({
+        "set_up": true, "level": "standard",
+        "least_password": 12, "keeps": true,
+        "site": {
+            "name": "St Mary's Hall",
+            "logo": { "png_b64": carried, "width": 220, "height": 62 },
+        },
+    });
+    for (who, caller) in [
+        ("nobody, from beyond", Caller::beyond()),
+        ("nobody, on the LAN", Caller::on_the_lan()),
+        (
+            "nobody, with nonsense for a bearer",
+            nobody.clone().with("x"),
+        ),
+        ("who signed in", anna.clone()),
+    ] {
+        let (status, state) = steward.usher("GET", "state", None, &caller);
+        assert_eq!(status, 200, "{who}: {state}");
+        assert_eq!(state, told, "{who}");
+    }
+    // The rest of the site is told to who has signed in, by the shelf.
+    let (status, said) = ask(&anna, "get", json!({}));
+    assert_eq!(status, 200, "{said}");
+    let site: Value = serde_json::from_slice(
+        &base64::engine::general_purpose::STANDARD
+            .decode(said["payload_b64"].as_str().unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(site["time_zone"], "Europe/Warsaw", "{site}");
+    assert_eq!(site["name"], "St Mary's Hall");
+
+    // And nobody changes the site by the routes that are open: what
+    // they are sent beside what they take is refused or left unread.
+    let (status, _) = steward.usher(
+        "POST",
+        "state",
+        Some(json!({ "site": { "name": "Mallory's" } })),
+        &nobody,
+    );
+    assert_eq!(status, 405);
+    let (_, state) = steward.usher("GET", "state", None, &nobody);
+    assert_eq!(state, told);
     assert_eq!(steward.stop(), Some(0));
 }
 

@@ -36,6 +36,9 @@ pub const VOUCHERS: &str = "usher.vouchers";
 /// The widget the reserve of vouchers is looked at with.
 pub const RESERVE: &str = "usher.reserve";
 
+/// The widget the site's name, logo and time zone are set with.
+pub const SITE: &str = "usher.site";
+
 /// The widget pack's own word on the sizes of its kinds.
 const ENVELOPES: &str = include_str!(
     "../../../ui/org.evoframework.usher.widgets/size_envelopes.toml"
@@ -94,6 +97,12 @@ pub fn shelves() -> Vec<ShelfContract> {
             &[RESERVE],
             &[UiSize::Third, UiSize::Half, UiSize::Full],
         ),
+        shelf(
+            "site.settings",
+            "Site",
+            &[SITE],
+            &[UiSize::Half, UiSize::Full],
+        ),
     ]
 }
 
@@ -149,7 +158,7 @@ mod tests {
         assert_eq!(declared, provided);
         assert_eq!(
             declared,
-            [CONTROLLER, COUNTER, NETWORKS, RESERVE, TYPES, VOUCHERS]
+            [CONTROLLER, COUNTER, NETWORKS, RESERVE, SITE, TYPES, VOUCHERS]
         );
     }
 

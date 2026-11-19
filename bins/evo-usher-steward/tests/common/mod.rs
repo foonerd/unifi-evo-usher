@@ -177,7 +177,13 @@ impl Steward {
     /// Start the steward on `dir`, with its UI root or with none, at the
     /// ordinary level.
     pub fn start_with(dir: &Path, face: bool) -> Self {
-        Self::start_as_found(dir, face, None)
+        Self::start_as_found(dir, face, None, &[])
+    }
+
+    /// Start the steward on `dir` with variables in its environment, as
+    /// a unit in a container is given its first settings.
+    pub fn start_given(dir: &Path, given: &[(&str, &str)]) -> Self {
+        Self::start_as_found(dir, true, None, given)
     }
 
     /// Start the steward on `dir` at the extended level, given its code
@@ -187,19 +193,25 @@ impl Steward {
         if !code.exists() {
             fs::write(&code, UNITS_CODE).unwrap();
         }
-        Self::start_as_found(dir, true, Some("extended"))
+        Self::start_as_found(dir, true, Some("extended"), &[])
     }
 
     /// Start the steward on `dir` at the extended level as an installed
     /// unit is started: given no code, only the name of the file it
     /// takes one from.
     pub fn start_extended_given_no_code(dir: &Path) -> Self {
-        Self::start_as_found(dir, true, Some("extended"))
+        Self::start_as_found(dir, true, Some("extended"), &[])
     }
 
     /// The code the unit has, as whoever is at the unit reads it.
     pub fn units_code(&self) -> String {
         fs::read_to_string(self.dir.join("unit-code")).unwrap()
+    }
+
+    /// Where the site's plugin keeps what it keeps.
+    pub fn site_dir(&self) -> PathBuf {
+        self.dir
+            .join("plugins-data/org.evoframework.usher.site/state")
     }
 
     /// Where the unit keeps its people.
@@ -260,8 +272,14 @@ impl Steward {
     }
 
     /// Start the steward on `dir`, at the level named or at the ordinary
-    /// one, and on whatever code is there.
-    fn start_as_found(dir: &Path, face: bool, level: Option<&str>) -> Self {
+    /// one, on whatever code is there, and with what it is given in its
+    /// environment beside.
+    fn start_as_found(
+        dir: &Path,
+        face: bool,
+        level: Option<&str>,
+        given: &[(&str, &str)],
+    ) -> Self {
         let socket = dir.join("evo.sock");
         let config = dir.join("evo.toml");
         let catalogue =
@@ -338,6 +356,8 @@ discovery_enabled = false
             .env_remove("EVO_HTTPS_STATIC_DIR")
             .env_remove("EVO_AUTH_TIER")
             .env_remove("USHER_SECURITY")
+            .env_remove("USHER_SITE_NAME")
+            .env_remove("USHER_TIME_ZONE")
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         if face {
@@ -346,6 +366,7 @@ discovery_enabled = false
         if let Some(level) = level {
             command.env("USHER_SECURITY", level);
         }
+        command.envs(given.iter().copied());
         let mut child = command.spawn().unwrap();
 
         // Up when its socket answers and its listener takes a connection;
@@ -602,13 +623,24 @@ discovery_enabled = false
     }
 
     /// Tell the steward to stop, as a service manager does, and say how
-    /// it ended.
+    /// it ended. One that has not ended within a minute is waited on no
+    /// longer: the test that told it to says so, and fails.
     pub fn stop(mut self) -> Option<i32> {
         Command::new("kill")
             .args(["-TERM", &self.child.id().to_string()])
             .status()
             .unwrap();
-        self.child.wait().unwrap().code()
+        let until = Instant::now() + Duration::from_secs(60);
+        loop {
+            if let Some(ended) = self.child.try_wait().unwrap() {
+                return ended.code();
+            }
+            assert!(
+                Instant::now() < until,
+                "the steward was told to stop, and had not ended a minute on"
+            );
+            sleep(Duration::from_millis(20));
+        }
     }
 }
 

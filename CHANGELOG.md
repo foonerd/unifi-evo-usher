@@ -2,6 +2,18 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## [0.3.16] - 2026-11-19
+
+- A site has a name, a logo and a time zone. A new plugin, `org.evoframework.usher.site`, stocks a new shelf, `site.settings`, with the requests `get`, `set`, `put_logo` and `remove_logo`; its shape is written down under `schemas/org.evoframework.usher/site/`. A name is 64 characters at most; a logo is a PNG file of at most 256 KiB and 1024 by 512 pixels, read as far as it takes to know that it is whole, and kept as given
+- A page Site, before People: the name and the time zone in one form, and the logo, shown on a dark and a light ground before it is saved
+- The face wears a site's name and logo in the bar, in the browser's tab, on the forms a person comes in by and above the voucher shown to a guest
+- Every time the face shows is written in the site's time zone by one helper, with the zone's short name where it is not the browser's own
+- `USHER_SITE_NAME` and `USHER_TIME_ZONE` in every Compose file and in `.env.example`, and as comments in `evo.service`: a unit's first name and time zone, until they are saved on the page
+- `/usher/v1/state` also answers the site's name and logo, for the forms to wear before anyone has signed in; nothing else of the site is told without a session
+- `scripts/prove-proxy.sh` and `scripts/prove-unit.sh` prove the name told before signing in, the first values, and what was set kept through a restart
+- `docs/deploying.md` has a section on the site; "What there is no setting for yet" keeps the language and the time zone of the unit's own log
+- A test steward that has not ended a minute after it was told to stop fails its test, and holds the run no longer
+
 ## [0.3.15] - 2026-11-19
 
 - The pages say what they mean to whoever uses them, and no longer name the steward. The line in the bar says "Connected", "Connecting..." while it is not yet, and "Connection lost. Trying again." where it was "Joined to the steward." and "The steward does not answer. Trying again."; a part that is being asked for says "Loading..."; a page with nothing on it says "There is nothing to show yet."; what is said of the controller's key names the usher as where it is kept

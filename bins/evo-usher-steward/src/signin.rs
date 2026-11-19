@@ -26,6 +26,11 @@ use axum::http::{header, StatusCode};
 use axum::response::Response;
 use axum::routing::{get, post};
 use axum::Router;
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine as _;
+use evo_auth_bearer::CapabilitySet;
+use evo_projection_core::WireOpId;
+use evo_runtime_http::{Dispatcher, Principal};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -83,6 +88,14 @@ const HELD_MS: u64 = 15 * 60 * 1000;
 /// The most names tries are remembered of: nobody fills the unit's
 /// memory by trying names.
 const MOST_NAMES: usize = 4096;
+
+/// The operation of evo's a shelf of the catalogue is asked with.
+const ASK_A_SHELF: &str = "request";
+
+/// Who the usher asks a shelf as, for a caller who has not signed in:
+/// nobody, with no capability at all. What a shelf tells nobody is all
+/// such a caller can be told.
+const AS_NOBODY: &str = "org.evoframework.usher.unsigned";
 
 /// What is tried where the unit's code is asked.
 const THE_CODE: &str = "\u{0}the unit's code";
@@ -312,11 +325,18 @@ pub struct Usher {
     /// Passwords are checked a few at a time: checking one is work, and
     /// a crowd at the door is not to stall the counter.
     checking: tokio::sync::Semaphore,
+    /// The steward's shelves, as evo hands them to a distribution: the
+    /// usher's own routes ask a shelf through it, as any caller does.
+    shelves: Arc<dyn Dispatcher>,
 }
 
 impl Usher {
     /// Open what the usher keeps under the steward's state directory.
-    pub fn open(settings: Settings, state: &Path) -> anyhow::Result<Arc<Self>> {
+    pub fn open(
+        settings: Settings,
+        state: &Path,
+        shelves: Arc<dyn Dispatcher>,
+    ) -> anyhow::Result<Arc<Self>> {
         let dir = state.join("usher");
         let people = People::open(&dir).map_err(|e| {
             anyhow::anyhow!(
@@ -344,7 +364,56 @@ impl Usher {
             tries: Mutex::new(Tries::default()),
             nobodys,
             checking: tokio::sync::Semaphore::new(2),
+            shelves,
         }))
+    }
+
+    /// What anyone is told of the site: its name and its logo, which
+    /// the forms a person comes in by wear. It is asked of the site's
+    /// shelf as nobody, so that no more is had here than the shelf tells
+    /// whoever asks; and of what the shelf tells, no more than these two
+    /// is passed on. Where the shelf does not answer, the site has
+    /// neither: nobody is kept from signing in by it.
+    async fn site(&self) -> Value {
+        let nothing = json!({ "name": "", "logo": null });
+        let Ok(operation) = WireOpId::new(ASK_A_SHELF) else {
+            return nothing;
+        };
+        let asked = json!({
+            "shelf": evo_usher_site::SHELF,
+            "request_type": "get",
+            "payload_b64": STANDARD.encode("{}"),
+        });
+        let nobody = Principal::new(AS_NOBODY, CapabilitySet::default());
+        let said = match self.shelves.dispatch(&operation, asked, &nobody).await
+        {
+            Ok(said) => said,
+            Err(why) => {
+                tracing::warn!("the site's shelf did not answer: {why}");
+                return nothing;
+            }
+        };
+        let site = said["payload_b64"]
+            .as_str()
+            .and_then(|payload| STANDARD.decode(payload).ok())
+            .and_then(|payload| serde_json::from_slice::<Value>(&payload).ok());
+        let Some(site) = site else {
+            tracing::warn!("the site's shelf answered nothing to read");
+            return nothing;
+        };
+        let logo = &site["logo"];
+        json!({
+            "name": site["name"].as_str().unwrap_or(""),
+            "logo": if logo["png_b64"].is_string() {
+                json!({
+                    "png_b64": logo["png_b64"],
+                    "width": logo["width"],
+                    "height": logo["height"],
+                })
+            } else {
+                Value::Null
+            },
+        })
     }
 
     /// Who holds a bearer that evo takes: a person with a live session,
@@ -711,6 +780,7 @@ struct Changing {
 
 async fn state(State(usher): State<Arc<Usher>>) -> Response {
     let set_up = !usher.people().is_empty();
+    let site = usher.site().await;
     answer(
         StatusCode::OK,
         &json!({
@@ -718,6 +788,7 @@ async fn state(State(usher): State<Arc<Usher>>) -> Response {
             "level": usher.level.as_str(),
             "least_password": usher.level.least_password(),
             "keeps": usher.level.keeps(),
+            "site": site,
         }),
     )
 }

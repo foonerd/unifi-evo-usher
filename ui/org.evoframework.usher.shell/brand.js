@@ -1,9 +1,20 @@
 // Whose face this is: the mark and the name the shell wears, in the bar
 // and on the screen a person comes in by. They are drawn here and nowhere else, so
 // that what is worn is changed in one place.
+//
+// A site that has a logo or a name of its own is worn in their place:
+// its logo where the usher's mark stands, its name where the usher's
+// does. What a site has not is the usher's own.
 
-/** The name the face goes by. */
+import { known } from "./site.js";
+
+/** The name the face goes by, where the site has none of its own. */
 export const NAME = "Usher";
+
+/** @returns {string} the name the face goes by here */
+export function name() {
+  return known().name || NAME;
+}
 
 const SVG = "http://www.w3.org/2000/svg";
 
@@ -48,16 +59,34 @@ export function mark() {
 }
 
 /**
+ * A site's logo, as it is worn. The name stands beside it in words, so
+ * the picture says nothing more to a reader who does not see it. A
+ * picture the browser cannot draw gives way to the usher's mark.
+ *
+ * @param {string} address what the picture is drawn from
+ * @returns {HTMLImageElement}
+ */
+function logo(address) {
+  const picture = document.createElement("img");
+  picture.className = "brand-logo";
+  picture.alt = "";
+  picture.addEventListener("error", () => picture.replaceWith(mark()), { once: true });
+  picture.src = address;
+  return picture;
+}
+
+/**
  * Put the mark and the name into every place of the page that wears
  * them: the elements that carry `data-brand`.
  *
  * @param {ParentNode} [within] where to look for the places
  */
 export function wearBrand(within = document) {
+  const site = known();
   for (const place of within.querySelectorAll("[data-brand]")) {
-    const name = document.createElement("span");
-    name.className = "brand-name";
-    name.textContent = NAME;
-    place.replaceChildren(mark(), name);
+    const said = document.createElement("span");
+    said.className = "brand-name";
+    said.textContent = name();
+    place.replaceChildren(site.logo === null ? mark() : logo(site.logo), said);
   }
 }

@@ -63,7 +63,8 @@ pub fn setup(settings: Settings) -> evo::HttpsSetup {
                 let state = std::env::var_os("EVO_HTTPS_STATE_DIR")
                     .map(std::path::PathBuf::from)
                     .unwrap_or_else(|| ctx.state_dir.clone());
-                let usher = Usher::open(settings, &state)?;
+                let usher =
+                    Usher::open(settings, &state, ctx.dispatcher.clone())?;
                 let gate = Gate {
                     validator: ctx.validator.clone(),
                     api: ctx.api_prefix.trim_end_matches('/').to_string(),

@@ -50,6 +50,17 @@ shape = 1
 description = "Keeps the voucher types on offer and hands a guest a voucher of one of them."
 
 [[racks]]
+name = "site"
+family = "domain"
+kinds = ["registrar"]
+charter = "Know the place the unit serves: what it is called, how it looks and what time it keeps."
+
+[[racks.shelves]]
+name = "settings"
+shape = 1
+description = "The site's name, its logo and its time zone, kept in one place for every screen and every ticket to ask."
+
+[[racks]]
 name = "printing"
 family = "domain"
 kinds = ["presenter"]

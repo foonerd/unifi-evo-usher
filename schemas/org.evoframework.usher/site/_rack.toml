@@ -1,0 +1,15 @@
+# Rack-level metadata for the `site` rack.
+
+rack = "site"
+namespace = "org.evoframework.usher"
+
+description = """
+Know the place the unit serves: what it is called, how it looks and what
+time it keeps.
+"""
+
+# Shelves under this rack and their current shape version. Each entry has
+# a `<shelf>.v<N>.toml` file in this directory.
+[[shelves]]
+name = "settings"
+current_shape = 1

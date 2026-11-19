@@ -2,8 +2,9 @@
 # Proof that the steward's package makes a machine a unit: installed on
 # this machine, started by systemd under every protection of its service,
 # set up and signed in to as a browser does it, asked as a browser asks,
-# started again, run at the extended level, removed, and, where the
-# package is Debian's, purged.
+# given its site's name and time zone where it is started, started
+# again, run at the extended level, removed, and, where the package is
+# Debian's, purged.
 #
 #   sudo scripts/prove-unit.sh <evo-usher-steward_<version>_<arch>.deb>
 #   sudo scripts/prove-unit.sh <evo-usher-steward-<version>-1.<machine>.rpm>
@@ -45,7 +46,9 @@ FACE=https://127.0.0.1:8443
 AUTHORITY=/var/lib/evo/state/https/ca.crt
 CODE=/run/evo/unit-code
 PEOPLE=/var/lib/evo/state/usher/people.json
+SITE=/var/lib/evo/plugins/org.evoframework.usher.site/state/site.json
 LEVEL=/etc/systemd/system/evo.service.d/level.conf
+GIVEN=/etc/systemd/system/evo.service.d/site.conf
 # Who the proof sets the unit up as, and signs in as. Made up.
 NAME="Anna"
 PASSWORD="three small owls sing"
@@ -57,7 +60,7 @@ fail() {
   journalctl -u evo.service --no-pager -n 60 >&2 || true
   exit 1
 }
-trap 'rm -rf "$work"; rm -f "$LEVEL"; rmdir "$(dirname "$LEVEL")" 2> /dev/null || true' EXIT
+trap 'rm -rf "$work"; rm -f "$LEVEL" "$GIVEN"; rmdir "$(dirname "$LEVEL")" 2> /dev/null || true' EXIT
 
 # One of the steward's operations, asked over HTTPS as a browser asks:
 # the status goes to standard output, the answer into $work/answer.
@@ -183,6 +186,7 @@ echo "  ok    a caller who presents nothing is refused, and no bearer is made fo
 echo "prove-unit: setting up and signing in"
 [ "$(usher state)" = 200 ] || fail "the unit does not say what state it is in: $(cat "$work/answer")"
 jq -e '.set_up == false and .level == "standard" and .least_password == 12 and .keeps == true' "$work/answer" > /dev/null || fail "a new unit says of itself: $(cat "$work/answer")"
+jq -e '.site == {name: "", logo: null}' "$work/answer" > /dev/null || fail "a new unit says of its site: $(cat "$work/answer")"
 [ ! -e "$CODE" ] || fail "a unit of the ordinary level made a code, which it asks nobody for"
 echo "  ok    a new unit says that nobody has set it up, and at the ordinary level it makes no code"
 [ "$(usher sign_in "$(named "$NAME" "$PASSWORD")")" = 409 ] || fail "a unit nobody set up signs someone in: $(cat "$work/answer")"
@@ -211,7 +215,7 @@ echo "  ok    the name and the password sign in, a wrong one does not, and a ses
 [ "$(ask request "$info" "$bearer")" = 200 ] || fail "who has signed in is refused: $(cat "$work/answer")"
 [ "$(answered)" = '{"set":false}' ] || fail "the controller plugin answered $(answered)"
 [ "$(ask describe_ui_stockings '' "$bearer")" = 200 ] || fail "the steward does not tell who has signed in what is stocked: $(cat "$work/answer")"
-for kind in usher.counter usher.types usher.controller usher.vouchers usher.networks usher.reserve; do
+for kind in usher.counter usher.types usher.controller usher.vouchers usher.networks usher.reserve usher.site; do
   grep -q "\"$kind\"" "$work/answer" || fail "nothing is drawn as $kind: $(cat "$work/answer")"
 done
 echo "  ok    who has signed in is answered, and every widget kind has its place; there is no other way in"
@@ -229,6 +233,37 @@ answered | jq -e '(.types | map(.name)) == ["Day"] and .default == "Day"' > /dev
 [ "$(counter order_types '{"names":["Stay","Day"]}')" = 200 ] || fail "the voucher types are not put in an order: $(cat "$work/answer")"
 echo "  ok    a new unit has no voucher type; its administrator defines them and their order, and a front desk is offered the enabled ones"
 
+echo "prove-unit: the site"
+# Ask the site's shelf as a browser someone is signed in at does.
+site() { ask request "$(request site.settings "$1" "$2")" "$bearer"; }
+[ "$(site get '{}')" = 200 ] || fail "the site is not told: $(cat "$work/answer")"
+answered | jq -e '.name == "" and .time_zone == null and .logo == null and .set_here == false' > /dev/null || fail "a new unit has a site nobody set: $(answered)"
+# A unit is given its site's name and time zone where it is started, as
+# its service file says how: in a drop-in.
+service=$(systemctl show -p FragmentPath --value evo.service)
+grep -q '^#Environment="USHER_SITE_NAME=Parish Hall"$' "$service" || fail "the service file does not say how a unit is given its site's name"
+grep -q '^#Environment=USHER_TIME_ZONE=Europe/Warsaw$' "$service" || fail "the service file does not say how a unit is given its site's time zone"
+mkdir -p "$(dirname "$GIVEN")"
+printf '[Service]\nEnvironment="USHER_SITE_NAME=Parish Hall"\nEnvironment=USHER_TIME_ZONE=Europe/Warsaw\n' > "$GIVEN"
+systemctl daemon-reload
+systemctl restart evo.service
+up
+[ "$(site get '{}')" = 200 ] || fail "the site is not told: $(cat "$work/answer")"
+answered | jq -e '.name == "Parish Hall" and .time_zone == "Europe/Warsaw" and .set_here == false' > /dev/null || fail "the unit does not go by the name and the time zone it was started with: $(answered)"
+# Anyone is told the name, for the form a person signs in by to wear,
+# and nothing else of the site.
+[ "$(usher state)" = 200 ] || fail "the unit does not say what state it is in: $(cat "$work/answer")"
+jq -e '.site == {name: "Parish Hall", logo: null}' "$work/answer" > /dev/null || fail "before anyone has signed in, the unit says of its site: $(cat "$work/answer")"
+echo "  ok    given a name and a time zone where it is started, the unit goes by them, and anyone is told the name"
+[ "$(ask request "$(request site.settings set '{"name":"Mallory","time_zone":null}')" "")" = 401 ] || fail "a caller who has not signed in sets the site: $(cat "$work/answer")"
+[ "$(site set '{"name":"Hall of St Mary","time_zone":"London time"}')" != 200 ] || fail "a time zone that is none is taken: $(cat "$work/answer")"
+[ "$(site set '{"name":" Hall of St Mary ","time_zone":"Europe/London"}')" = 200 ] || fail "the site's name and time zone are not set: $(cat "$work/answer")"
+answered | jq -e '.name == "Hall of St Mary" and .time_zone == "Europe/London"' > /dev/null || fail "the site was set as: $(answered)"
+[ "$(stat -c '%U %a' "$SITE" 2> /dev/null)" = "evo 600" ] || fail "the site is kept as $(stat -c '%U %a' "$SITE" 2>&1), not in $SITE for the steward alone"
+[ "$(usher state)" = 200 ] || fail "the unit does not say what state it is in: $(cat "$work/answer")"
+jq -e '.site == {name: "Hall of St Mary", logo: null}' "$work/answer" > /dev/null || fail "its site set, the unit says of it: $(cat "$work/answer")"
+echo "  ok    its administrator sets another name and time zone, kept for the steward alone; nobody who has not signed in sets them"
+
 echo "prove-unit: what is kept"
 systemctl restart evo.service
 up
@@ -237,7 +272,16 @@ up
 [ "$(ask request "$(request issue.counter types '{}')" "$bearer")" = 200 ] || fail "who was signed in is refused after a restart: $(cat "$work/answer")"
 answered | jq -e '(.types | map(.name)) == ["Stay", "Day"] and .default == "Day" and .disabled == ["Stay"]' > /dev/null || fail "the voucher types, their order, the default and what is disabled were not kept through a restart: $(answered)"
 [ "$(usher people '' "$second")" = 401 ] || fail "a session that was signed out of is answered after a restart: $(cat "$work/answer")"
-echo "  ok    started again, who was signed in still is, who signed out is not, and the voucher types are kept as they were defined"
+[ "$(site get '{}')" = 200 ] || fail "the site is not told after a restart: $(cat "$work/answer")"
+# What was set of the site stands, though the unit is started with the
+# first name and time zone as before.
+answered | jq -e '.name == "Hall of St Mary" and .time_zone == "Europe/London" and .set_here == true' > /dev/null || fail "the site's name and time zone were not kept through a restart: $(answered)"
+[ "$(usher state)" = 200 ] || fail "the unit does not say what state it is in: $(cat "$work/answer")"
+jq -e '.site.name == "Hall of St Mary"' "$work/answer" > /dev/null || fail "started again, the unit says of its site: $(cat "$work/answer")"
+rm "$GIVEN"
+rmdir "$(dirname "$GIVEN")"
+systemctl daemon-reload
+echo "  ok    started again, who was signed in still is, who signed out is not, and the voucher types and the site are kept as they were set"
 
 echo "prove-unit: the extended level"
 # Whoever has the unit's files takes the people away, and the unit asks
@@ -253,6 +297,8 @@ systemctl start evo.service
 up
 [ "$(usher state)" = 200 ] || fail "the unit does not say what state it is in: $(cat "$work/answer")"
 jq -e '.set_up == false and .level == "extended" and .least_password == 16 and .keeps == false' "$work/answer" > /dev/null || fail "a unit of the extended level whose people were taken away says of itself: $(cat "$work/answer")"
+# The form it is set up by wears the site's name still.
+jq -e '.site.name == "Hall of St Mary"' "$work/answer" > /dev/null || fail "its people taken away, the unit says of its site: $(cat "$work/answer")"
 [ "$(usher me '' "$bearer")" = 401 ] || fail "a session outlives the people it was a person's among: $(cat "$work/answer")"
 echo "  ok    its people taken away, the unit asks to be set up again, and nobody who was signed in still is"
 [ "$(stat -c '%U %a' "$CODE")" = "evo 600" ] || fail "the unit's code is $(stat -c '%U %a' "$CODE"), not the steward's alone"

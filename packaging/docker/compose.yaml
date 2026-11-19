@@ -11,11 +11,13 @@
 # all but the version have a default. They stand in the `.env`, or are
 # given in the shell, which goes before it:
 #
-#   USHER_VERSION  the version to run; there is no "latest"
-#   USHER_IMAGE    the image, where it is not ghcr.io/foonerd/unifi-evo-usher
-#   USHER_NAME     the name of the container and of the unit (default usher)
-#   USHER_ADDRESS  the address the face is published on (default: every one)
-#   USHER_PORT     the port it is published on (default 8443)
+#   USHER_VERSION    the version to run; there is no "latest"
+#   USHER_IMAGE      the image, where it is not ghcr.io/foonerd/unifi-evo-usher
+#   USHER_NAME       the name of the container and of the unit (default usher)
+#   USHER_ADDRESS    the address the face is published on (default: every one)
+#   USHER_PORT       the port it is published on (default 8443)
+#   USHER_SITE_NAME  what the place is called, until one is saved on the page Site
+#   USHER_TIME_ZONE  the time zone it keeps, as Europe/Warsaw, until one is saved there
 services:
   usher:
     # The image and the version of it to run. There is no "latest": a
@@ -34,6 +36,14 @@ services:
     # unit at the extended one, and gives it the code that level asks.
     environment:
       USHER_SECURITY: standard
+      # What the place the unit serves is called, and the time zone it
+      # keeps, by its name, as Europe/Warsaw. A unit goes by these until
+      # an administrator saves a name and a time zone on the page Site;
+      # what is saved there stands from then on, whatever is given here.
+      # Left empty, the unit has no name of its own, and every screen
+      # shows a time as its own browser keeps it.
+      USHER_SITE_NAME: ${USHER_SITE_NAME:-}
+      USHER_TIME_ZONE: ${USHER_TIME_ZONE:-}
     # The least privilege: the unit runs as the image's one account,
     # numbered 10001, with a root file system it cannot write to, no
     # capability, and no way to gain a privilege.

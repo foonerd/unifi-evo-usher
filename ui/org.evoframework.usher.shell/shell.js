@@ -8,9 +8,10 @@
 // page's id. Which shelf stands on which page is said in `pages.json`.
 
 import * as steward from "./steward.js";
-import { NAME as USHER, wearBrand } from "./brand.js";
+import { name as brandName, wearBrand } from "./brand.js";
 import { fragmentOf, pageOf, paginate } from "./pages.js";
 import { advice, amiss, people } from "./people.js";
+import * as site from "./site.js";
 import { themeAddress } from "./theme.js";
 
 /** A plugin's name, as evo writes one. */
@@ -32,6 +33,26 @@ const NAME = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
  * @typedef {object} Context
  * @property {{ plugin: string, shelf: string, widget: string, size: string, mode: string | null }} stocking
  * @property {{ request: (shelf: string, type: string, payload?: unknown) => Promise<any> }} steward
+ * @property {Place} site
+ */
+
+/**
+ * What a widget is told of the place the unit serves, and how a time is
+ * written there.
+ *
+ * @typedef {object} Place
+ * @property {() => string} name what the place is called; empty where it
+ *   has no name
+ * @property {() => string | null} logo its logo, as an address a picture
+ *   is drawn from; null where it has none
+ * @property {() => string | null} timeZone the time zone it keeps; null
+ *   for each browser's own
+ * @property {(when: unknown) => string} time a moment, to the minute
+ * @property {(when: unknown) => string} day the day of a moment
+ * @property {() => Promise<void>} look ask the steward again, after a
+ *   change
+ * @property {(told: () => void) => (() => void)} watch be told when the
+ *   place is not what it was; what it returns ends the telling
  */
 
 /** The pack that draws each kind. @type {Map<string, Pack>} */
@@ -234,6 +255,8 @@ function enter() {
       for (;;) {
         try {
           const unit = await steward.state();
+          // Whose unit this is, is said to anyone: the form wears it.
+          site.learnOpen(unit.site);
           if (await (unit.set_up ? signIn(unit.keeps === true) : setUp(unit))) break;
         } catch (why) {
           // The steward does not answer: said, and asked again.
@@ -310,7 +333,7 @@ signOutButton.addEventListener("click", async () => {
     menuButton.hidden = true;
     shelves.replaceChildren();
     peoplePage.clear();
-    document.title = USHER;
+    document.title = brandName();
   } finally {
     signOutButton.disabled = false;
   }
@@ -336,6 +359,30 @@ const asked = {
       return steward.request(shelf, type, payload);
     }
   },
+};
+
+/**
+ * Ask the site's shelf what the place is called, how it looks and what
+ * time it keeps. A steward that has no such shelf stocked leaves the
+ * usher's own name and mark, and each browser's own time.
+ */
+async function lookAtSite() {
+  try {
+    site.learn(await asked.request(site.SHELF, "get", {}));
+  } catch (why) {
+    console.warn("shell: the site:", why);
+  }
+}
+
+/** What a widget is told of the place. @type {Place} */
+const place = {
+  name: () => site.known().name,
+  logo: () => site.known().logo,
+  timeZone: () => site.known().timeZone,
+  time: site.time,
+  day: site.day,
+  look: lookAtSite,
+  watch: site.watch,
 };
 
 /** Load the widget packs the shell is told of, each from its directory. */
@@ -459,8 +506,7 @@ function show(arrived) {
       entry.removeAttribute("aria-current");
     }
   }
-  const label = offered.length > 1 ? offered.find((page) => page.id === id)?.label : undefined;
-  document.title = label === undefined ? USHER : `${label} - ${USHER}`;
+  retitle();
   if (arrived) {
     fold();
     window.scrollTo(0, 0);
@@ -468,6 +514,13 @@ function show(arrived) {
     // Who there is may have changed since the page was last looked at.
     if (id === PEOPLE.id) peoplePage.look();
   }
+}
+
+/** Call the browser's tab after the page that is shown, and the place. */
+function retitle() {
+  const id = pageOf(location.hash, offered);
+  const label = offered.length > 1 ? offered.find((page) => page.id === id)?.label : undefined;
+  document.title = label === undefined ? brandName() : `${label} - ${brandName()}`;
 }
 
 window.addEventListener("hashchange", () => show(true));
@@ -567,6 +620,7 @@ function draw(snapshot) {
                   mode: stocking.mode,
                 },
                 steward: asked,
+                site: place,
               });
             } catch (why) {
               console.warn(`shell: drawing ${stocking.widget}:`, why);
@@ -628,7 +682,10 @@ async function loadTheme() {
  */
 async function look() {
   try {
-    draw(await steward.op("describe_ui_stockings"));
+    const stocked = await steward.op("describe_ui_stockings");
+    // The place is known before anything is drawn that shows a time.
+    await lookAtSite();
+    draw(stocked);
     return true;
   } catch (why) {
     if (why instanceof steward.Refusal && why.asksForCredential) {
@@ -665,6 +722,13 @@ function lineIs(joined) {
 }
 
 wearBrand();
+// A site that is not what it was is worn anew, wherever the brand stands,
+// and the people are listed with their days as the place now keeps time.
+site.watch(() => {
+  wearBrand();
+  retitle();
+  if (signedIn !== null) peoplePage.look();
+});
 await loadTheme();
 await loadPacks();
 await loadPages();
