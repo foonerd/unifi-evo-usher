@@ -44,6 +44,39 @@ fn go_to(browser: &mut Browser, label: &str) {
     );
 }
 
+/// Fill the form of the Voucher types page as a person does: the form is
+/// opened to add a type where it is not open, and what is `typed` is put
+/// into the fields it names, a box by `true` or `false`. It is sent where
+/// `send` says so.
+fn type_form(typed: Value, send: bool) -> String {
+    format!(
+        r#"
+        const types = widget("usher.types");
+        const form = types.querySelector("form");
+        if (form.hidden) {{
+          [...types.querySelectorAll("button")].find((b) => b.textContent === "Add a voucher type").click();
+        }}
+        for (const [name, value] of Object.entries({typed})) {{
+          const field = form.querySelector(`[name="${{name}}"]`);
+          if (field.type === "checkbox") {{
+            if (field.checked !== value) field.click();
+          }} else if (field.tagName === "SELECT") {{
+            field.value = value;
+            field.dispatchEvent(new Event("change", {{ bubbles: true }}));
+          }} else {{
+            type(field, value);
+          }}
+        }}
+        if ({send}) form.requestSubmit();
+        "#
+    )
+}
+
+/// Add a voucher type from the Voucher types page as a person does.
+fn add_type(typed: Value) -> String {
+    type_form(typed, true)
+}
+
 /// Where a picture of the face goes, where one is asked for: the file
 /// `USHER_PICTURE` names, or, for one of several, a file beside it with
 /// `-` and what it is of before its extension.
@@ -422,13 +455,14 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
     );
     assert_eq!(simulated.held(), 1);
 
-    // A voucher type is kept from the screen: what it is called, how long
-    // a voucher of it lasts and what it is limited to. A rate is typed in
-    // megabits, with the comma many use for the point. The counter is on
-    // another page, and offers what is kept here all the same.
+    // A voucher type is added from the screen: what it is called, how
+    // long a voucher of it lasts and what it is limited to. A rate is
+    // typed in megabits, with the comma many use for the point. The
+    // counter is on another page, and offers what is added here all the
+    // same.
     browser.wait(
         "a counter with nothing on offer",
-        r#"widget("usher.counter").innerText.includes("No voucher type is on offer yet.")"#,
+        r#"widget("usher.counter").innerText.includes("No voucher type is enabled for the front desk.")"#,
     );
     go_to(&mut browser, "Voucher types");
     let keep = |name: &str,
@@ -438,22 +472,10 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
                 megabytes: &str,
                 down: &str,
                 up: &str| {
-        format!(
-            r#"
-            const types = widget("usher.types");
-            const typed = {typed};
-            for (const [name, text] of Object.entries(typed)) {{
-              const field = types.querySelector(`[name="${{name}}"]`);
-              if (field.tagName === "SELECT") field.value = text;
-              else type(field, text);
-            }}
-            types.querySelector("form").requestSubmit();
-            "#,
-            typed = json!({
-                "name": name, "lasts": lasts, "unit": unit, "guests": guests,
-                "megabytes": megabytes, "down": down, "up": up,
-            }),
-        )
+        add_type(json!({
+            "name": name, "lasts": lasts, "unit": unit, "guests": guests,
+            "megabytes": megabytes, "down": down, "up": up,
+        }))
     };
     let offered = r#"[...widget("usher.counter").querySelectorAll("button.usher-type")].map((b) => [...b.children].map((part) => part.textContent))"#;
     browser.act(&keep(
@@ -473,11 +495,12 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
         browser.look(&format!("return {offered};")),
         json!([[
             "House Guests",
-            "1 day; one guest; down 7.2 Mbit/s, up 1.2 Mbit/s, 6000 MB"
+            "Default",
+            "1 day; one device; down 7.2 Mbit/s, up 1.2 Mbit/s, 6000 MB"
         ]])
     );
 
-    // What can be no type is said in words, and nothing is kept.
+    // What can be no type is said in words, and nothing is added.
     browser.act(&keep("Fast", "1", "days", "", "", "fast", ""));
     browser.wait(
         "the word on the rate",
@@ -502,9 +525,9 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
         ])
     );
 
-    // A type is dropped from the screen, and is off the counter.
+    // A type is deleted from the screen, and is off the counter.
     browser.act(
-        r#"widget("usher.types").querySelector('button[aria-label="Drop Evening"]').click();"#,
+        r#"widget("usher.types").querySelector('button[aria-label="Delete Evening"]').click();"#,
     );
     browser.wait(
         "one type again",
@@ -518,7 +541,8 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
         browser.look(&format!("return {offered};")),
         json!([[
             "House Guests",
-            "1 day; one guest; down 7.2 Mbit/s, up 1.2 Mbit/s, 6000 MB"
+            "Default",
+            "1 day; one device; down 7.2 Mbit/s, up 1.2 Mbit/s, 6000 MB"
         ]])
     );
     browser.act(r#"widget("usher.counter").querySelector("button.usher-type").click();"#);
@@ -544,7 +568,7 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
             "Guests",
             "House Guests",
             "1 day, from its first use",
-            "one guest",
+            "one device",
             "down 7.2 Mbit/s, up 1.2 Mbit/s, 6000 MB",
             "the controller, minted now"
         ])
@@ -644,7 +668,7 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
     press_listed(&mut browser, &format!("Assign {} for hand-out", walk_in[0]));
     browser.wait(
         "one held on the counter",
-        &format!(r#"{walk_in_button} === "2 hours; one guest; 1 held""#),
+        &format!(r#"{walk_in_button} === "2 hours; one device; 1 held""#),
     );
     browser.wait(
         "the list to say it is held",
@@ -666,12 +690,12 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
     press_listed(&mut browser, &format!("Assign {} for hand-out", walk_in[1]));
     browser.wait(
         "two held",
-        &format!(r#"{walk_in_button} === "2 hours; one guest; 2 held""#),
+        &format!(r#"{walk_in_button} === "2 hours; one device; 2 held""#),
     );
     press_listed(&mut browser, &format!("Take {} back", walk_in[1]));
     browser.wait(
         "one held again",
-        &format!(r#"{walk_in_button} === "2 hours; one guest; 1 held""#),
+        &format!(r#"{walk_in_button} === "2 hours; one device; 1 held""#),
     );
 
     // The one held goes first: the press hands out that very voucher,
@@ -706,7 +730,7 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
     );
     browser.wait(
         "none held any more",
-        &format!(r#"{walk_in_button} === "2 hours; one guest""#),
+        &format!(r#"{walk_in_button} === "2 hours; one device""#),
     );
 
     // The page wears the usher's theme: the shell's colours are the
@@ -791,97 +815,590 @@ fn a_browser_pairs_and_sets_the_controller_from_the_screen() {
 }
 
 #[test]
-fn a_predefined_voucher_type_is_shown_as_the_administrators() {
+fn an_administrator_defines_the_voucher_types_the_front_desk_is_offered() {
     let Some(mut browser) = Browser::open() else {
         return;
     };
-    let dir = short_dir();
-    // What the unit's administrator predefines, where the steward looks
-    // for what is set for the counter.
-    let set = dir.path().join("plugins.d");
-    std::fs::create_dir_all(&set).unwrap();
-    std::fs::write(
-        set.join("org.evoframework.usher.counter.toml"),
-        "[[types]]\nname = \"One day\"\nminutes = 1440\nguests = 1\n",
-    )
-    .unwrap();
-    let steward = Steward::start(dir.path());
-    steward.ask(
-        "issue.counter",
-        "put_type",
-        json!({ "name": "Walk-in", "minutes": 120, "guests": 1 }),
-    );
     browser.size(1280, 900);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let simulated = runtime.block_on(Simulated::start());
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+
+    // A unit whose controller is set and whose network is chosen: what
+    // is looked at here is the types and the counter.
+    let presented = steward.ask(
+        "access.controller",
+        "probe",
+        json!({ "base": simulated.base() }),
+    );
+    steward.ask(
+        "access.controller",
+        "set",
+        json!({
+            "base": simulated.base(),
+            "key": simulated.key(),
+            "fingerprint": presented["fingerprint"],
+        }),
+    );
+    let networks = steward.ask("networks.directory", "networks", json!({}));
+    let guests = networks["sites"][0]["networks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|network| network["name"] == "Guests")
+        .expect("the simulated controller has a Guests network")["id"]
+        .clone();
+    steward.ask(
+        "networks.directory",
+        "choose",
+        json!({ "site": simulated.site(), "network": guests }),
+    );
     browser.go(&format!("{}/door.css", steward.address()));
     browser.act(&format!(
         r#"localStorage.setItem("evoBearer", {bearer});"#,
         bearer = json!(steward.operator()),
     ));
     browser.go(&format!("{}/", steward.address()));
-
-    // The counter offers the predefined type from the start, before the
-    // one kept from the screen.
-    browser.wait(
-        "the types on offer",
-        r#"widget("usher.counter").querySelectorAll(".usher-type").length === 2"#,
-    );
-    assert_eq!(
-        browser.look(
-            r#"return [...widget("usher.counter").querySelectorAll(".usher-type strong")].map((name) => name.textContent);"#
-        ),
-        json!(["One day", "Walk-in"])
-    );
-
-    // Among the voucher types it is shown as predefined, with nothing to
-    // drop it by, and the page says where it is changed.
     go_to(&mut browser, "Voucher types");
+
+    // What a person sees of the types, of the counter, and of what the
+    // page last said.
+    let listed = r#"
+        return [...widget("usher.types").querySelectorAll("tbody tr")].map((row) => ({
+          name: row.cells[0].textContent,
+          gives: row.cells[1].textContent,
+          enabled: row.cells[2].querySelector("input").checked,
+          says: row.cells[2].textContent,
+          default: row.cells[3].textContent,
+          can: [...row.querySelectorAll("button")].map((b) => b.textContent),
+        }));
+    "#;
+    let offered = r#"return [...widget("usher.counter").querySelectorAll("button.usher-type")].map((b) => [...b.children].map((part) => part.textContent));"#;
+    let said = r#"
+        const said = widget("usher.types").querySelector(".usher-said");
+        return [said.textContent, said.classList.contains("usher-trouble")];
+    "#;
+    let rows = |count: usize| {
+        format!(
+            r#"widget("usher.types").querySelectorAll("tbody tr").length === {count}"#
+        )
+    };
+    let tiles = |count: usize| {
+        format!(
+            r#"widget("usher.counter").querySelectorAll("button.usher-type").length === {count}"#
+        )
+    };
+    let press = |label: &str| {
+        format!(
+            r#"widget("usher.types").querySelector(`[aria-label="${{{label}}}"]`).click();"#,
+            label = json!(label),
+        )
+    };
+    let a_row = |name: &str, gives: &str, default: &str| {
+        json!({
+            "name": name, "gives": gives, "enabled": true, "says": "Enabled",
+            "default": default, "can": ["Edit", "Delete"],
+        })
+    };
+    let with_default = |mut row: Value| {
+        row["can"] = json!(["Make default", "Edit", "Delete"]);
+        row
+    };
+
+    // With no type yet, the form to add one stands open under the
+    // page's own heading, and says what it is.
     browser.wait(
-        "the types listed",
-        r#"widget("usher.types").querySelectorAll("tbody tr").length === 2"#,
+        "a page with no type",
+        r#"widget("usher.types").innerText.includes("No voucher type is defined yet.")"#,
     );
     assert_eq!(
         browser.look(
             r#"
-            return [...widget("usher.types").querySelectorAll("tbody tr")].map((row) => ({
-              name: row.cells[0].textContent,
-              last: row.cells[2].textContent,
-              buttons: row.querySelectorAll("button").length,
-            }));
+            const types = widget("usher.types");
+            const form = types.querySelector("form");
+            return {
+              open: onScreen(form),
+              heading: form.querySelector("h4").textContent,
+              save: [...form.querySelectorAll("button")].map((b) => b.textContent),
+              headed: [document.querySelector(".page:not([hidden]) > h2").textContent, types.querySelector("h3").textContent],
+            };
             "#
         ),
+        json!({
+            "open": true,
+            "heading": "Add a voucher type",
+            "save": ["Save", "Cancel"],
+            "headed": ["Voucher types", "Defined by the administrator"],
+        })
+    );
+
+    // A type is added: it is listed, enabled, and being the first that
+    // has nothing to choose it is the default. The counter offers it.
+    browser.act(&add_type(json!({
+        "name": "Day guest", "lasts": "1", "unit": "days", "guests": "1",
+    })));
+    browser.wait("the type listed", &rows(1));
+    assert_eq!(
+        browser.look(listed),
+        json!([a_row("Day guest", "1 day; one device", "Default")])
+    );
+    assert_eq!(browser.look(said), json!(["Day guest is added.", false]));
+    browser.wait("the type at the counter", &tiles(1));
+    assert_eq!(
+        browser.look(offered),
+        json!([["Day guest", "Default", "1 day; one device"]])
+    );
+
+    // With a type there, the form is closed, and a button opens it. A
+    // type whose days and devices are chosen by whoever issues the
+    // voucher says up to how many; it cannot be the default.
+    assert_eq!(
+        browser.look(
+            r#"
+            const types = widget("usher.types");
+            return [onScreen(types.querySelector("form")), [...types.querySelectorAll("button")].filter(onScreen).map((b) => b.textContent)];
+            "#
+        ),
+        json!([false, ["Add a voucher type", "Edit", "Delete"]])
+    );
+    browser.act(&type_form(
+        json!({
+            "name": "Contractor", "lasts": "30", "unit": "days",
+            "up_to_days": true, "guests": "4", "up_to_guests": true,
+        }),
+        false,
+    ));
+    if let Some(picture) = picture_of(Some("types-form")) {
+        browser.picture(&picture);
+    }
+    browser
+        .act(r#"widget("usher.types").querySelector("form").requestSubmit();"#);
+    browser.wait("two types", &rows(2));
+    browser.act(&add_type(json!({
+        "name": "Week guest", "lasts": "7", "unit": "days", "guests": "1",
+        "up_to_days": false, "up_to_guests": false,
+    })));
+    browser.wait("three types", &rows(3));
+    let contractor = a_row("Contractor", "up to 30 days; up to 4 devices", "");
+    assert_eq!(
+        browser.look(listed),
         json!([
-            { "name": "One day", "last": "Predefined", "buttons": 0 },
-            { "name": "Walk-in", "last": "Drop", "buttons": 1 },
+            a_row("Day guest", "1 day; one device", "Default"),
+            contractor,
+            with_default(a_row(
+                "Week guest",
+                "7 days; one device",
+                "Make default"
+            )),
+        ])
+    );
+    browser.wait("three at the counter", &tiles(3));
+    assert_eq!(
+        browser.look(offered),
+        json!([
+            ["Day guest", "Default", "1 day; one device"],
+            ["Contractor", "up to 30 days; up to 4 devices"],
+            ["Week guest", "7 days; one device"],
+        ])
+    );
+
+    // A name that is taken is not added over: the type that has it is
+    // edited instead.
+    browser.act(&add_type(json!({
+        "name": "Week guest", "lasts": "9", "unit": "days", "guests": "1",
+    })));
+    browser.wait(
+        "the word on the name",
+        r#"widget("usher.types").querySelector(".usher-said").textContent.includes("There is a voucher type Week guest already.")"#,
+    );
+    browser.act(
+        r#"[...widget("usher.types").querySelectorAll("form button")].find((b) => b.textContent === "Cancel").click();"#,
+    );
+    assert_eq!(
+        steward.ask("issue.counter", "types", json!({}))["types"][2]["minutes"],
+        10080
+    );
+
+    // Another type is made the default: the mark moves, here and at the
+    // counter.
+    browser.act(&press("Make Week guest the default"));
+    browser.wait(
+        "the mark on the other type",
+        r#"widget("usher.types").querySelectorAll("tbody tr")[2].cells[3].textContent === "Default""#,
+    );
+    assert_eq!(
+        browser.look(listed),
+        json!([
+            with_default(a_row(
+                "Day guest",
+                "1 day; one device",
+                "Make default"
+            )),
+            contractor,
+            a_row("Week guest", "7 days; one device", "Default"),
         ])
     );
     assert_eq!(
-        browser.look(
-            r#"return [...widget("usher.types").querySelectorAll(".usher-hint")].map((hint) => hint.textContent).filter((text) => text.includes("predefined"));"#
-        ),
-        json!(["A predefined type is set in the unit's configuration, and is changed there."])
-    );
-
-    // Kept under its name from the form, it is refused in words, and
-    // stands as it was predefined.
-    browser.act(
-        r#"
-        const form = widget("usher.types").querySelector("form");
-        form.elements.name.value = "One day";
-        form.elements.lasts.value = "2";
-        form.requestSubmit();
-        "#,
+        browser.look(said),
+        json!(["Week guest is the default.", false])
     );
     browser.wait(
-        "the refusal",
-        r#"widget("usher.types").innerText.includes("'One day' is predefined in the unit's configuration")"#,
+        "the mark at the counter",
+        r#"widget("usher.counter").querySelectorAll("button.usher-type")[2].children.length === 3"#,
     );
     assert_eq!(
-        steward.ask("issue.counter", "types", json!({}))["types"][0]["minutes"],
-        1440
+        browser.look(offered),
+        json!([
+            ["Day guest", "1 day; one device"],
+            ["Contractor", "up to 30 days; up to 4 devices"],
+            ["Week guest", "Default", "7 days; one device"],
+        ])
     );
-    if let Some(picture) = picture_of(Some("predefined")) {
+
+    // The default is neither disabled nor deleted while another type
+    // could be the default: the page says why, and it stands as it was.
+    for label in [
+        "Week guest, enabled for the front desk",
+        "Delete Week guest",
+    ] {
+        browser.act(&press(label));
+        browser.wait(
+            "why not",
+            r#"widget("usher.types").querySelector(".usher-said.usher-trouble")?.textContent.includes("make another type the default first")"#,
+        );
+        let why = browser.look(said)[0].as_str().unwrap().to_string();
+        assert!(
+            why.contains("'Week guest' is the default voucher type"),
+            "{label}: {why}"
+        );
+        browser.wait(
+            "the type as it was",
+            r#"widget("usher.types").querySelectorAll("tbody tr")[2]?.cells[2].querySelector("input").checked === true"#,
+        );
+        browser.act(
+            r#"widget("usher.types").querySelector(".usher-said").textContent = "";"#,
+        );
+    }
+    let told = steward.ask("issue.counter", "types", json!({}));
+    assert_eq!(told["default"], "Week guest", "{told}");
+    assert_eq!(told["disabled"], json!([]), "{told}");
+    assert_eq!(told["types"].as_array().unwrap().len(), 3, "{told}");
+
+    // A type is disabled: it is still the administrator's, and is off
+    // the counter. Enabled again, it is back.
+    browser.act(&press("Contractor, enabled for the front desk"));
+    browser.wait("two at the counter", &tiles(2));
+    browser.wait(
+        "the type listed as disabled",
+        r#"widget("usher.types").querySelectorAll("tbody tr")[1].cells[2].textContent === "Disabled""#,
+    );
+    assert_eq!(
+        browser.look(said),
+        json!([
+            "Contractor is disabled: the front desk is not offered it.",
+            false
+        ])
+    );
+    assert_eq!(
+        browser.look(listed)[1],
+        json!({
+            "name": "Contractor", "gives": "up to 30 days; up to 4 devices",
+            "enabled": false, "says": "Disabled", "default": "",
+            "can": ["Edit", "Delete"],
+        })
+    );
+    assert_eq!(
+        browser.look(offered),
+        json!([
+            ["Day guest", "1 day; one device"],
+            ["Week guest", "Default", "7 days; one device"],
+        ])
+    );
+    let front_desk = steward.ask("issue.counter", "offered", json!({}));
+    assert_eq!(
+        front_desk["types"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|kind| kind["name"].clone())
+            .collect::<Vec<_>>(),
+        ["Day guest", "Week guest"],
+        "{front_desk}"
+    );
+
+    // By the keyboard alone: the Tab key goes through what can be done
+    // with a type, what it stands on is ringed, and the space bar works
+    // the switch. Whoever worked it is still at it when the list has
+    // been drawn again.
+    browser.act(
+        r#"widget("usher.types").querySelector(`[aria-label="Contractor, enabled for the front desk"]`).focus();"#,
+    );
+    let at = r#"
+        const at = document.activeElement;
+        const ring = getComputedStyle(at);
+        return [at.getAttribute("aria-label"), ring.outlineStyle, ring.outlineWidth];
+    "#;
+    browser.press("Tab", false);
+    assert_eq!(browser.look(at), json!(["Edit Contractor", "solid", "3px"]));
+    browser.press("Tab", false);
+    assert_eq!(
+        browser.look(at),
+        json!(["Delete Contractor", "solid", "3px"])
+    );
+    browser.press("Tab", true);
+    browser.press("Tab", true);
+    assert_eq!(
+        browser.look(at),
+        json!(["Contractor, enabled for the front desk", "solid", "3px"])
+    );
+    browser.press("Space", false);
+    browser.wait("three at the counter again", &tiles(3));
+    browser.wait(
+        "the type listed as enabled",
+        r#"widget("usher.types").querySelectorAll("tbody tr")[1].cells[2].textContent === "Enabled""#,
+    );
+    assert_eq!(
+        browser.look(at),
+        json!(["Contractor, enabled for the front desk", "solid", "3px"])
+    );
+    assert_eq!(
+        browser.look(said),
+        json!([
+            "Contractor is enabled: the front desk is offered it.",
+            false
+        ])
+    );
+
+    // A type is edited: the form opens with what the type is, its name
+    // stays, and what is saved is what the counter offers.
+    browser.act(&press("Edit Day guest"));
+    assert_eq!(
+        browser.look(
+            r#"
+            const form = widget("usher.types").querySelector("form");
+            const name = form.querySelector('[name="name"]');
+            return {
+              open: onScreen(form),
+              heading: form.querySelector("h4").textContent,
+              name: [name.value, name.readOnly],
+              lasts: [form.querySelector('[name="lasts"]').value, form.querySelector('[name="unit"]').value],
+              devices: form.querySelector('[name="guests"]').value,
+              chosen: [form.querySelector('[name="up_to_days"]').checked, form.querySelector('[name="up_to_guests"]').checked],
+              at: document.activeElement.name,
+            };
+            "#
+        ),
+        json!({
+            "open": true,
+            "heading": "Edit Day guest",
+            "name": ["Day guest", true],
+            "lasts": ["1", "days"],
+            "devices": "1",
+            "chosen": [false, false],
+            "at": "lasts",
+        })
+    );
+    browser.act(&type_form(json!({ "lasts": "2" }), true));
+    browser.wait(
+        "the type as it was saved",
+        r#"widget("usher.types").querySelectorAll("tbody tr")[0].cells[1].textContent === "2 days; one device""#,
+    );
+    assert_eq!(browser.look(said), json!(["Day guest is saved.", false]));
+    assert_eq!(
+        steward.ask("issue.counter", "types", json!({}))["types"][0],
+        json!({
+            "name": "Day guest", "minutes": 2880, "guests": 1,
+            "megabytes": null, "down_kbps": null, "up_kbps": null,
+        })
+    );
+
+    // The page speaks of adding, saving, deleting, enabling and the
+    // default, in those words.
+    let words = browser
+        .look(r#"return widget("usher.types").innerText.toLowerCase();"#)
+        .as_str()
+        .unwrap()
+        .to_string();
+    for word in ["keep", "kept", "drop", "mint", "hand out", "handed"] {
+        assert!(!words.contains(word), "the page says '{word}': {words}");
+    }
+
+    // At the counter a type with a choice asks for it first, within
+    // what the type allows, and says what it allows. More than that is
+    // refused in words, and nothing is asked of the controller.
+    go_to(&mut browser, "Counter");
+    browser.wait(
+        "the type as it was saved, at the counter",
+        r#"widget("usher.counter").querySelector("button.usher-type").lastElementChild.textContent === "2 days; one device""#,
+    );
+    let tile = |name: &str| {
+        format!(
+            r#"[...widget("usher.counter").querySelectorAll("button.usher-type")].find((b) => b.firstElementChild.textContent === {name}).click();"#,
+            name = json!(name),
+        )
+    };
+    browser.act(&tile("Contractor"));
+    browser.wait(
+        "the choice asked for",
+        r#"widget("usher.counter").querySelector("form.usher-choose") !== null"#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"
+            const asked = widget("usher.counter").querySelector("form.usher-choose");
+            return {
+              heading: asked.querySelector("h4").textContent,
+              fields: [...asked.querySelectorAll(".usher-field")].map((f) => [f.querySelector("label").textContent, f.querySelector("input").name, f.querySelector(".usher-hint").textContent]),
+              allows: asked.querySelector(":scope > .usher-hint").textContent,
+              buttons: [...asked.querySelectorAll("button")].map((b) => b.textContent),
+              at: document.activeElement.name,
+            };
+            "#
+        ),
+        json!({
+            "heading": "Contractor",
+            "fields": [
+                ["Days", "days", "From 1 to 30."],
+                ["Devices", "guests", "From 1 to 4."],
+            ],
+            "allows": "up to 30 days; up to 4 devices",
+            "buttons": ["Issue the voucher", "Cancel"],
+            "at": "days",
+        })
+    );
+    let choose = |days: &str, devices: &str| {
+        format!(
+            r#"
+            const asked = widget("usher.counter").querySelector("form.usher-choose");
+            type(asked.querySelector('[name="days"]'), {days});
+            type(asked.querySelector('[name="guests"]'), {devices});
+            "#,
+            days = json!(days),
+            devices = json!(devices),
+        )
+    };
+    browser.act(&choose("31", "2"));
+    browser.act(
+        r#"widget("usher.counter").querySelector("form.usher-choose").requestSubmit();"#,
+    );
+    browser.wait(
+        "the word on the days",
+        r#"widget("usher.counter").querySelector(".usher-said.usher-trouble")?.textContent === "Days: a whole number from 1 to 30.""#,
+    );
+    assert_eq!(simulated.held(), 0, "nothing was asked for");
+    browser.act(&choose("12", "2"));
+    if let Some(picture) = picture_of(Some("counter-days")) {
         browser.picture(&picture);
     }
+    browser.act(
+        r#"widget("usher.counter").querySelector("form.usher-choose").requestSubmit();"#,
+    );
+    browser.wait(
+        "the voucher",
+        r#"widget("usher.counter").querySelector(".usher-voucher") !== null"#,
+    );
+    // The voucher says what it was issued for, and the controller has
+    // one voucher, on those terms.
+    assert_eq!(
+        browser.look(
+            r#"
+            const counter = widget("usher.counter");
+            return [[...counter.querySelectorAll("dd")].map((said) => said.textContent), counter.querySelector("form.usher-choose")];
+            "#
+        ),
+        json!([
+            [
+                "Guests",
+                "Contractor",
+                "12 days, from its first use",
+                "2 devices",
+                "none",
+                "the controller, minted now"
+            ],
+            null
+        ])
+    );
+    let made = steward.ask(
+        "access.controller",
+        "list",
+        json!({ "site": simulated.site() }),
+    );
+    let made = made["vouchers"].as_array().unwrap();
+    assert_eq!(made.len(), 1, "{made:?}");
+    assert_eq!(made[0]["note"], "Contractor");
+    assert_eq!(made[0]["minutes"], 17280);
+    assert_eq!(made[0]["guests"], 2);
+
+    // A type with nothing to choose is issued at one press, as it
+    // stands. Asking for a choice is let go by Cancel.
+    browser.act(&tile("Contractor"));
+    browser.wait(
+        "the choice asked for again",
+        r#"widget("usher.counter").querySelector("form.usher-choose") !== null"#,
+    );
+    browser.act(
+        r#"[...widget("usher.counter").querySelectorAll("form.usher-choose button")].find((b) => b.textContent === "Cancel").click();"#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"return widget("usher.counter").querySelector("form.usher-choose");"#
+        ),
+        Value::Null
+    );
+    browser.act(&tile("Day guest"));
+    browser.wait(
+        "the voucher of the fixed type",
+        r#"[...widget("usher.counter").querySelectorAll("dd")][1]?.textContent === "Day guest""#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"return [...widget("usher.counter").querySelectorAll("dd")].slice(2, 4).map((said) => said.textContent);"#
+        ),
+        json!(["2 days, from its first use", "one device"])
+    );
+    assert_eq!(simulated.held(), 2, "one press, one voucher");
+
+    // What is pointed at fades into its state, and does not for a
+    // reader who asks for stillness: the tiles and the switch with the
+    // rest.
+    let fades = r#"
+        return [widget("usher.counter").querySelector("button.usher-type"), widget("usher.types").querySelector('input[role="switch"]')]
+          .map((part) => getComputedStyle(part).transitionDuration.split(", ").some((time) => time !== "0s"));
+    "#;
+    browser.prefers("prefers-reduced-motion", "no-preference");
+    assert_eq!(browser.look(fades), json!([true, true]));
+    browser.prefers("prefers-reduced-motion", "reduce");
+    assert_eq!(browser.look(fades), json!([false, false]));
+    browser.prefers("prefers-reduced-motion", "no-preference");
+
+    // A type is deleted: it is off the list and off the counter, and
+    // the vouchers issued on its terms are the controller's still.
+    go_to(&mut browser, "Voucher types");
+    browser.act(&press("Delete Contractor"));
+    browser.wait("two types", &rows(2));
+    assert_eq!(
+        browser.look(said),
+        json!([
+            "Contractor is deleted. Vouchers issued on its terms stay what they are.",
+            false
+        ])
+    );
+    browser.wait("two at the counter", &tiles(2));
+    assert_eq!(
+        steward.ask(
+            "access.controller",
+            "list",
+            json!({ "site": simulated.site() })
+        )["vouchers"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
     assert_eq!(steward.stop(), Some(0));
 }
 
@@ -1030,7 +1547,12 @@ fn the_menu_leads_from_page_to_page() {
     );
 
     // What is typed on a page is there when the page is come back to.
+    // With no type yet, the form to add one stands open.
     go_to(&mut browser, "Voucher types");
+    browser.wait(
+        "the form to add a type",
+        r#"onScreen(widget("usher.types").querySelector('[name="name"]'))"#,
+    );
     browser.act(
         r#"type(widget("usher.types").querySelector('[name="name"]'), "Half typed");"#,
     );

@@ -258,6 +258,23 @@
   font-size: 1.0625rem;
 }
 
+/* The default type says so, in the corner of its tile. */
+.usher-type:has(.usher-default) {
+  position: relative;
+  padding-right: 5.75rem;
+}
+
+.usher-default {
+  position: absolute;
+  top: 0.625rem;
+  right: 0.875rem;
+  font-size: 0.6875rem;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .usher-type span {
   font-size: 0.875rem;
   font-weight: 400;
@@ -296,6 +313,24 @@
 
 .usher-field select {
   width: 100%;
+}
+
+/* A form that is opened under a list, and the few fields a type with a
+   choice asks for: set off from what stands above by a hairline. */
+.usher-form,
+.usher-choose {
+  margin-top: 1rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--evo-hairline, #6b6b6b);
+}
+
+.usher-choose .usher-fields {
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 14rem));
+}
+
+/* What is hidden takes no room, whatever its kind is laid out as. */
+[data-widget^="usher."] [hidden] {
+  display: none;
 }
 
 /* The voucher as it is handed over: the symbol a phone reads, where

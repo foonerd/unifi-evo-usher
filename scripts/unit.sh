@@ -14,9 +14,6 @@
 #   opt/evo/catalogue/default.toml    the usher's catalogue, where evo
 #                                     looks for one
 #   etc/evo/evo.toml                  the steward's configuration
-#   etc/evo/plugins.d/                what the unit's administrator sets
-#                                     for a plugin: the voucher types the
-#                                     counter offers from its first start
 #   usr/share/doc/evo-usher-steward/  the licences
 #
 # The paths are evo's own defaults, so the configuration says little.
@@ -31,9 +28,6 @@ unit_tree() {
   [ -f "$root/opt/evo/ui/index.html" ] || { echo "unit: the UI root has no door (ui/index.html)" >&2; return 1; }
   install -D -m 644 catalogue/usher.toml "$root/opt/evo/catalogue/default.toml"
   install -D -m 644 packaging/etc/evo.toml "$root/etc/evo/evo.toml"
-  while IFS= read -r -d '' file; do
-    install -D -m 644 "$file" "$root/etc/evo/plugins.d/$(basename "$file")"
-  done < <(git ls-files -z -- packaging/etc/plugins.d)
   unit_licences "$root/usr/share/doc/evo-usher-steward"
 }
 

@@ -10,8 +10,8 @@ shape = 1
 
 description = """
 The counter where a guest is handed a voucher. It keeps the voucher
-types on offer, each the terms a voucher is minted on under a name, and
-hands out a voucher of one of them.
+types an administrator defines, each the terms a voucher is issued on
+under a name, and hands out a voucher of one of them.
 
 A voucher handed out is for the wireless network the shelf
 `networks.directory` says vouchers are for. One assigned for handing out
@@ -27,10 +27,25 @@ the newest ten thousand.
 
 A type is `{ name: string, minutes: integer, guests: integer | null,
 megabytes: integer | null, down_kbps: integer | null, up_kbps: integer |
-null }`: its name, which is also the note its vouchers carry on the
-controller; how long a voucher gives access from the moment its first
-guest is let in; how many guests may use one voucher; a data allowance;
-a download and an upload limit. A limit that is null is not set.
+null, up_to_days?: true, up_to_guests?: true }`: its name, which is also
+the note its vouchers carry on the controller; how long a voucher gives
+access from the moment its first guest is let in; how many devices may
+use one voucher; a data allowance; a download and an upload limit. A
+limit that is null is not set.
+
+The days and the number of devices of a type are fixed, or are chosen
+for each voucher by whoever issues it. Where `up_to_days` is true, a
+voucher is issued for 1 day up to the days `minutes` comes to, which is
+a whole number of days and 2 at least. Where `up_to_guests` is true, it
+is issued for 1 device up to `guests`, which is 2 at least. A type with
+neither is fixed: a voucher of it is issued as the type stands.
+
+Each type is enabled for the front desk or not; one that is defined is
+enabled. One type is the default: the one a point of issue with a single
+button issues. Only a fixed, enabled type can be the default. While no
+type is the default, the first that can be becomes it. The default is
+not deleted, disabled or given a choice while another type could be the
+default: another is made the default first.
 
 A request that may succeed if asked again (the controller was not
 reached, or a shelf did not answer) is refused as transient; one that
@@ -40,10 +55,20 @@ will not succeed as asked, as permanent.
 [[requests]]
 request_type = "types"
 description = """
-The voucher types on offer. Returns `{ types: [type], predefined:
-[string] }`: the types the unit's configuration predefines, in the order
-they are written in there, then the unit's own, in the order they were
-first kept; and the names of the predefined.
+The voucher types as the administrator sees them. Returns `{ types:
+[type], default: string | null, disabled: [string] }`: every type in the
+order they were first defined, the name of the default, and the names of
+the types that are not enabled for the front desk.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "offered"
+description = """
+The voucher types a front desk is offered. Returns `{ types: [type],
+default: string | null }`: the enabled types, in their order, and the
+name of the default.
 """
 payload_in = "json"
 payload_out = "json"
@@ -51,16 +76,17 @@ payload_out = "json"
 [[requests]]
 request_type = "put_type"
 description = """
-Keep a voucher type. Payload: a type, its limits optional. A type is
-known by its name, taken without the spaces around it: one of a name
-that is kept takes that one's place, and any other is kept after the
-others. Returns `{ type: type }` as it is kept. A type the unit's
-configuration predefines is changed there, and is not kept over.
+Define a voucher type, or change one. Payload: a type, its limits and
+its choices optional. A type is known by its name, taken without the
+spaces around it: one of a name that is kept takes that one's place, and
+any other is kept after the others, enabled. Returns `{ type: type }` as
+it is kept.
 
 A name that is empty or longer than 64 characters, a voucher that lasts
-no minute and a limit of 0 are refused, as is one type more than the
-24 a counter offers. What the controller takes beyond that, it says when
-a voucher is minted on the terms.
+no minute, a limit of 0, days to choose that are no whole days or fewer
+than 2, and devices to choose that are fewer than 2 are refused, as is
+one type more than the 24 a counter keeps. What the controller takes
+beyond that, it says when a voucher is issued on the terms.
 """
 payload_in = "json"
 payload_out = "json"
@@ -68,10 +94,30 @@ payload_out = "json"
 [[requests]]
 request_type = "drop_type"
 description = """
-Drop a voucher type. Payload `{ name: string }`. Returns `{ dropped:
-bool }`: whether there was a type of that name. Vouchers minted on its
-terms stay what they are. A type the unit's configuration predefines is
-not dropped.
+Delete a voucher type. Payload `{ name: string }`. Returns `{ dropped:
+bool }`: whether there was a type of that name. Vouchers issued on its
+terms stay what they are.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "enable_type"
+description = """
+Enable a voucher type for the front desk, or disable it. Payload `{
+name: string, enabled: bool }`. Returns `{ name: string, enabled: bool,
+default: string | null }`. A disabled type stays defined, with its
+terms, and is not among what `offered` returns.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "set_default"
+description = """
+Make a voucher type the default. Payload `{ name: string }`. Returns `{
+default: string }`. Refused for a type with days or devices to choose,
+and for one that is disabled.
 """
 payload_in = "json"
 payload_out = "json"
@@ -79,12 +125,15 @@ payload_out = "json"
 [[requests]]
 request_type = "hand"
 description = """
-Hand out one voucher of a type. Payload `{ type: string }`, the type by
-its name. Returns `{ voucher: { id: string, code: string }, type: type,
+Hand out one voucher of a type. Payload `{ type: string, days?:
+integer, guests?: integer }`: the type by its name, and what is chosen
+for this voucher where the type has days or devices to choose. Returns
+`{ voucher: { id: string, code: string }, type: type,
 network: string, join: { text: string, side: integer, rows: [string] } |
 null, held: bool, at: integer }`: the voucher, by the controller's
-identifier of it and the code a guest types; the terms of its type; the
-name of the wireless network it is for; what a phone joins that network
+identifier of it and the code a guest types; the terms it was issued
+on, the type's with what was chosen; the name of the wireless network it
+is for; what a phone joins that network
 from; whether the voucher was held for the type or minted for the
 asking; and when it was handed out.
 
@@ -96,10 +145,12 @@ the choice does not say how it is joined, `join` is null.
 
 A voucher held for the type is handed out before one is minted, the
 oldest first, and is handed out while the controller is away. Where the
-reserve gives no answer, one is minted.
+reserve gives no answer, one is minted. No voucher is held for a type
+with a choice: one is minted on what was chosen.
 
-Refused as permanent for a type that is not kept and while no wireless
-network is chosen for vouchers; nothing is taken or minted then. A
+Refused as permanent for a type that is not kept, for a choice the type
+does not offer, one left out or one beyond what the type allows, and
+while no wireless network is chosen for vouchers; nothing is taken or minted then. A
 refusal of the shelf that mints is passed on as it was given.
 """
 payload_in = "json"

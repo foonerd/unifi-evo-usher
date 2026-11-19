@@ -215,8 +215,10 @@ hold(
 hold("switched off", told({ security: "passphrase", enabled: false }), "joined with a passphrase; switched off");
 
 // What a voucher of a type gives, and what is typed for one.
-const { gives, guests } = await import("/org.evoframework.usher.widgets/counter.js");
-const { kbps, terms, whole } = await import("/org.evoframework.usher.widgets/types.js");
+const { chosen, devices, duration, gives } = await import(
+  "/org.evoframework.usher.widgets/counter.js"
+);
+const { kbps, terms, typed, whole } = await import("/org.evoframework.usher.widgets/types.js");
 const refused = (ask) => {
   try {
     return ask();
@@ -224,15 +226,49 @@ const refused = (ask) => {
     return `refused: ${why.message}`;
   }
 };
-hold("one guest", guests({ guests: 1 }), "one guest");
-hold("some guests", guests({ guests: 4 }), "4 guests");
-hold("any guests", guests({ guests: null }), "any number of guests");
+hold("one device", devices({ guests: 1 }), "one device");
+hold("some devices", devices({ guests: 4 }), "4 devices");
+hold("any devices", devices({ guests: null }), "any number of devices");
+hold("devices to choose", devices({ guests: 4, up_to_guests: true }), "up to 4 devices");
+hold("a fixed time", duration({ minutes: 480 }), "8 hours");
+hold("days to choose", duration({ minutes: 43200, up_to_days: true }), "up to 30 days");
 hold(
   "a type with limits",
   gives({ minutes: 1440, guests: 1, megabytes: 6000, down_kbps: 7200, up_kbps: 1200 }),
-  "1 day; one guest; down 7.2 Mbit/s, up 1.2 Mbit/s, 6000 MB",
+  "1 day; one device; down 7.2 Mbit/s, up 1.2 Mbit/s, 6000 MB",
 );
-hold("a type with none", gives({ minutes: 43200, guests: null }), "30 days; any number of guests");
+hold("a type with none", gives({ minutes: 43200, guests: null }), "30 days; any number of devices");
+hold(
+  "a type with both to choose",
+  gives({ minutes: 43200, up_to_days: true, guests: 4, up_to_guests: true }),
+  "up to 30 days; up to 4 devices",
+);
+
+// What is chosen for one voucher: within the type, and only what the
+// type has chosen.
+const contractor = { name: "Contractor", minutes: 43200, up_to_days: true, guests: 4, up_to_guests: true };
+hold("a choice within the type", chosen(contractor, { days: " 12 ", guests: "2" }), { days: 12, guests: 2 });
+hold("nothing to choose", chosen({ minutes: 1440, guests: 1 }, { days: "9", guests: "9" }), {});
+hold(
+  "only the days",
+  chosen({ minutes: 4320, up_to_days: true, guests: 1 }, { days: "3", guests: "7" }),
+  { days: 3 },
+);
+hold(
+  "more days than the type allows",
+  refused(() => chosen(contractor, { days: "31", guests: "1" })),
+  "refused: Days: a whole number from 1 to 30.",
+);
+hold(
+  "no days said",
+  refused(() => chosen(contractor, { days: "", guests: "1" })),
+  "refused: Days: a whole number from 1 to 30.",
+);
+hold(
+  "more devices than the type allows",
+  refused(() => chosen(contractor, { days: "1", guests: "5" })),
+  "refused: Devices: a whole number from 1 to 4.",
+);
 hold("a whole number", whole(" 6000 ", "Data"), 6000);
 hold("nothing typed", whole("  ", "Data"), null);
 hold("no whole number", refused(() => whole("6.5", "Data")), "refused: Data: a whole number, 1 or more.");
@@ -255,6 +291,41 @@ hold(
   "hours, and no limits",
   terms({ name: "Evening", lasts: "8", unit: "hours", guests: "", megabytes: "", down: "", up: "" }),
   { name: "Evening", minutes: 480, guests: null, megabytes: null, down_kbps: null, up_kbps: null },
+);
+hold(
+  "days and devices to choose",
+  terms({ name: "Contractor", lasts: "30", unit: "days", guests: "4", megabytes: "", down: "", up: "", upToDays: true, upToGuests: true }),
+  { name: "Contractor", minutes: 43200, guests: 4, megabytes: null, down_kbps: null, up_kbps: null, up_to_days: true, up_to_guests: true },
+);
+hold(
+  "days to choose, counted in hours",
+  refused(() => terms({ name: "Stay", lasts: "48", unit: "hours", guests: "1", megabytes: "", down: "", up: "", upToDays: true })),
+  "refused: Days to choose from: counted in days, 2 or more.",
+);
+hold(
+  "one day to choose from",
+  refused(() => terms({ name: "Stay", lasts: "1", unit: "days", guests: "1", megabytes: "", down: "", up: "", upToDays: true })),
+  "refused: Days to choose from: counted in days, 2 or more.",
+);
+hold(
+  "devices to choose, of any number",
+  refused(() => terms({ name: "Family", lasts: "1", unit: "days", guests: "", megabytes: "", down: "", up: "", upToGuests: true })),
+  "refused: Devices to choose from: 2 or more.",
+);
+// A type put into the form for editing, and read back from it, is the
+// type it was.
+for (const type of [
+  { name: "House Guests", minutes: 1440, guests: 1, megabytes: 6000, down_kbps: 7200, up_kbps: 1200 },
+  { name: "Evening", minutes: 480, guests: null, megabytes: null, down_kbps: null, up_kbps: null },
+  { name: "Short", minutes: 90, guests: 2, megabytes: null, down_kbps: 512, up_kbps: null },
+  { name: "Contractor", minutes: 43200, guests: 4, megabytes: null, down_kbps: null, up_kbps: null, up_to_days: true, up_to_guests: true },
+]) {
+  hold(`edited and saved unchanged: ${type.name}`, terms(typed(type)), type);
+}
+hold(
+  "a type in the form",
+  typed({ name: "House Guests", minutes: 1440, guests: 1, megabytes: 6000, down_kbps: 7200, up_kbps: 1200 }),
+  { name: "House Guests", lasts: "1", unit: "days", guests: "1", megabytes: "6000", down: "7.2", up: "1.2", upToDays: false, upToGuests: false },
 );
 hold(
   "no name",

@@ -143,18 +143,18 @@ bearer=$(jq -r '.token' "$work/answer")
 echo "  ok    the code the unit made pairs a browser, and it is answered"
 
 echo "prove-unit: the voucher types"
-PREDEFINED=/etc/evo/plugins.d/org.evoframework.usher.counter.toml
-[ -f "$PREDEFINED" ] || fail "$PREDEFINED is not installed"
-[ "$(ask request "$(request issue.counter types '{}')" "$bearer")" = 200 ] || fail "the voucher types are not told: $(cat "$work/answer")"
-answered | jq -e '.predefined == ["One hour", "One day", "One week"] and (.types | map(.name)) == .predefined' > /dev/null || fail "the unit does not offer the voucher types its configuration predefines: $(answered)"
-[ "$(ask request "$(request issue.counter drop_type '{"name":"One day"}')" "$bearer")" != 200 ] || fail "a predefined voucher type was dropped from the screen: $(cat "$work/answer")"
-echo "  ok    the unit offers the voucher types its configuration predefines, and the screen drops none"
-# The administrator predefines one more, where the others are written.
-printf '\n[[types]]\nname = "Weekend"\nminutes = 4320\nguests = 2\n' >> "$PREDEFINED"
+# Ask the counter as the paired browser does.
+counter() { ask request "$(request issue.counter "$1" "$2")" "$bearer"; }
+[ "$(counter types '{}')" = 200 ] || fail "the voucher types are not told: $(cat "$work/answer")"
+answered | jq -e '.types == [] and .default == null and .disabled == []' > /dev/null || fail "a new unit has voucher types nobody defined: $(answered)"
+[ "$(counter put_type '{"name":"Day","minutes":1440,"guests":1}')" = 200 ] || fail "a voucher type is not defined: $(cat "$work/answer")"
+[ "$(counter put_type '{"name":"Stay","minutes":10080,"up_to_days":true,"guests":2}')" = 200 ] || fail "a voucher type with days to choose is not defined: $(cat "$work/answer")"
+[ "$(counter enable_type '{"name":"Stay","enabled":false}')" = 200 ] || fail "a voucher type is not disabled: $(cat "$work/answer")"
+[ "$(counter offered '{}')" = 200 ] || fail "what a front desk is offered is not told: $(cat "$work/answer")"
+answered | jq -e '(.types | map(.name)) == ["Day"] and .default == "Day"' > /dev/null || fail "a front desk is not offered the enabled types and the default: $(answered)"
+echo "  ok    a new unit has no voucher type; its administrator defines them, and a front desk is offered the enabled ones"
 
 echo "prove-unit: what is kept"
-kept='{"name":"Day","minutes":1440,"guests":1}'
-[ "$(ask request "$(request issue.counter put_type "$kept")" "$bearer")" = 200 ] || fail "a voucher type is not kept: $(cat "$work/answer")"
 systemctl restart evo.service
 up
 [ "$(systemctl show -p NRestarts --value evo.service)" = 0 ] || fail "the service was started again by itself"
@@ -162,9 +162,8 @@ up
 [ "$(ask pair_complete "$(jq -cn --arg code "$code" '{pair_id: "bootstrap", code: $code}')")" = 403 ] || fail "the code of the last start still pairs: $(cat "$work/answer")"
 echo "  ok    started again, the unit has a new code and takes the old one no more"
 [ "$(ask request "$(request issue.counter types '{}')" "$bearer")" = 200 ] || fail "the paired browser is refused after a restart: $(cat "$work/answer")"
-answered | jq -e '.types | map(.name) == ["One hour", "One day", "One week", "Weekend", "Day"]' > /dev/null || fail "the voucher types are not the predefined and the one kept, through a restart: $(answered)"
-answered | jq -e '.predefined == ["One hour", "One day", "One week", "Weekend"]' > /dev/null || fail "the voucher type predefined since is not on offer: $(answered)"
-echo "  ok    the paired browser is still answered, the voucher type is still kept, and the one predefined since is on offer"
+answered | jq -e '(.types | map(.name)) == ["Day", "Stay"] and .default == "Day" and .disabled == ["Stay"]' > /dev/null || fail "the voucher types, the default and what is disabled were not kept through a restart: $(answered)"
+echo "  ok    the paired browser is still answered, and the voucher types are kept as they were defined"
 
 echo "prove-unit: the protections"
 systemd-analyze security evo.service --no-pager | tail -n 1

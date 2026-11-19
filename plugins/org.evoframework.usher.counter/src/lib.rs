@@ -13,26 +13,36 @@
 //! Every voucher it hands out it writes down: which, of which type,
 //! when, and whether it was held or minted.
 //!
-//! The voucher types are the unit's own, kept from the screen, and the
-//! ones its administrator predefines in the plugin's configuration, the
-//! file `org.evoframework.usher.counter.toml` in the steward's directory
-//! of plugin configurations: one `[[types]]` table for each, with the
-//! names a type has here. The predefined are on offer from the first
-//! start, before the unit's own, and are changed in that file alone.
+//! The voucher types are the administrator's to define. Of a type the
+//! days and the number of devices are fixed, or are chosen for each
+//! voucher by whoever issues it, up to what the type allows. Each type is
+//! enabled for the front desk or not, and one is the default: the type a
+//! point of issue with a single button issues, which therefore has
+//! nothing to choose and is enabled.
 //!
-//! It answers six requests, each with a JSON payload:
+//! It answers nine requests, each with a JSON payload:
 //!
-//! - `types`: answers `{"types": [type], "predefined": ["..."]}`, a type
-//!   being `{"name", "minutes", "guests", "megabytes", "down_kbps",
-//!   "up_kbps"}` with null where it sets no such limit: the predefined
-//!   types in the order they are written in, then the unit's own in the
-//!   order they were first kept; and the names of the predefined.
-//! - `put_type`: a type, the last four of its terms optional, keeps it in
-//!   the place of the one of its name, or after the others, and answers
-//!   `{"type": type}`. A predefined type is not kept over.
-//! - `drop_type`: `{"name": "..."}` answers `{"dropped": bool}`. A
-//!   predefined type is not dropped.
-//! - `hand`: `{"type": "..."}` answers `{"voucher": {"id", "code"},
+//! - `types`: answers `{"types": [type], "default": "..." or null,
+//!   "disabled": ["..."]}`: every type in the order they were first
+//!   defined, the name of the default, and the names of the types that
+//!   are not enabled for the front desk. A type is `{"name", "minutes",
+//!   "guests", "megabytes", "down_kbps", "up_kbps"}` with null where it
+//!   sets no such limit, and with `"up_to_days": true` or
+//!   `"up_to_guests": true` where the days or the devices are chosen:
+//!   `minutes` and `guests` are then the most.
+//! - `offered`: answers `{"types": [type], "default": "..." or null}`:
+//!   the types a front desk is offered, which are the enabled ones.
+//! - `put_type`: a type, the last four of its terms and the two choices
+//!   optional, keeps it in the place of the one of its name, or after
+//!   the others, and answers `{"type": type}`.
+//! - `drop_type`: `{"name": "..."}` answers `{"dropped": bool}`.
+//! - `enable_type`: `{"name": "...", "enabled": bool}` enables a type for
+//!   the front desk or disables it, and answers `{"name", "enabled",
+//!   "default"}`.
+//! - `set_default`: `{"name": "..."}` makes a type the default and
+//!   answers `{"default": "..."}`.
+//! - `hand`: `{"type": "..."}`, with `"days"` and `"guests"` where the
+//!   type has them chosen, answers `{"voucher": {"id", "code"},
 //!   "type": type, "network": "...", "join": {...}, "held": bool, "at":
 //!   n}`: the voucher, the terms of its type, the name of the wireless
 //!   network it is for, what a phone joins that network from, whether
@@ -71,14 +81,23 @@ pub use counter::{
     Asked, Counter, Refusal, Shelves, CONTROLLER, NETWORKS, RESERVE,
 };
 pub use handed::{HandOut, Handed, MOST_HANDED};
-pub use types::{predefined, Types, VoucherType, LONGEST_NAME, MOST};
+pub use types::{Types, Unkept, VoucherType, DAY, LONGEST_NAME, MOST};
 
 /// The plugin's name, as its manifest has it.
 pub const NAME: &str = "org.evoframework.usher.counter";
 
 /// The requests the plugin takes.
-pub const REQUESTS: [&str; 6] =
-    ["types", "put_type", "drop_type", "hand", "assign", "handed"];
+pub const REQUESTS: [&str; 9] = [
+    "types",
+    "offered",
+    "put_type",
+    "drop_type",
+    "enable_type",
+    "set_default",
+    "hand",
+    "assign",
+    "handed",
+];
 
 /// The plugin's manifest.
 pub const MANIFEST_TOML: &str = include_str!("../manifest.toml");
@@ -232,27 +251,13 @@ impl Plugin for CounterPlugin {
                      voucher types are kept, and no voucher is handed out"
                 );
             }
-            let predefined = predefined(&ctx.config).map_err(|why| {
-                PluginError::Permanent(format!(
-                    "the voucher types predefined in the configuration of \
-                     {NAME} are not ones a counter offers: {why}"
-                ))
-            })?;
-            if !predefined.is_empty() {
-                tracing::info!(
-                    plugin = NAME,
-                    types = predefined.len(),
-                    "voucher types are predefined"
-                );
-            }
             let counter =
-                Counter::open_with(&ctx.state_dir, shelves, predefined)
-                    .map_err(|e| {
-                        PluginError::Permanent(format!(
-                            "the voucher types in {} cannot be opened: {e}",
-                            ctx.state_dir.display()
-                        ))
-                    })?;
+                Counter::open(&ctx.state_dir, shelves).map_err(|e| {
+                    PluginError::Permanent(format!(
+                        "the voucher types in {} cannot be opened: {e}",
+                        ctx.state_dir.display()
+                    ))
+                })?;
             tracing::info!(plugin = NAME, "plugin load");
             *self.counter.lock().expect("the counter's lock") =
                 Some(Arc::new(counter));

@@ -14,7 +14,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::handed::{HandOut, Handed};
-use crate::types::{Types, VoucherType, MOST};
+use crate::types::{Types, Unkept, VoucherType, MOST};
 
 /// The most hand-outs told where none is asked for by its voucher.
 const NEWEST: usize = 100;
@@ -145,6 +145,19 @@ struct Naming {
 struct Handing {
     #[serde(rename = "type")]
     kind: String,
+    /// The days chosen, of a type whose days are.
+    #[serde(default)]
+    days: Option<u64>,
+    /// The devices chosen, of a type whose devices are.
+    #[serde(default)]
+    guests: Option<u64>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Enabling {
+    name: String,
+    enabled: bool,
 }
 
 #[derive(Deserialize)]
@@ -167,17 +180,15 @@ fn asked<T: DeserializeOwned>(payload: &[u8]) -> Result<T, Refusal> {
     })
 }
 
-fn unkept(e: io::Error) -> Refusal {
-    Refusal::ForNow(format!("the voucher types were not kept: {e}"))
-}
-
-/// A predefined type is the administrator's, and is not kept or dropped
-/// from the screen.
-fn not_the_screens(name: &str) -> Refusal {
-    Refusal::AsAsked(format!(
-        "the voucher type '{name}' is predefined in the unit's \
-         configuration, and is changed there"
-    ))
+/// A change to the types that was not made: one against their rules
+/// will not be made as asked, one that could not be written may be.
+fn unkept(e: Unkept) -> Refusal {
+    match e {
+        Unkept::Rule(why) => Refusal::AsAsked(why),
+        Unkept::Disk(e) => {
+            Refusal::ForNow(format!("the voucher types were not kept: {e}"))
+        }
+    }
 }
 
 /// The counter: its voucher types, and the way to the steward's other
@@ -200,21 +211,11 @@ impl fmt::Debug for Counter {
 
 impl Counter {
     /// Open the counter on the types and the record of hand-outs kept in
-    /// `state`, with no type predefined. With no shelves to ask, the
-    /// types are kept and told, and no voucher is handed out.
+    /// `state`. With no shelves to ask, the types are kept and told, and
+    /// no voucher is handed out.
     pub fn open(
         state: &Path,
         shelves: Option<Arc<dyn Shelves>>,
-    ) -> io::Result<Self> {
-        Self::open_with(state, shelves, Vec::new())
-    }
-
-    /// Open the counter as [`Counter::open`] does, with the voucher
-    /// types its configuration predefines offered before the unit's own.
-    pub fn open_with(
-        state: &Path,
-        shelves: Option<Arc<dyn Shelves>>,
-        predefined: Vec<VoucherType>,
     ) -> io::Result<Self> {
         let handed = Handed::open(state)?;
         if handed.unread() > 0 {
@@ -225,7 +226,7 @@ impl Counter {
             );
         }
         Ok(Self {
-            types: Mutex::new(Types::open_with(state, predefined)?),
+            types: Mutex::new(Types::open(state)?),
             handed: Mutex::new(handed),
             shelves,
         })
@@ -270,7 +271,15 @@ impl Counter {
                 let types = self.types.lock().expect("the types' lock");
                 Ok(json!({
                     "types": types.all(),
-                    "predefined": types.predefined(),
+                    "default": types.default(),
+                    "disabled": types.disabled(),
+                }))
+            }
+            "offered" => {
+                let types = self.types.lock().expect("the types' lock");
+                Ok(json!({
+                    "types": types.offered(),
+                    "default": types.default(),
                 }))
             }
             "put_type" => {
@@ -278,9 +287,6 @@ impl Counter {
                     .held()
                     .map_err(Refusal::AsAsked)?;
                 let mut types = self.types.lock().expect("the types' lock");
-                if types.is_predefined(&kind.name) {
-                    return Err(not_the_screens(&kind.name));
-                }
                 if !types.takes(&kind.name) {
                     return Err(Refusal::AsAsked(format!(
                         "a counter offers {MOST} voucher types at most"
@@ -292,15 +298,30 @@ impl Counter {
             "drop_type" => {
                 let naming: Naming = asked(payload)?;
                 let mut types = self.types.lock().expect("the types' lock");
-                if types.is_predefined(&naming.name) {
-                    return Err(not_the_screens(&naming.name));
-                }
                 let dropped = types.drop_named(&naming.name).map_err(unkept)?;
                 Ok(json!({ "dropped": dropped }))
             }
+            "enable_type" => {
+                let enabling: Enabling = asked(payload)?;
+                let mut types = self.types.lock().expect("the types' lock");
+                types
+                    .enable(&enabling.name, enabling.enabled)
+                    .map_err(unkept)?;
+                Ok(json!({
+                    "name": enabling.name,
+                    "enabled": enabling.enabled,
+                    "default": types.default(),
+                }))
+            }
+            "set_default" => {
+                let naming: Naming = asked(payload)?;
+                let mut types = self.types.lock().expect("the types' lock");
+                types.set_default(&naming.name).map_err(unkept)?;
+                Ok(json!({ "default": types.default() }))
+            }
             "hand" => {
                 let handing: Handing = asked(payload)?;
-                self.hand(&handing.kind).await
+                self.hand(&handing.kind, handing.days, handing.guests).await
             }
             "assign" => {
                 let assigning: Assigning = asked(payload)?;
@@ -336,8 +357,17 @@ impl Counter {
     /// held for the type goes first; with none held, one is minted for
     /// the asking, on the type's terms, on the site of the wireless
     /// network vouchers are for.
-    async fn hand(&self, name: &str) -> Result<Value, Refusal> {
-        let kind = self
+    ///
+    /// A type whose days or devices are chosen is issued on what was
+    /// chosen for this voucher. No voucher is held for such a type, so
+    /// one is minted.
+    async fn hand(
+        &self,
+        name: &str,
+        days: Option<u64>,
+        guests: Option<u64>,
+    ) -> Result<Value, Refusal> {
+        let defined = self
             .types
             .lock()
             .expect("the types' lock")
@@ -346,6 +376,8 @@ impl Counter {
             .ok_or_else(|| {
                 Refusal::AsAsked(format!("there is no voucher type '{name}'"))
             })?;
+        // The terms of this voucher: the type's, with what was chosen.
+        let kind = defined.issued(days, guests).map_err(Refusal::AsAsked)?;
         let shelves = self.shelves()?;
 
         // A voucher is handed out for a network: the one it names to the
@@ -370,10 +402,14 @@ impl Counter {
         // nothing held: a voucher is minted. A reserve the steward keeps
         // the caller from is not one with nothing held: nothing is
         // minted in the place of what may not be taken.
-        let held = match shelves
-            .ask(RESERVE, "take", json!({ "type": kind.name }))
-            .await
-        {
+        let taken = if defined.fixed() {
+            shelves
+                .ask(RESERVE, "take", json!({ "type": kind.name }))
+                .await
+        } else {
+            Ok(json!({ "voucher": null }))
+        };
+        let held = match taken {
             Ok(taken) => serde_json::from_value::<Option<Given>>(
                 taken["voucher"].clone(),
             )
@@ -499,7 +535,9 @@ impl Counter {
         let kind = VoucherType {
             name: found.note.unwrap_or_default(),
             minutes,
+            up_to_days: false,
             guests: found.guests,
+            up_to_guests: false,
             megabytes: found.megabytes,
             down_kbps: found.down_kbps,
             up_kbps: found.up_kbps,
@@ -514,6 +552,13 @@ impl Counter {
             let mut types = self.types.lock().expect("the types' lock");
             match types.find(&kind.name) {
                 Some(kept) if *kept == kind => {}
+                Some(kept) if !kept.fixed() => {
+                    return Err(Refusal::AsAsked(format!(
+                        "the voucher type '{}' has days or devices to \
+                         choose, and no voucher is held for such a type",
+                        kind.name
+                    )))
+                }
                 Some(_) => {
                     return Err(Refusal::AsAsked(format!(
                         "the voucher type '{}' is kept on other terms than \

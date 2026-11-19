@@ -331,17 +331,21 @@ impl Browser {
         );
     }
 
-    /// Press a key, as a person at a keyboard does: `Tab`, `Enter` or
-    /// `Escape`, with Shift held where `shift` says so.
+    /// Press a key, as a person at a keyboard does: `Tab`, `Enter`,
+    /// `Escape` or `Space`, with Shift held where `shift` says so.
     pub fn press(&mut self, key: &str, shift: bool) {
         let (code, text) = match key {
             "Tab" => (9, None),
             "Enter" => (13, Some("\r")),
             "Escape" => (27, None),
+            "Space" => (32, Some(" ")),
             other => panic!("no such key here: {other}"),
         };
+        // The space bar is the one key here whose name is not what it
+        // types.
+        let named = if key == "Space" { " " } else { key };
         let mut down = json!({
-            "type": "rawKeyDown", "key": key, "code": key,
+            "type": "rawKeyDown", "key": named, "code": key,
             "windowsVirtualKeyCode": code, "nativeVirtualKeyCode": code,
             "modifiers": if shift { 8 } else { 0 },
         });

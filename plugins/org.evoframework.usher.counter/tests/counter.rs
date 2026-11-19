@@ -5,7 +5,7 @@
 use std::sync::{Arc, Mutex};
 
 use evo_usher_counter::{
-    predefined, Asked, Counter, Refusal, Shelves, CONTROLLER, NETWORKS, RESERVE,
+    Asked, Counter, Refusal, Shelves, CONTROLLER, NETWORKS, RESERVE,
 };
 use serde_json::{json, Value};
 
@@ -172,7 +172,7 @@ async fn types_are_kept_in_their_order_and_through_a_restart() {
     let counter = Counter::open(dir.path(), None).unwrap();
     assert_eq!(
         ask(&counter, "types", json!({})).await.unwrap(),
-        json!({ "types": [], "predefined": [] })
+        json!({ "types": [], "default": null, "disabled": [] })
     );
 
     // A type is kept as it is told, with null where it sets no limit and
@@ -202,7 +202,11 @@ async fn types_are_kept_in_their_order_and_through_a_restart() {
         "megabytes": null, "down_kbps": null, "up_kbps": null,
     });
     ask(&counter, "put_type", longer.clone()).await.unwrap();
-    let kept = json!({ "types": [longer, contractors], "predefined": [] });
+    let kept = json!({
+        "types": [longer, contractors],
+        "default": "House guests",
+        "disabled": [],
+    });
     assert_eq!(ask(&counter, "types", json!({})).await.unwrap(), kept);
 
     // Terms that can be no voucher's are refused, and nothing changes.
@@ -222,8 +226,20 @@ async fn types_are_kept_in_their_order_and_through_a_restart() {
     let again = Counter::open(dir.path(), None).unwrap();
     assert_eq!(ask(&again, "types", json!({})).await.unwrap(), kept);
 
-    // A type is dropped by its name, once.
+    // A type is dropped by its name, once. The default is not, while
+    // another type could be the default: another is made it first.
     let named = json!({ "name": "House guests" });
+    let refused = ask(&again, "drop_type", named.clone()).await;
+    assert!(
+        matches!(&refused, Err(Refusal::AsAsked(why)) if why.contains("'House guests' is the default")),
+        "{refused:?}"
+    );
+    assert_eq!(
+        ask(&again, "set_default", json!({ "name": "Contractors" }))
+            .await
+            .unwrap(),
+        json!({ "default": "Contractors" })
+    );
     assert_eq!(
         ask(&again, "drop_type", named.clone()).await.unwrap(),
         json!({ "dropped": true })
@@ -234,7 +250,11 @@ async fn types_are_kept_in_their_order_and_through_a_restart() {
     );
     assert_eq!(
         ask(&again, "types", json!({})).await.unwrap(),
-        json!({ "types": [contractors], "predefined": [] })
+        json!({
+            "types": [contractors],
+            "default": "Contractors",
+            "disabled": [],
+        })
     );
 }
 
@@ -319,7 +339,11 @@ async fn a_voucher_assigned_is_held_for_its_type_and_goes_first() {
     );
     assert_eq!(
         ask(&counter, "types", json!({})).await.unwrap(),
-        json!({ "types": [house_guests()], "predefined": [] })
+        json!({
+            "types": [house_guests()],
+            "default": "House guests",
+            "disabled": [],
+        })
     );
     assert_eq!(stand.payload_of("list"), json!({ "site": "site-1" }));
     assert_eq!(
@@ -472,84 +496,211 @@ async fn nothing_is_handed_out_for_no_network_or_no_such_type() {
 }
 
 #[tokio::test]
-async fn the_predefined_types_are_on_offer_and_not_the_screens_to_change() {
+async fn a_front_desk_is_offered_the_enabled_types_and_told_the_default() {
     let dir = tempfile::tempdir().unwrap();
-    let given = predefined(
-        &r#"
-        [[types]]
-        name = "One day"
-        minutes = 1440
-        guests = 1
-
-        [[types]]
-        name = "House guests"
-        minutes = 1440
-        guests = 1
-        megabytes = 6000
-        down_kbps = 7200
-        up_kbps = 1200
-        "#
-        .parse()
-        .unwrap(),
-    )
-    .unwrap();
-    let one_day = json!({
-        "name": "One day", "minutes": 1440, "guests": 1,
+    let counter = Counter::open(dir.path(), None).unwrap();
+    let contractor = json!({
+        "name": "Contractor", "minutes": 43200, "up_to_days": true,
+        "guests": 1, "megabytes": null, "down_kbps": null, "up_kbps": null,
+    });
+    let week = json!({
+        "name": "Week guest", "minutes": 10080, "guests": 1,
         "megabytes": null, "down_kbps": null, "up_kbps": null,
     });
-    let own = json!({
-        "name": "Contractors", "minutes": 43200, "guests": null,
-        "megabytes": null, "down_kbps": null, "up_kbps": null,
-    });
-    let stand = Arc::new(Stand::working());
-    let counter =
-        Counter::open_with(dir.path(), Some(stand.clone()), given.clone())
-            .unwrap();
+    for kind in [&contractor, &house_guests(), &week] {
+        ask(&counter, "put_type", kind.clone()).await.unwrap();
+    }
 
-    // On offer from the first start, with nothing kept yet, and told
-    // apart from the unit's own by their names.
-    let offered = json!({
-        "types": [one_day, house_guests()],
-        "predefined": ["One day", "House guests"],
-    });
-    assert_eq!(ask(&counter, "types", json!({})).await.unwrap(), offered);
+    // Every type is enabled when it is defined, and the first with
+    // nothing to choose is the default.
+    assert_eq!(
+        ask(&counter, "offered", json!({})).await.unwrap(),
+        json!({
+            "types": [contractor, house_guests(), week],
+            "default": "House guests",
+        })
+    );
 
-    // The screen keeps a type of the unit's own after them, and neither
-    // keeps one over a predefined type nor drops one.
-    ask(&counter, "put_type", own.clone()).await.unwrap();
-    for refused in [
+    // A type that is disabled is the administrator's still, and is not
+    // among what a front desk is offered.
+    assert_eq!(
         ask(
             &counter,
-            "put_type",
-            json!({"name": "One day", "minutes": 5}),
+            "enable_type",
+            json!({ "name": "Contractor", "enabled": false })
         )
-        .await,
-        ask(&counter, "drop_type", json!({ "name": "One day" })).await,
+        .await
+        .unwrap(),
+        json!({
+            "name": "Contractor", "enabled": false,
+            "default": "House guests",
+        })
+    );
+    assert_eq!(
+        ask(&counter, "offered", json!({})).await.unwrap(),
+        json!({ "types": [house_guests(), week], "default": "House guests" })
+    );
+    assert_eq!(
+        ask(&counter, "types", json!({})).await.unwrap(),
+        json!({
+            "types": [contractor, house_guests(), week],
+            "default": "House guests",
+            "disabled": ["Contractor"],
+        })
+    );
+
+    // The administrator says which type is the default: one with nothing
+    // to choose, that is enabled.
+    assert_eq!(
+        ask(&counter, "set_default", json!({ "name": "Week guest" }))
+            .await
+            .unwrap(),
+        json!({ "default": "Week guest" })
+    );
+    for (request, payload, said) in [
+        (
+            "set_default",
+            json!({ "name": "Contractor" }),
+            "issued as it stands",
+        ),
+        (
+            "set_default",
+            json!({ "name": "No such" }),
+            "no voucher type",
+        ),
+        (
+            "enable_type",
+            json!({ "name": "Week guest", "enabled": false }),
+            "make another type the default first",
+        ),
+        (
+            "enable_type",
+            json!({ "name": "No such", "enabled": true }),
+            "no voucher type",
+        ),
+        (
+            "put_type",
+            json!({ "name": "Week guest", "minutes": 10080, "up_to_days": true }),
+            "make another type the default first",
+        ),
     ] {
+        let refused = ask(&counter, request, payload).await;
         assert!(
-            matches!(&refused, Err(Refusal::AsAsked(why)) if why.contains("'One day' is predefined")),
-            "{refused:?}"
+            matches!(&refused, Err(Refusal::AsAsked(why)) if why.contains(said)),
+            "{request}: {refused:?}"
         );
     }
-    let offered = json!({
-        "types": [one_day, house_guests(), own],
-        "predefined": ["One day", "House guests"],
-    });
-    assert_eq!(ask(&counter, "types", json!({})).await.unwrap(), offered);
 
-    // A voucher of a predefined type is handed out as of any other, and
-    // one the controller has is assigned to the predefined type its note
-    // names, on that type's terms.
-    let handed = ask(&counter, "hand", json!({ "type": "One day" }))
-        .await
-        .unwrap();
-    assert_eq!(handed["type"], one_day);
-    assert_eq!(stand.payload_of("mint")["note"], "One day");
+    // What was set is there when the plugin is started again.
+    let again = Counter::open(dir.path(), None).unwrap();
+    assert_eq!(
+        ask(&again, "offered", json!({})).await.unwrap(),
+        json!({ "types": [house_guests(), week], "default": "Week guest" })
+    );
+}
 
-    // Started again on the same configuration, the same is on offer.
-    let again =
-        Counter::open_with(dir.path(), Some(stand.clone()), given).unwrap();
-    assert_eq!(ask(&again, "types", json!({})).await.unwrap(), offered);
+#[tokio::test]
+async fn a_voucher_of_a_type_with_a_choice_is_minted_on_what_was_chosen() {
+    let dir = tempfile::tempdir().unwrap();
+    let stand = Arc::new(Stand::working());
+    let counter = Counter::open(dir.path(), Some(stand.clone())).unwrap();
+    ask(
+        &counter,
+        "put_type",
+        json!({
+            "name": "Contractor", "minutes": 43200, "up_to_days": true,
+            "guests": 4, "up_to_guests": true,
+        }),
+    )
+    .await
+    .unwrap();
+
+    // The days and the devices are said for this voucher, within what
+    // the type allows; nothing is asked of the controller otherwise.
+    for (chosen, said) in [
+        (json!({}), "1 to 30 days"),
+        (json!({ "days": 31, "guests": 1 }), "1 to 30 days"),
+        (json!({ "days": 0, "guests": 1 }), "1 to 30 days"),
+        (json!({ "days": 12 }), "1 to 4 devices"),
+        (json!({ "days": 12, "guests": 5 }), "1 to 4 devices"),
+    ] {
+        let mut payload = chosen.clone();
+        payload["type"] = json!("Contractor");
+        let refused = ask(&counter, "hand", payload).await;
+        assert!(
+            matches!(&refused, Err(Refusal::AsAsked(why)) if why.contains(said)),
+            "{chosen}: {refused:?}"
+        );
+    }
+    assert!(stand.asked().is_empty(), "{:?}", stand.asked());
+
+    let handed = ask(
+        &counter,
+        "hand",
+        json!({ "type": "Contractor", "days": 12, "guests": 2 }),
+    )
+    .await
+    .unwrap();
+    // The voucher is the type's with what was chosen, and says so.
+    assert_eq!(
+        handed["type"],
+        json!({
+            "name": "Contractor", "minutes": 17280, "guests": 2,
+            "megabytes": null, "down_kbps": null, "up_kbps": null,
+        })
+    );
+    assert_eq!(handed["held"], false);
+    let minted = stand.payload_of("mint");
+    assert_eq!(minted["minutes"], 17280);
+    assert_eq!(minted["guests"], 2);
+    assert_eq!(minted["note"], "Contractor");
+    // No voucher is held for a type with a choice: the reserve is not
+    // asked, and one is minted.
+    assert_eq!(
+        stand.asked(),
+        pairs(&[(NETWORKS, "chosen"), (CONTROLLER, "mint")])
+    );
+
+    // A type with nothing to choose takes no choice.
+    ask(&counter, "put_type", house_guests()).await.unwrap();
+    let refused = ask(
+        &counter,
+        "hand",
+        json!({ "type": "House guests", "days": 2 }),
+    )
+    .await;
+    assert!(
+        matches!(&refused, Err(Refusal::AsAsked(why)) if why.contains("are fixed")),
+        "{refused:?}"
+    );
+}
+
+#[tokio::test]
+async fn no_voucher_is_assigned_to_a_type_with_a_choice() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut stand = Stand::working();
+    stand.listed = json!([listed("old-1", "1111111111")]);
+    let stand = Arc::new(stand);
+    let counter = Counter::open(dir.path(), Some(stand.clone())).unwrap();
+    // The voucher's note names a type whose days are chosen.
+    ask(
+        &counter,
+        "put_type",
+        json!({ "name": "House guests", "minutes": 4320, "up_to_days": true }),
+    )
+    .await
+    .unwrap();
+    let refused = ask(
+        &counter,
+        "assign",
+        json!({ "site": "site-1", "id": "old-1" }),
+    )
+    .await;
+    assert!(
+        matches!(&refused, Err(Refusal::AsAsked(why)) if why.contains("no voucher is held for such a type")),
+        "{refused:?}"
+    );
+    assert!(!stand.asked().contains(&pairs(&[(RESERVE, "put")])[0]));
 }
 
 #[tokio::test]

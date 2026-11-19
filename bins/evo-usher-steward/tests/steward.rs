@@ -371,7 +371,7 @@ fn a_voucher_the_controller_has_is_assigned_and_handed_out_first() {
     assert_eq!(assign(&made[0]), json!({ "type": walk_in }));
     assert_eq!(
         steward.ask("issue.counter", "types", json!({})),
-        json!({ "types": [walk_in], "predefined": [] })
+        json!({ "types": [walk_in], "default": "Walk-in", "disabled": [] })
     );
     assert_eq!(
         steward.ask("stock.reserve", "held", json!({})),
@@ -412,74 +412,87 @@ fn a_voucher_the_controller_has_is_assigned_and_handed_out_first() {
 }
 
 #[test]
-fn the_voucher_types_an_administrator_predefines_are_on_offer_from_the_start() {
+fn an_administrator_defines_the_voucher_types_a_front_desk_is_offered() {
     let dir = short_dir();
-    let predefined = dir
-        .path()
-        .join("plugins.d/org.evoframework.usher.counter.toml");
-    std::fs::create_dir_all(predefined.parent().unwrap()).unwrap();
-    std::fs::write(
-        &predefined,
-        r#"
-[[types]]
-name = "One day"
-minutes = 1440
-guests = 1
-"#,
-    )
-    .unwrap();
-    let one_day = json!({
-        "name": "One day", "minutes": 1440, "guests": 1,
+    let steward = Steward::start(dir.path());
+    let ask = |steward: &Steward, request: &str, payload: Value| {
+        steward.ask("issue.counter", request, payload)
+    };
+    let day = json!({
+        "name": "Day guest", "minutes": 1440, "guests": 1,
         "megabytes": null, "down_kbps": null, "up_kbps": null,
     });
-    let own = json!({
-        "name": "Walk-in", "minutes": 60, "guests": 1,
+    let contractor = json!({
+        "name": "Contractor", "minutes": 43200, "up_to_days": true,
+        "guests": 1, "megabytes": null, "down_kbps": null, "up_kbps": null,
+    });
+    let week = json!({
+        "name": "Week guest", "minutes": 10080, "guests": 3,
         "megabytes": null, "down_kbps": null, "up_kbps": null,
     });
 
-    // A unit that was never started before offers what is predefined.
-    let steward = Steward::start(dir.path());
+    // A unit comes with no voucher type: they are its administrator's to
+    // define.
     assert_eq!(
-        steward.ask("issue.counter", "types", json!({})),
-        json!({ "types": [one_day], "predefined": ["One day"] })
+        ask(&steward, "types", json!({})),
+        json!({ "types": [], "default": null, "disabled": [] })
     );
-    // The screen keeps its own beside it, and changes nothing of it.
-    steward.ask("issue.counter", "put_type", own.clone());
+    for kind in [&contractor, &day, &week] {
+        assert_eq!(
+            ask(&steward, "put_type", kind.clone()),
+            json!({ "type": kind })
+        );
+    }
+    // The first type with nothing to choose is the default, until the
+    // administrator says another.
+    assert_eq!(
+        ask(&steward, "offered", json!({})),
+        json!({ "types": [contractor, day, week], "default": "Day guest" })
+    );
+    assert_eq!(
+        ask(&steward, "set_default", json!({ "name": "Week guest" })),
+        json!({ "default": "Week guest" })
+    );
+    // A disabled type is not offered to a front desk, and stays defined.
+    assert_eq!(
+        ask(
+            &steward,
+            "enable_type",
+            json!({ "name": "Contractor", "enabled": false })
+        ),
+        json!({ "name": "Contractor", "enabled": false, "default": "Week guest" })
+    );
+    let offered = json!({ "types": [day, week], "default": "Week guest" });
+    assert_eq!(ask(&steward, "offered", json!({})), offered);
+    // The default is not disabled or deleted while another could be it,
+    // and the refusal says what to do.
     for (request, payload) in [
-        ("put_type", json!({ "name": "One day", "minutes": 5 })),
-        ("drop_type", json!({ "name": "One day" })),
+        (
+            "enable_type",
+            json!({ "name": "Week guest", "enabled": false }),
+        ),
+        ("drop_type", json!({ "name": "Week guest" })),
     ] {
-        let refused = steward.ask("issue.counter", request, payload);
+        let refused = ask(&steward, request, payload);
         assert!(
-            refused["error"]["message"]
-                .as_str()
-                .is_some_and(|why| why.contains("'One day' is predefined")),
+            refused["error"]["message"].as_str().is_some_and(
+                |why| why.contains("make another type the default first")
+            ),
             "{request}: {refused}"
         );
     }
     assert_eq!(steward.stop(), Some(0));
 
-    // What the administrator writes since is what the unit offers when
-    // it is started again, before what the screen kept.
-    std::fs::write(
-        &predefined,
-        r#"
-[[types]]
-name = "One week"
-minutes = 10080
-
-[[types]]
-name = "One day"
-minutes = 1440
-guests = 1
-"#,
-    )
-    .unwrap();
+    // All of it is kept through a restart.
     let steward = Steward::start(dir.path());
-    let told = steward.ask("issue.counter", "types", json!({}));
-    assert_eq!(told["predefined"], json!(["One week", "One day"]), "{told}");
-    assert_eq!(told["types"][1], one_day, "{told}");
-    assert_eq!(told["types"][2], own, "{told}");
-    assert_eq!(told["types"].as_array().unwrap().len(), 3, "{told}");
+    assert_eq!(ask(&steward, "offered", json!({})), offered);
+    assert_eq!(
+        ask(&steward, "types", json!({})),
+        json!({
+            "types": [contractor, day, week],
+            "default": "Week guest",
+            "disabled": ["Contractor"],
+        })
+    );
     assert_eq!(steward.stop(), Some(0));
 }

@@ -13,12 +13,12 @@ evo-usher-render = { path = "../../crates/render" }
 semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-toml = "0.8"
 tracing = "0.1"
 
 [dev-dependencies]
 evo-plugin-test = { workspace = true }
 rqrr = { version = "0.11", default-features = false }
+toml = "0.8"
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt"] }
 

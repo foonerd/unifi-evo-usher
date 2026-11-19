@@ -6,7 +6,7 @@ What it is built to be: a core that holds the UniFi key, mints the vouchers on t
 
 ## Status
 
-0.3.9 stands on the evo steward, has a face, and is installed as a service. `evo-usher-steward` is the steward with the usher's catalogue and three plugins: the controller, which mints vouchers on a UniFi Network controller; the counter, which keeps the voucher types on offer and hands a guest a voucher of one of them, one assigned for handing out before one minted for the asking; and the stock, which holds the vouchers assigned. It serves the usher's face to a browser, in which a controller is looked at and set, its vouchers are listed, assigned for handing out and revoked, the wireless network vouchers are for is chosen, the voucher types are kept and a guest is handed a voucher. It is in the archive, in a package of its own, which makes a machine a unit, and in the image; the package is proven on a machine made for it, where it is installed, started as a service, asked as a browser asks, started again and removed. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else.
+0.3.10 stands on the evo steward, has a face, and is installed as a service. `evo-usher-steward` is the steward with the usher's catalogue and three plugins: the controller, which mints vouchers on a UniFi Network controller; the counter, which keeps the voucher types on offer and hands a guest a voucher of one of them, one assigned for handing out before one minted for the asking; and the stock, which holds the vouchers assigned. It serves the usher's face to a browser, in which a controller is looked at and set, its vouchers are listed, assigned for handing out and revoked, the wireless network vouchers are for is chosen, the voucher types are kept and a guest is handed a voucher. It is in the archive, in a package of its own, which makes a machine a unit, and in the image; the package is proven on a machine made for it, where it is installed, started as a service, asked as a browser asks, started again and removed. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else.
 
 The controller plugin is written from Ubiquiti's published description of the UniFi Network API, version 11.0.97, and is held to a simulated controller written from the same description. It has been run from the usher's face against a UniFi Network application, version 11.0.99: the controller set, its version, its sites, its vouchers and its wireless networks read, a wireless network chosen, and vouchers assigned and handed out.
 
@@ -64,8 +64,10 @@ The controller is a Cloud Key, a UniFi console or a self-hosted Network applicat
 
 A guest is handed a voucher at the counter, `issue.counter`.
 
-- The counter keeps the voucher types on offer. A type is the terms a voucher is minted on, under the name it is known by at the counter: how long a voucher lasts from its first use, how many guests it lets in, and its limits on data and speed. The name is also the note the type's vouchers carry on the controller.
-- A unit's administrator predefines voucher types in the counter's configuration, the file `org.evoframework.usher.counter.toml` in the steward's directory of plugin configurations (`/etc/evo/plugins.d/` on a unit), one `[[types]]` table for each. The predefined types are on offer from the first start, before the unit's own and in the order they are written in, and are changed in that file alone: the screen shows them as predefined, and neither keeps one over them nor drops one. The steward reads the file when it starts, and does not start on one it cannot go by; it says what is wrong with it. A type kept from the screen under a name that is predefined since gives way to the predefined one, and is offered again when that name is predefined no longer.
+- The voucher types are the administrator's to define. A type is the terms a voucher is issued on, under the name it is known by at the counter: how long a voucher lasts from its first use, how many devices it lets on, and its limits on data and speed. The name is also the note the type's vouchers carry on the controller. A unit comes with no type.
+- The days and the number of devices of a type are fixed, or are chosen for each voucher by whoever issues it, up to what the type allows: a contractor's voucher for up to 30 days, a family's for up to four devices. A voucher of such a type is issued on what was chosen for it.
+- Each type is enabled for the front desk or not. A type that is disabled stays defined, and is not among what a front desk is offered.
+- One type is the default: the one a point of issue with a single button issues. It is a type with nothing to choose, and one that is enabled; the first such type defined is the default until the administrator says another. The default is not deleted, disabled or given a choice while another type could be the default: another is made the default first.
 - A voucher is minted for the asking: one press, one voucher, on the controller, there and then. While no wireless network is chosen for vouchers, none is handed out and none is minted.
 - A voucher the controller has already, and no guest has used, can be assigned for handing out. It is then held on the unit for the type its note names; where no type of that name is kept, the voucher brings one, on its own terms, and where one is kept on other terms, the voucher is not assigned.
 - A voucher assigned takes precedence: it is handed out before one is minted, the oldest first, and is handed out while the controller is away. One assigned can be taken back, and is given up when it is revoked from the screen. The list of the controller's vouchers says which assigned vouchers are no longer good there, revoked, used or expired elsewhere, and takes them back.
@@ -81,7 +83,7 @@ The usher is looked at and worked in a browser. The steward serves the face itse
 | --- | --- |
 | `index.html`, `door.js` | The door. It asks the steward which shell is active and opens it, and the usher's own while none is. |
 | `org.evoframework.usher.shell/` | The usher's shell, an evo `ui_shell`. It asks the steward what is stocked on which UI shelf and draws each stocking with the widget pack that provides its kind. It knows no plugin and no widget. |
-| `org.evoframework.usher.widgets/` | The usher's widgets, an evo `widget_kind_pack`: `usher.counter`, with which a guest is handed a voucher, shown large with the network it is for, the symbol a phone joins it from and what it gives, and put before the guest alone on the screen; `usher.types`, with which the voucher types on offer are kept; `usher.controller`, with which a controller is looked at and set; `usher.vouchers`, which lists the controller's vouchers, the valid and the expired apart, assigns one for handing out and revokes one; `usher.networks`, with which the wireless network vouchers are for is chosen; and `usher.reserve`, which counts the vouchers assigned for handing out and held on the unit. |
+| `org.evoframework.usher.widgets/` | The usher's widgets, an evo `widget_kind_pack`: `usher.counter`, with which a guest is handed a voucher of a type the front desk is offered, a type with days or devices to choose asking for them first, the voucher shown large with the network it is for, the symbol a phone joins it from and what it gives, and put before the guest alone on the screen; `usher.types`, with which the administrator adds, edits and deletes the voucher types, enables them for the front desk and says which is the default; `usher.controller`, with which a controller is looked at and set; `usher.vouchers`, which lists the controller's vouchers, the valid and the expired apart, assigns one for handing out and revokes one; `usher.networks`, with which the wireless network vouchers are for is chosen; and `usher.reserve`, which counts the vouchers assigned for handing out and held on the unit. |
 | `org.evoframework.usher.theme.frost/` | The usher's theme, an evo `theme`: the colours, the corners and the type of the face as tokens, dark unless the browser asks for light, and `theme.css`, the stylesheet that sets them. |
 
 The steward admits the shell, the widget pack and the theme from the UI root as it admits any plugin. `evo-usher-steward` declares a UI shelf for each shelf of the catalogue that has a face, under that shelf's name and with the widget it is drawn with, so a plugin that stocks the catalogue shelf is on the screen and need declare nothing for it; one that stands there with more than that widget, or on the UI shelf of a second shelf it stocks, says so in its manifest. A steward started without a UI root has no face, and hands out vouchers all the same.
@@ -121,13 +123,14 @@ A unit is a machine that runs the usher's steward as a service. The steward's pa
 sudo apt install ./evo-usher-steward_<version>_<arch>.deb
 ```
 
+On a machine with Fedora, RHEL, AlmaLinux or Rocky Linux the same unit comes as an RPM, `sudo dnf install ./evo-usher-steward-<version>-1.<machine>.rpm`, for `x86_64` and `aarch64`: the same files in the same places, the licences under `/usr/share/licenses/evo-usher-steward/`. An RPM is removed and never purged: what the steward kept, the account, and configuration that was changed, which rpm keeps as `.rpmsave`, stay until they are removed by hand.
+
 | On the unit | What it is |
 | --- | --- |
 | `/opt/evo/bin/evo-usher-steward` | The program. |
 | `/opt/evo/ui/` | The UI root: the face. |
 | `/opt/evo/catalogue/default.toml` | The usher's catalogue. |
 | `/etc/evo/evo.toml` | The steward's configuration. It is the operator's to change, and is kept when a newer package comes. |
-| `/etc/evo/plugins.d/org.evoframework.usher.counter.toml` | The voucher types the unit's administrator predefines. The package brings three, an hour, a day and a week for one guest; they are the administrator's to change, and the file is kept when a newer package comes. |
 | `evo.service` | The service. It runs the steward as the account `evo`, which the package makes, from when the machine starts. |
 | `/var/lib/evo/` | What the steward keeps: the controller and its key, the voucher types, the vouchers held, the record of hand-outs, the browsers paired. It stays when the package is removed and goes when it is purged. |
 | `/run/evo/` | The steward's client socket and the pairing code, while the service runs. |
@@ -142,7 +145,7 @@ sudo cat /run/evo/pairing-code
 
 For the next browser the service is started again (`sudo systemctl restart evo`), which makes a new code. A browser that is paired stays paired.
 
-The archive carries the same for a machine that takes no Debian package: the program under `bin/`, the UI root as `ui/`, `catalogue/usher.toml`, `etc/evo.toml`, `etc/plugins.d/`, `systemd/evo.service`, and `sysusers.d/evo.conf` for the account, each for the place the table names.
+The archive carries the same for a machine that takes no Debian package: the program under `bin/`, the UI root as `ui/`, `catalogue/usher.toml`, `etc/evo.toml`, `systemd/evo.service`, and `sysusers.d/evo.conf` for the account, each for the place the table names.
 
 The image is the same unit on an empty image, with no shell. The steward runs in it as the image's one account, `evo`, numbered 10001, and keeps what it keeps in a volume at `/var/lib/evo`:
 
@@ -212,6 +215,9 @@ A release is tagged `v<version>` and is published as a pre-release until it has 
 | `evo-usher-steward_<version>_<arch>.deb` | The steward as a unit: the program, its face, its catalogue, its configuration and the service that runs it. |
 | `evo-usher-core_<version>_<arch>.deb` | The core, installed as `/opt/evo/bin/evo-usher-core`. |
 | `evo-usher-station_<version>_<arch>.deb` | The station, installed as `/opt/evo/bin/evo-usher-station`. |
+| `evo-usher-steward-<version>-1.<machine>.rpm` | The steward as a unit, as an RPM; `<machine>` is `x86_64` or `aarch64`. |
+| `evo-usher-core-<version>-1.<machine>.rpm` | The core, installed as `/opt/evo/bin/evo-usher-core`. |
+| `evo-usher-station-<version>-1.<machine>.rpm` | The station, installed as `/opt/evo/bin/evo-usher-station`. |
 
 Beside them stand `SHA256SUMS` and its signature, `SHA256SUMS.sig`. The steward is also published as an image for both architectures, `ghcr.io/foonerd/unifi-evo-usher:<version>`: the unit as its package installs it, on an empty image.
 
@@ -239,13 +245,15 @@ scripts/build.sh amd64
 scripts/package.sh amd64
 ```
 
-builds the programs for one architecture into `out/`, proves them static and, on a machine of that architecture, runs them; then packs what was built into `dist/`. The toolchain is the one `rust-toolchain.toml` names; `scripts/toolchain.sh` installs it where it is missing. What the steward stands on is partly written in C, which a static program is built from with the C compiler for musl: the package `musl-tools` on Debian and Ubuntu.
+builds the programs for one architecture into `out/`, proves them static and, on a machine of that architecture, runs them; then packs what was built into `dist/`. The toolchain is the one `rust-toolchain.toml` names; `scripts/toolchain.sh` installs it where it is missing. What the steward stands on is partly written in C, which a static program is built from with the C compiler for musl: the package `musl-tools` on Debian and Ubuntu. The packages are made on one machine for every architecture, a Debian package with dpkg-deb and an RPM with rpmbuild, which Debian and Ubuntu have in the package `rpm`.
 
 ```text
 sudo scripts/prove-unit.sh dist/evo-usher-steward_<version>_<arch>.deb
 ```
 
 proves the steward's package on a machine that is made for the proof and thrown away after it, as CI does on one of each architecture: it installs the package, has systemd start the service, asks the face as a browser asks it, pairs a browser with the code the unit made, starts the service again, and removes and purges the package. It refuses a machine that has evo already.
+
+`sudo scripts/prove-unit.sh dist/evo-usher-steward-<version>-1.<machine>.rpm` proves the RPM the same way on a machine of an RPM system, to what removing it leaves. `scripts/prove-unit-rpm.sh` runs that proof where there is no such machine, as CI does: in a container of AlmaLinux 9 that systemd runs, which is given every privilege of the machine it is on.
 
 ```text
 scripts/image.sh --here

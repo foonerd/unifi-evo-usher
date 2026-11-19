@@ -189,9 +189,6 @@ for arch in $arches; do
     install -D -m 644 "$file" "$stage/$top/$file"
   done < <(git ls-files -z -- ui catalogue)
   install -D -m 644 packaging/etc/evo.toml "$stage/$top/etc/evo.toml"
-  while IFS= read -r -d '' file; do
-    install -D -m 644 "$file" "$stage/$top/etc/plugins.d/$(basename "$file")"
-  done < <(git ls-files -z -- packaging/etc/plugins.d)
   install -D -m 644 packaging/systemd/evo.service "$stage/$top/systemd/evo.service"
   install -D -m 644 packaging/sysusers.d/evo.conf "$stage/$top/sysusers.d/evo.conf"
   install -m 644 "$from/$arch/build.json" README.md CHANGELOG.md LICENSE "$stage/$top/"

@@ -1,7 +1,7 @@
 [plugin]
 name = "org.evoframework.usher.shell"
 # The workspace's version; a test holds the two together.
-version = "0.3.9"
+version = "0.3.10"
 contract = 1
 kind = "ui_shell"
 

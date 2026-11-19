@@ -2,6 +2,22 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## [0.3.10] - 2026-11-19
+
+- The voucher types are the administrator's to define, on the Voucher types page. A unit comes with none. The configuration file of predefined types that 0.3.9 read, and the three types its package brought, are gone: a file left under `/etc/evo/plugins.d/` is read no more
+- The days and the number of devices of a type are fixed, or are chosen for each voucher by whoever issues it, up to what the type allows. A type says so with `up_to_days` and `up_to_guests`; `hand` takes the `days` and the `guests` chosen and answers the terms the voucher was issued on. No voucher is held for a type with a choice
+- Each type is enabled for the front desk or not. `issue.counter` takes `enable_type`, and `offered`, which tells the types a front desk is offered: the enabled ones. `types` tells every type, with the names of the disabled
+- One type is the default, the one a point of issue with a single button issues: a type with nothing to choose, that is enabled. `issue.counter` takes `set_default`; `types` and `offered` name the default. The first type that can be the default is, until the administrator says another; the default is not deleted, disabled or given a choice while another type could be the default
+- The voucher types an earlier version kept are read as they are: every one enabled, the first that can be the default made it
+- On the Voucher types page "Add a voucher type" opens a form for the name, how long a voucher lasts, the devices and the limits; a type is edited and deleted from the list, enabled or disabled by a switch, and made the default. A name that is taken is not added over. Where the default cannot be disabled, deleted or given a choice, the page says why
+- The counter offers the enabled types and no others, and marks the default. A type with days or devices to choose asks for them first, says how far each goes, and refuses a number beyond it before the controller is asked. A voucher shown says what it was issued for
+- What a voucher gives is said in devices, where it was said in guests
+- The list of voucher types is worked with the keyboard as with a pointer, and whoever works it is still at the same control when it has been drawn again
+- Every program comes as an RPM beside its Debian package, for `x86_64` and `aarch64`: `scripts/package.sh` makes both from one tree in one run, the RPM with rpmbuild, the same package for the same tree. The steward's RPM is the unit its Debian package is: the same files in the same places, the configuration kept when a newer package comes, the account made, the service started on a first installation, started again by a newer package where it runs, stopped when the package goes
+- An RPM is removed and never purged: what the steward kept, the account and the configuration that was changed stay
+- `scripts/prove-unit.sh` takes the RPM as it takes the Debian package, and installs and removes it with dnf. CI proves it on both architectures in a container of AlmaLinux 9 that systemd runs, with `scripts/prove-unit-rpm.sh`; a release carries the RPMs, in `SHA256SUMS` with the rest
+- Packing needs rpmbuild, the package `rpm` on Debian and Ubuntu
+
 ## [0.3.9] - 2026-11-18
 
 - A unit's administrator predefines voucher types. The counter reads them from its configuration, `org.evoframework.usher.counter.toml` in the steward's directory of plugin configurations, one `[[types]]` table for each. They are on offer from the first start, before the unit's own and in the order they are written in, and are changed in that file alone: `types` tells their names as `predefined`, `put_type` and `drop_type` refuse them, and the screen shows them as predefined, with nothing to drop them by. A steward does not start on a file it cannot go by, and says what is wrong with it
