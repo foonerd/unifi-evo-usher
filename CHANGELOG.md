@@ -2,6 +2,13 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## [0.3.14] - 2026-11-19
+
+- `evo-usher-steward --healthy` says whether a unit is up: 0 where the steward answers on its socket and its HTTPS listener takes a connection, 1 and one line that says which fails where not. The image and every Compose file ask it, and the proxy of each example is started only once the unit is up
+- `packaging/docker/compose.yaml` is complete: a name, a restart policy, the health check, thirty seconds to stop, a bound on Docker's log. `packaging/docker/.env.example` names every variable the Compose files read, and a test holds it to them
+- `docs/deploying.md` leads with the `.env`, lists every variable, and says what there is no setting for yet: the time zone and the language
+- The proof starts every unit with `--wait` and finds its container healthy
+
 ## [0.3.13] - 2026-11-19
 
 - People sign in with a name and a password they can remember. Pairing a browser with a code is gone, and evo's own pairing is closed: nothing of the steward's is asked without a live session, but for the face's files, the unit's state, setting a new unit up, signing in, and which shell is active

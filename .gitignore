@@ -3,3 +3,13 @@
 /dist/
 **/*.rs.bk
 .DS_Store
+
+# What a site puts beside the Compose files, and is no part of the
+# repository: its values, its certificate and key, and what is taken
+# from its unit or given to it.
+.env
+/packaging/**/site.crt
+/packaging/**/site.key
+/packaging/**/unit-ca.crt
+/packaging/**/unit-code
+/packaging/**/people.json

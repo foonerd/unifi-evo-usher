@@ -2,14 +2,16 @@
 //! set. Everything the steward does is the framework's, through
 //! [`evo::run`]; this program adds only what makes it an usher: the UI
 //! shelves, the plugins it admits, the name it answers `--version` with,
-//! that nothing of it is a household's to lock, and that signing in,
-//! with a name and a password the usher keeps, is the one way in.
+//! whether the unit is up where it is asked with `--healthy`, that
+//! nothing of it is a household's to lock, and that signing in, with a
+//! name and a password the usher keeps, is the one way in.
 
 #![forbid(unsafe_code)]
 
 mod code;
 mod face;
 mod gate;
+mod healthy;
 mod people;
 mod signin;
 
@@ -38,6 +40,25 @@ async fn main() -> anyhow::Result<()> {
         .any(|argument| argument == "--version" || argument == "-V")
     {
         println!("{}", evo_usher_about::identity(PROGRAM));
+        return Ok(());
+    }
+    // Whether the unit is up is asked of the program too, where there is
+    // nothing else to ask with. The steward's own arguments say where
+    // its socket is; no steward is started.
+    if std::env::args()
+        .skip(1)
+        .any(|argument| argument == healthy::ASKED_BY)
+    {
+        let args = evo::cli::Args::parse_from(
+            std::env::args().filter(|argument| argument != healthy::ASKED_BY),
+        );
+        let listener = std::env::var(healthy::LISTENER).ok();
+        if let Err(why) =
+            healthy::check(&client_socket(&args), listener.as_deref())
+        {
+            eprintln!("{PROGRAM}: {why}");
+            std::process::exit(1);
+        }
         return Ok(());
     }
     let args = evo::cli::Args::parse();

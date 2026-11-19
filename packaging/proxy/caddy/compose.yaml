@@ -1,32 +1,34 @@
 # The usher behind Caddy, which holds the site's certificate and speaks
 # HTTPS to the unit, believing it by the unit's own authority.
 #
-#   USHER_VERSION=<version> docker compose up -d usher
+#   docker compose up -d --wait usher
 #   docker compose cp usher:/var/lib/evo/state/https/ca.crt ./unit-ca.crt
-#   USHER_VERSION=<version> docker compose up -d
+#   docker compose up -d
 #
-# beside the files `site.crt` and `site.key`. The unit makes its
-# authority when it first starts, which is why it is started first.
-# Whoever opens the face first sets the unit up, with a name and a
-# password. docs/deploying.md says the rest.
+# beside the files `site.crt` and `site.key`, and a file `.env` that
+# names the version, which packaging/docker/.env.example is a model of.
+# The unit makes its authority when it first starts, which is why it is
+# started first. Whoever opens the face first sets the unit up, with a
+# name and a password. docs/deploying.md says the rest.
 #
 #   USHER_VERSION       the version to run; there is no "latest"
 #   USHER_IMAGE         the image, where it is not ghcr.io/foonerd/unifi-evo-usher
+#   USHER_NAME          the name of the container and of the unit (default usher)
 #   USHER_AUTHORITY     the unit's authority (default ./unit-ca.crt)
 #   SITE_CERT, SITE_KEY the site's certificate and its key (default ./site.crt, ./site.key)
 #   SITE_ADDRESS        the address the proxy is published on (default: every one)
 #   SITE_PORT           the port it is published on (default 443)
 services:
   usher:
+    # The unit, as packaging/docker/compose.yaml has it and says of each
+    # line what it is for, but for the port: behind a proxy the unit
+    # publishes none.
     image: ${USHER_IMAGE:-ghcr.io/foonerd/unifi-evo-usher}:${USHER_VERSION:?name the version of the usher to run, as USHER_VERSION}
+    container_name: ${USHER_NAME:-usher}
+    hostname: ${USHER_NAME:-usher}
     restart: unless-stopped
-    # The unit runs as the image's one account, numbered 10001, with no
-    # capability, no way to gain a privilege, and a root file system it
-    # cannot write to. What it keeps is in the volume `kept`, its people
-    # among it; its client socket is in memory. Whoever opens a new unit
-    # first sets it up, with a name and a password: it is run at the
-    # ordinary level of security. packaging/docker/extended.yaml, named
-    # after this file, runs it at the extended one.
+    environment:
+      USHER_SECURITY: standard
     read_only: true
     cap_drop:
       - ALL
@@ -36,12 +38,26 @@ services:
       - kept:/var/lib/evo
     tmpfs:
       - /run/evo:mode=0755,uid=10001,gid=10001
+    healthcheck:
+      test: ["CMD", "/opt/evo/bin/evo-usher-steward", "--healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
 
   proxy:
     image: caddy:2-alpine
     restart: unless-stopped
+    # The proxy is started once the unit says it is up.
     depends_on:
-      - usher
+      usher:
+        condition: service_healthy
     ports:
       - ${SITE_ADDRESS:-0.0.0.0}:${SITE_PORT:-443}:443
     volumes:

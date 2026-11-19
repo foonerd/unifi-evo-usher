@@ -1,35 +1,71 @@
 # The usher as a unit in a container, by itself: its face on port 8443,
 # under the certificate of its own authority.
 #
-#   USHER_VERSION=<version> docker compose up -d
+#   docker compose up -d --wait
 #
-# Whoever opens the face first sets the unit up, with a name and a
-# password. docs/deploying.md says the rest.
+# beside a file `.env` that names the version, which .env.example is a
+# model of. Whoever opens the face first sets the unit up, with a name
+# and a password. docs/deploying.md says the rest.
 #
-#   USHER_VERSION       the version to run; there is no "latest"
-#   USHER_IMAGE         the image, where it is not ghcr.io/foonerd/unifi-evo-usher
-#   USHER_ADDRESS       the address the face is published on (default: every one)
-#   USHER_PORT          the port it is published on (default 8443)
+# Every value that differs from one site to the next is a variable, and
+# all but the version have a default. They stand in the `.env`, or are
+# given in the shell, which goes before it:
+#
+#   USHER_VERSION  the version to run; there is no "latest"
+#   USHER_IMAGE    the image, where it is not ghcr.io/foonerd/unifi-evo-usher
+#   USHER_NAME     the name of the container and of the unit (default usher)
+#   USHER_ADDRESS  the address the face is published on (default: every one)
+#   USHER_PORT     the port it is published on (default 8443)
 services:
   usher:
+    # The image and the version of it to run. There is no "latest": a
+    # unit runs the version it is told to.
     image: ${USHER_IMAGE:-ghcr.io/foonerd/unifi-evo-usher}:${USHER_VERSION:?name the version of the usher to run, as USHER_VERSION}
+    # What the container is called on this machine, and what the unit
+    # calls itself.
+    container_name: ${USHER_NAME:-usher}
+    hostname: ${USHER_NAME:-usher}
+    # It is started again when it ends by itself and when the machine
+    # starts, and is left alone once it was stopped by hand.
     restart: unless-stopped
-    # The unit runs as the image's one account, numbered 10001, with no
-    # capability, no way to gain a privilege, and a root file system it
-    # cannot write to. What it keeps is in the volume `kept`, its people
-    # among it; its client socket is in memory. Whoever opens a new unit
-    # first sets it up, with a name and a password: it is run at the
-    # ordinary level of security. packaging/docker/extended.yaml, named
-    # after this file, runs it at the extended one.
+    # The level of security: at the ordinary one, whoever opens a new
+    # unit first sets it up, with a name and a password.
+    # packaging/docker/extended.yaml, named after this file, runs the
+    # unit at the extended one, and gives it the code that level asks.
+    environment:
+      USHER_SECURITY: standard
+    # The least privilege: the unit runs as the image's one account,
+    # numbered 10001, with a root file system it cannot write to, no
+    # capability, and no way to gain a privilege.
     read_only: true
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
+    # What the unit keeps, its people among it, outlives the container.
     volumes:
       - kept:/var/lib/evo
+    # Its client socket is in memory, and gone when the container is.
     tmpfs:
       - /run/evo:mode=0755,uid=10001,gid=10001
+    # Whether the unit is up, asked of the usher's own program: the
+    # steward answers on its socket and its listener takes a connection.
+    healthcheck:
+      test: ["CMD", "/opt/evo/bin/evo-usher-steward", "--healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    # Told to stop, the steward is given as long to end as the service
+    # of an installed unit is.
+    stop_grace_period: 30s
+    # What the unit says is kept by Docker, to thirty megabytes at most.
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    # The address and the port of this machine the face is reached on.
     ports:
       - ${USHER_ADDRESS:-0.0.0.0}:${USHER_PORT:-8443}:8443
 

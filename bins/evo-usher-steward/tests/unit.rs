@@ -162,3 +162,97 @@ fn the_licence_of_evo_the_packages_carry_is_that_of_the_evo_built_on() {
         licence.display()
     );
 }
+
+/// The variables a text reads as Compose reads them: `${NAME` and what
+/// follows.
+fn variables_read(text: &str) -> std::collections::BTreeSet<String> {
+    text.split("${")
+        .skip(1)
+        .map(|rest| {
+            rest.chars()
+                .take_while(|c| c.is_ascii_uppercase() || *c == '_')
+                .collect()
+        })
+        .collect()
+}
+
+#[test]
+fn the_env_example_names_every_variable_the_compose_files_read() {
+    let mut files = vec![
+        packaging().join("docker/compose.yaml"),
+        packaging().join("docker/extended.yaml"),
+    ];
+    for proxy in fs::read_dir(packaging().join("proxy")).unwrap() {
+        files.push(proxy.unwrap().path().join("compose.yaml"));
+    }
+    assert_eq!(files.len(), 6, "{files:?}");
+    let mut read = std::collections::BTreeSet::new();
+    for file in &files {
+        let text = fs::read_to_string(file)
+            .unwrap_or_else(|e| panic!("{}: {e}", file.display()));
+        read.extend(variables_read(&text));
+    }
+    // Every one is in the example, as a value to set or as a comment
+    // that shows its default, and the example names no other.
+    let example =
+        fs::read_to_string(packaging().join("docker/.env.example")).unwrap();
+    let named: std::collections::BTreeSet<String> = example
+        .lines()
+        .filter_map(|line| {
+            let line = line.strip_prefix('#').unwrap_or(line);
+            let (name, _) = line.split_once('=')?;
+            (!name.is_empty()
+                && name.chars().all(|c| c.is_ascii_uppercase() || c == '_'))
+            .then(|| name.to_string())
+        })
+        .collect();
+    assert_eq!(named, read);
+    // The version alone has no default: a unit runs the version it is
+    // told to.
+    assert!(example.lines().any(|line| line == "USHER_VERSION="));
+}
+
+#[test]
+fn a_container_is_asked_whether_it_is_up_and_stopped_as_the_service_is() {
+    let asked = r#"["/opt/evo/bin/evo-usher-steward", "--healthy"]"#;
+    // The image asks the usher's own program, and so does every Compose
+    // file, in the same words and at the same pace.
+    let image =
+        fs::read_to_string(packaging().join("docker/Dockerfile")).unwrap();
+    assert!(
+        image.contains(&format!("CMD {asked}")),
+        "the image asks otherwise"
+    );
+    assert!(image.contains(
+        "HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=3"
+    ));
+    let unit =
+        fs::read_to_string(packaging().join("systemd/evo.service")).unwrap();
+    let given = unit
+        .lines()
+        .find_map(|line| line.strip_prefix("TimeoutStopSec="))
+        .expect("the service says how long it is given to stop");
+    let mut files = vec![packaging().join("docker/compose.yaml")];
+    for proxy in fs::read_dir(packaging().join("proxy")).unwrap() {
+        files.push(proxy.unwrap().path().join("compose.yaml"));
+    }
+    for file in files {
+        let text = fs::read_to_string(&file).unwrap();
+        for line in [
+            r#"test: ["CMD", "/opt/evo/bin/evo-usher-steward", "--healthy"]"#
+                .to_string(),
+            "interval: 10s".to_string(),
+            "timeout: 5s".to_string(),
+            "retries: 3".to_string(),
+            "start_period: 20s".to_string(),
+            // A container is given as long to stop as the service.
+            format!("stop_grace_period: {given}"),
+        ] {
+            assert!(
+                text.lines().any(|found| found.trim() == line),
+                "{}: no line `{line}`",
+                file.display()
+            );
+        }
+    }
+}

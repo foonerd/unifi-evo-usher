@@ -19,32 +19,56 @@ Every command and setting here is marked with where it comes from:
 
 A release of this repository publishes the image as `ghcr.io/foonerd/unifi-evo-usher:<version>`, for `amd64` and `arm64`, under the version and no other tag: a unit runs the version it is told to. A version that is not among the repository's releases has no published image; `scripts/image.sh --here` makes one on the machine it is run on.
 
-`packaging/docker/compose.yaml` runs the unit by itself. **Proven.**
+`packaging/docker/compose.yaml` runs the unit by itself, and says of each of its lines what it is for. **Proven.**
 
 ```sh
-USHER_VERSION=<version> docker compose up -d
+cd packaging/docker
+cp .env.example .env        # then name the version in it, as USHER_VERSION
+docker compose up -d --wait
 docker compose cp usher:/var/lib/evo/state/https/ca.crt ./unit-ca.crt
 ```
 
-The face is then at `https://localhost:8443/`, believed by `unit-ca.crt`. Nobody has set the unit up yet: whoever opens the face first does, by choosing the name and the password they sign in with from then on. Open it before the unit is reachable by anyone it is not meant for.
+`--wait` comes back once the unit says it is up. The face is then at `https://localhost:8443/`, believed by `unit-ca.crt`. Nobody has set the unit up yet: whoever opens the face first does, by choosing the name and the password they sign in with from then on. Open it before the unit is reachable by anyone it is not meant for.
 
-| Variable | What it sets |
-| --- | --- |
-| `USHER_VERSION` | The version to run. It must be named. |
-| `USHER_IMAGE` | The image, where it is not `ghcr.io/foonerd/unifi-evo-usher`. |
-| `USHER_ADDRESS` | The address the face is published on. Every address unless one is named; `127.0.0.1` for a unit that only a proxy on the same machine reaches. |
-| `USHER_PORT` | The port it is published on, 8443 unless another is named. |
+### The values of a site
 
-What the file sets, and why:
+Every value that differs from one site to the next is a variable, and all but the version have a default. They stand in a file `.env` beside the Compose file that is run: Compose reads it from that directory. `packaging/docker/.env.example` is a model of the file, with every variable the Compose files of this repository read; a test holds it to them. (**Run here**: a unit started from a copy of the model with the version named in it, by itself and behind nginx, and its authority taken from it.)
 
+A variable of the shell goes before the file, so `USHER_VERSION=<version> docker compose up -d --wait` starts a unit with no `.env` at all (**from the documentation** of Compose; the proof gives every value that way). Every command of Compose reads the Compose file, though, and the file names no version by itself: where there is no `.env`, the version is given to each of them, `docker compose cp` and `docker compose logs` among them, or once with `export USHER_VERSION=<version>`.
+
+| Variable | Read by | What it sets | Left out |
+| --- | --- | --- | --- |
+| `USHER_VERSION` | every file | The version to run. | Nothing is started, and Compose says the version is to be named. |
+| `USHER_IMAGE` | every file | The image, where it is not the one a release publishes. | `ghcr.io/foonerd/unifi-evo-usher` |
+| `USHER_NAME` | every file | What the container is called on the machine, and what the unit calls itself. | `usher` |
+| `USHER_ADDRESS` | `compose.yaml` | The address the face is published on; `127.0.0.1` for a unit that only a proxy on the same machine reaches. | Every address. |
+| `USHER_PORT` | `compose.yaml` | The port the face is published on. | `8443` |
+| `USHER_CODE` | `extended.yaml` | The file with the unit's code, readable by the account 10001. | `./unit-code` |
+| `SITE_CERT`, `SITE_KEY` | the proxy examples | The site's certificate and its key. | `./site.crt`, `./site.key` |
+| `USHER_AUTHORITY` | the proxy examples | The unit's own authority, as it was taken from the unit. | `./unit-ca.crt` |
+| `SITE_ADDRESS`, `SITE_PORT` | the proxy examples | The address and the port the proxy is published on. | Every address, `443` |
+
+### What the file sets, and why
+
+- **A name.** The container is called `usher`, and the unit knows itself by the same name, unless `USHER_NAME` says another. With a name of its own one unit is run from the file, not several.
+- **Started again.** `restart: unless-stopped`: the unit is started again when it ends by itself and when the machine starts, and is left alone once it was stopped by hand.
+- **The level of security.** The file runs the unit at the ordinary level, and says so. `packaging/docker/extended.yaml`, named after it, runs it at the extended one, where setting the unit up takes the unit's code as well, which that file gives it: see [Who comes in](#who-comes-in). **Proven**, at both levels.
 - **The least privilege.** The unit runs as the image's one account, numbered 10001, with every capability dropped, no way to gain a privilege, and a root file system it cannot write to. The steward needs none of them. **Proven**: the proof looks at the container for each of the four and then uses the unit.
 - **What it keeps.** A named volume, `kept`, at `/var/lib/evo`. Docker gives a new named volume to the image's account, so nothing has to be set. A folder of the machine can stand in its place; it must then belong to the account 10001 and be closed to others (**from the documentation** of Docker's bind mounts; not run here).
-- **The level of security.** The file runs the unit at the ordinary level. `packaging/docker/extended.yaml`, named after it, runs it at the extended one, where setting the unit up takes the unit's code as well: see [Who comes in](#who-comes-in). **Proven**, at both levels.
 - **Its socket.** `/run/evo` is kept in memory; the steward's client socket lives there.
+- **Whether it is up.** Docker asks the usher's own program, every ten seconds: `evo-usher-steward --healthy` ends with 0 where the steward answers on its client socket and its HTTPS listener takes a connection, and with 1 and one line that says which of the two fails where one does not. It starts nothing and signs in as nobody. The image carries the same check, so a container run without Compose is asked too (**run here**), and a proxy of the examples is started only once the unit says it is up. **Proven**: the proof starts every unit with `--wait`, finds its container called healthy, asks the program of a listener that is not there, and holds the proxy of each example to waiting for the unit.
+- **Time to stop.** Told to stop, the steward is given thirty seconds to end, as the service of an installed unit is. A test holds the two to each other.
+- **Its log.** What the unit says is kept by Docker's `json-file` driver, to three files of ten megabytes. A machine that keeps the logs of its containers another way takes those lines out.
+- **The address and the port.** Every address of the machine, port 8443, unless `USHER_ADDRESS` and `USHER_PORT` say otherwise.
 
-The image has no shell and no program to ask the unit how it is. A monitor asks `GET /` on the unit's port and expects `200`.
+A monitor that is not Docker asks `GET /` on the unit's port and expects `200`. Where a unit is run by Kubernetes the same program is the probe, as an exec probe with the command `/opt/evo/bin/evo-usher-steward --healthy`; that is **from the documentation** of Kubernetes' probes and was run on no cluster.
 
 A newer version is run by naming it in `USHER_VERSION` and `docker compose up -d` again. What the unit keeps is in the volume and stays.
+
+### What there is no setting for yet
+
+- **The time zone.** The unit keeps time in UTC, and each browser shows times in its own zone. The image carries no zone data, so a `TZ` variable changes nothing (**run here**: a unit given one wrote its log in UTC as before); the Compose files have none.
+- **The language.** The pages are in English.
 
 ## Behind a proxy
 
@@ -58,13 +82,15 @@ There is an example for each of four proxies under `packaging/proxy/`, each a Co
 
 ```sh
 cd packaging/proxy/nginx        # or apache, caddy, traefik
-# beside the files site.crt and site.key:
-USHER_VERSION=<version> docker compose up -d usher
+# beside the files site.crt and site.key, and an .env that names the version:
+docker compose up -d --wait usher
 docker compose cp usher:/var/lib/evo/state/https/ca.crt ./unit-ca.crt
-USHER_VERSION=<version> docker compose up -d
+docker compose up -d
 ```
 
-The unit is started first because it makes its authority when it first starts, and the proxy is given that authority as a file. The authority stays the same for as long as the volume does.
+The unit is started first because it makes its authority when it first starts, and the proxy is given that authority as a file. `--wait` comes back once the unit says it is up, and its authority is then there to take. The authority stays the same for as long as the volume does. The proxy of each example is started only once the unit says it is up, here and whenever the two are started together.
+
+The unit of each example is the unit of `packaging/docker/compose.yaml`, line for line but for the port, which it does not publish; the proof holds them to each other. The `.env` is the one [In Docker](#the-values-of-a-site) describes, and `packaging/docker/.env.example` is its model.
 
 The examples call the usher `usher.example.org`; the name the site gives it goes in its place. `SITE_CERT` and `SITE_KEY` name the site's certificate and key where they are not `./site.crt` and `./site.key`, `USHER_AUTHORITY` the unit's authority where it is not `./unit-ca.crt`, `SITE_ADDRESS` and `SITE_PORT` where the proxy is published.
 

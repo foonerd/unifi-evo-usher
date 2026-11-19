@@ -16,6 +16,10 @@
 # capability, no way to gain a privilege and a root file system it cannot
 # write to, and is asked on its own port, believed by its own authority.
 #
+# In every case the container must come to say that it is healthy: Docker
+# asks the usher's own program whether the unit is up, as the Compose
+# files and the image have it, and a proxy is started only once it is.
+#
 # Extended: the same unit with packaging/docker/extended.yaml named after
 # its Compose file, which runs it at the extended level of security:
 # setting it up takes the unit's code, which it is given as a file.
@@ -79,10 +83,18 @@ unit_of() {
   SITE_CERT=/site.crt SITE_KEY=/site.key USHER_AUTHORITY=/unit-ca.crt \
     docker compose $(named_of "$1") config --format json | jq -S '.services.usher | del(.ports)'
 }
+# What the proxy of an example waits for of the unit before it is started.
+waits_for() {
+  # shellcheck disable=SC2046 # one word a file, as they are named
+  SITE_CERT=/site.crt SITE_KEY=/site.key USHER_AUTHORITY=/unit-ca.crt \
+    docker compose $(named_of "$1") config --format json | jq -r '.services.proxy.depends_on.usher.condition // "nothing"'
+}
 for proxy in $proxies; do
   # The extended level is the same unit with more said of it.
   [ "$proxy" != extended ] || continue
   [ "$(unit_of "$proxy")" = "$(unit_of alone)" ] || { echo "prove-proxy: the unit in $(files_of "$proxy") is not the unit of packaging/docker/compose.yaml" >&2; exit 1; }
+  # A proxy is started only once the unit says it is up.
+  [ "$proxy" = alone ] || [ "$(waits_for "$proxy")" = service_healthy ] || { echo "prove-proxy: the proxy in $(files_of "$proxy") does not wait for the unit to say it is up" >&2; exit 1; }
 done
 
 work=$(mktemp -d)
@@ -220,6 +232,9 @@ prove() {
   export USHER_AUTHORITY="$dir/unit-ca.crt"
   export SITE_CERT="$work/site.crt" SITE_KEY="$work/site.key" SITE_ADDRESS=127.0.0.1 SITE_PORT="$port"
   export USHER_ADDRESS=127.0.0.1 USHER_PORT="$port"
+  # A name of the proof's own, so that it stands beside a unit that is
+  # run on this machine under the examples' name.
+  export USHER_NAME="$project"
   code=""
   if [ "$proxy" = extended ]; then
     # The code a unit of the extended level is given, as a file the
@@ -259,17 +274,34 @@ prove() {
   }
 
   echo "prove-proxy: $proxy"
-  compose up -d usher > "$dir/up.log" 2>&1 || { cat "$dir/up.log" >&2; fail "the unit was not started"; }
-  # The unit makes its authority when it first starts.
-  local tries=0
-  until compose cp usher:/var/lib/evo/state/https/ca.crt "$dir/unit-ca.crt" > /dev/null 2>&1; do
-    tries=$((tries + 1))
-    [ "$tries" -lt 60 ] || fail "the unit made no authority"
-    sleep 0.5
-  done
+  # Started as the guide starts it: Compose comes back once Docker, which
+  # asks the usher's own program, says of the container that it is
+  # healthy.
+  compose up -d --wait usher > "$dir/up.log" 2>&1 || {
+    cat "$dir/up.log" >&2
+    fail "the unit was not started, or does not come to say it is up: $(compose ps -aq usher | head -n 1 | xargs -r docker inspect --format '{{json .State.Health}}' 2> /dev/null | head -c 600)"
+  }
+  local unit health tries
+  unit=$(compose ps -q usher)
+  health=$(docker inspect "$unit" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}not asked{{end}}')
+  [ "$health" = healthy ] || fail "Compose came back, and the container is not said to be healthy: $health"
+  echo "  ok    the container says it is healthy, on the word of the usher's own program"
+  # A unit that is up has made its authority: it makes it when it first
+  # starts.
+  compose cp usher:/var/lib/evo/state/https/ca.crt "$dir/unit-ca.crt" > /dev/null 2>&1 || fail "the unit that is up made no authority"
   chmod 644 "$dir/unit-ca.crt"
+  if [ "$proxy" = alone ]; then
+    # The program's word is worth something: asked of a listener that is
+    # not there, it says the unit is not up, and which part of it.
+    compose exec -T usher /opt/evo/bin/evo-usher-steward --healthy > "$dir/healthy" 2>&1 || fail "asked in the container, the program says the unit is not up: $(cat "$dir/healthy")"
+    if compose exec -T -e EVO_HTTPS_LISTEN_ADDR=127.0.0.1:1 usher /opt/evo/bin/evo-usher-steward --healthy > "$dir/healthy" 2>&1; then
+      fail "the program says a unit is up whose listener is not where it is said to be"
+    fi
+    grep -q 'the HTTPS listener takes no connection on 127.0.0.1:1' "$dir/healthy" || fail "the program does not say what of the unit is not up: $(cat "$dir/healthy")"
+    echo "  ok    asked of a listener that is not there, the program says the unit is not up, and why"
+  fi
   if [ "$behind" = no ]; then
-    said=$(docker inspect "$(compose ps -q usher)" --format '{{.Config.User}} {{.HostConfig.ReadonlyRootfs}} {{.HostConfig.CapDrop}} {{.HostConfig.SecurityOpt}}')
+    said=$(docker inspect "$unit" --format '{{.Config.User}} {{.HostConfig.ReadonlyRootfs}} {{.HostConfig.CapDrop}} {{.HostConfig.SecurityOpt}}')
     [ "$said" = "10001:10001 true [ALL] [no-new-privileges:true]" ] || fail "the unit does not run with the least privilege: $said"
   else
     compose up -d proxy >> "$dir/up.log" 2>&1 || { cat "$dir/up.log" >&2; fail "the proxy was not started"; }

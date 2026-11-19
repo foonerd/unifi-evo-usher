@@ -33,4 +33,10 @@ EXPOSE 8443
 # What the steward keeps outlives the container.
 VOLUME /var/lib/evo
 
+# Whether the unit is up, asked of the usher's own program, which is all
+# the image has: the steward answers on its client socket and its
+# listener takes a connection. Whatever runs the container goes by it.
+HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=3 \
+    CMD ["/opt/evo/bin/evo-usher-steward", "--healthy"]
+
 ENTRYPOINT ["/opt/evo/bin/evo-usher-steward"]
