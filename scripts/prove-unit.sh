@@ -119,11 +119,8 @@ echo "  ok    no privilege to gain, no capability, its system calls filtered"
 
 echo "prove-unit: the face"
 curl --silent --cacert "$AUTHORITY" --max-time 10 "$FACE/" | grep -q 'door.js' || fail "the door is not served"
-[ "$(ask describe_ui_stockings)" = 200 ] || fail "the steward does not say what is stocked: $(cat "$work/answer")"
-for kind in usher.counter usher.types usher.controller usher.vouchers usher.networks usher.reserve; do
-  grep -q "\"$kind\"" "$work/answer" || fail "nothing is drawn as $kind: $(cat "$work/answer")"
-done
-echo "  ok    the door is served, and every widget kind has its place"
+[ "$(ask describe_active_ui_selection)" = 200 ] || fail "the door is not told which shell is active: $(cat "$work/answer")"
+echo "  ok    the door is served, and is told which shell to open"
 for part in org.evoframework.usher.shell/shell.js org.evoframework.usher.widgets/index.js org.evoframework.usher.theme.frost/theme.css; do
   [ "$(curl --silent --cacert "$AUTHORITY" --max-time 10 --output /dev/null --write-out '%{http_code}' "$FACE/$part")" = 200 ] || fail "$part is not served"
 done
@@ -136,6 +133,7 @@ info=$(request access.controller info '{}')
 mint='{"name":"for nobody","reason":"asked for with no bearer","scopes":[{"kind":"step_up","scope":"network_admin"}]}'
 [ "$(ask create_bearer_token "$mint")" = 401 ] || fail "a caller who presents nothing was made a bearer: $(cat "$work/answer")"
 [ "$(ask list_bearer_tokens)" = 401 ] || fail "a caller who presents nothing is told of the unit's bearers: $(cat "$work/answer")"
+[ "$(ask describe_ui_stockings)" = 401 ] || fail "a caller who presents nothing is told what is stocked: $(cat "$work/answer")"
 echo "  ok    a caller who presents nothing is refused, and no bearer is made for one"
 [ "$(stat -c '%U %a' "$CODE")" = "evo 600" ] || fail "the pairing code is $(stat -c '%U %a' "$CODE"), not the steward's alone"
 code=$(cat "$CODE")
@@ -144,7 +142,11 @@ code=$(cat "$CODE")
 bearer=$(jq -r '.token' "$work/answer")
 [ "$(ask request "$info" "$bearer")" = 200 ] || fail "a paired caller is refused: $(cat "$work/answer")"
 [ "$(answered)" = '{"set":false}' ] || fail "the controller plugin answered $(answered)"
-echo "  ok    the code the unit made pairs a browser, and it is answered"
+[ "$(ask describe_ui_stockings '' "$bearer")" = 200 ] || fail "the steward does not tell a paired browser what is stocked: $(cat "$work/answer")"
+for kind in usher.counter usher.types usher.controller usher.vouchers usher.networks usher.reserve; do
+  grep -q "\"$kind\"" "$work/answer" || fail "nothing is drawn as $kind: $(cat "$work/answer")"
+done
+echo "  ok    the code the unit made pairs a browser, it is answered, and every widget kind has its place"
 
 echo "prove-unit: the voucher types"
 # Ask the counter as the paired browser does.
