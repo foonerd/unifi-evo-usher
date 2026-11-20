@@ -511,6 +511,12 @@ dialog {
   box-shadow: 0 24px 64px rgb(0 0 0 / 50%);
 }
 
+/* What stands on the page while it is not known whose it is: kept as it
+   is, and out of sight. */
+.away {
+  visibility: hidden;
+}
+
 dialog::backdrop {
   background: rgb(0 0 0 / 55%);
   -webkit-backdrop-filter: blur(4px);
@@ -629,6 +635,39 @@ dialog .hint {
 .people-form h3 {
   margin: 0 0 0.5rem;
   font-size: 1.125rem;
+}
+
+/* What a person is to do: one of two, each on a line of its own. */
+.people-role {
+  margin: 1rem 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.people-role legend {
+  padding: 0;
+  font-weight: 600;
+}
+
+/* A PIN that was just made: large enough to be read out and copied
+   down, its digits apart, and shown this once. */
+.people-pin {
+  max-width: 32rem;
+  margin-top: var(--evo-gap);
+}
+
+.people-pin h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.125rem;
+}
+
+.people-pin .pin {
+  margin: 0.25rem 0 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 2.25rem;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  font-variant-numeric: tabular-nums;
 }
 
 /* What changes when it is pointed at or pressed fades into it, briefly,

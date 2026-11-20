@@ -55,6 +55,11 @@ face-language-form-ja.png:language-form-japanese.png
 face-language-pl.png:language-polish.png
 face-language-ru.png:language-russian.png
 face-language-ja.png:language-japanese.png
+face-people-front-desk.png:people-front-desk.png
+face-people-pin.png:people-pin.png
+face-people-set-pin.png:people-set-pin.png
+face-front-desk.png:front-desk.png
+face-vouchers-handed-by.png:vouchers-handed-by.png
 "
 for pair in $pictures; do
   from=${pair%%:*}

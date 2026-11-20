@@ -3,7 +3,7 @@ name = "org.evoframework.usher.counter"
 # The crate's version, which is the workspace's. The steward refuses a
 # plugin that says another version than its manifest; a test holds the two
 # together.
-version = "0.3.18"
+version = "0.3.19"
 contract = 1
 
 [target]
@@ -46,17 +46,22 @@ request_types = ["types", "offered", "put_type", "drop_type", "enable_type", "se
 response_budget_ms = 35000
 
 # Who may ask. A voucher is what lets a guest on to the network, and its
-# types are the terms it is minted on, so every request here asks for the
-# network_admin capability.
+# types are the terms it is minted on, so whatever defines the types,
+# assigns a voucher or reads what was handed out asks for the
+# network_admin capability. The two requests a front desk makes, the
+# types on offer and a voucher handed out, ask for a capability of the
+# usher's own, voucher_issue, which a session of a person at the front
+# desk is given and nothing else of the kind. It is declared as a step-up,
+# the one kind of a plugin's capability a bearer can be made with.
 [capabilities.respondent.verb_capabilities]
 types = { kind = "read", scope = "network_admin" }
-offered = { kind = "read", scope = "network_admin" }
+offered = { kind = "read", scope = "voucher_issue" }
 put_type = { kind = "write", scope = "network_admin" }
 drop_type = { kind = "write", scope = "network_admin" }
 enable_type = { kind = "write", scope = "network_admin" }
 set_default = { kind = "write", scope = "network_admin" }
 order_types = { kind = "write", scope = "network_admin" }
-hand = { kind = "write", scope = "network_admin" }
+hand = { kind = "step_up", scope = "voucher_issue" }
 assign = { kind = "write", scope = "network_admin" }
 handed = { kind = "read", scope = "network_admin" }
 

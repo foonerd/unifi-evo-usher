@@ -144,11 +144,19 @@ To the unit, every caller is the proxy: it does not learn the address a caller h
 
 **Setting up.** A new unit has nobody. Whoever opens its face first is asked for a name and a password, twice, and is from then on its first administrator, and signed in. A unit is set up once: after that the same address asks to sign in. **Proven** by `scripts/prove-proxy.sh` and `scripts/prove-unit.sh`: a second setting up is refused.
 
-**Signing in.** A name and a password. A name is the same name however its letters are cased. A browser is signed in for as long as it stays open, and for twelve hours at most; with "Keep me signed in on this device" ticked, for thirty days on that browser. "Sign out" in the bar ends the session at once. The form is one a password manager recognises, so the password can be kept in one.
+**Signing in.** A name and a password; for a person at the front desk, a name and their PIN, typed where a password goes. A name is the same name however its letters are cased. A browser is signed in for as long as it stays open, and for twelve hours at most; with "Keep me signed in on this device" ticked, for thirty days on that browser. "Sign out" in the bar ends the session at once. The form is one a password manager recognises, so the password can be kept in one.
 
 **A password** is 12 characters or more at the standard level and 16 at the extended, and 128 at most. Nothing else is asked of it: no digits, no signs, no change after a time. A few words in a row are long enough and easy to remember. The unit keeps a hash of it (Argon2id) and never the password.
 
-**People.** An administrator adds other people on the page People, each with a name and a password of their own, sets a new password for one who forgot theirs, and removes one. Everyone changes their own password there. A new password, and a removal, sign that person out everywhere at once. The last administrator is not removed.
+**People.** A person is an administrator, or works the front desk. An administrator adds other people on the page People, sets a new password for an administrator who forgot theirs, has a new PIN made for a person at the front desk, and removes one. An administrator changes their own password there. A new password, a new PIN and a removal sign that person out everywhere at once. The last administrator is not removed.
+
+**The front desk.** A person at the front desk hands vouchers out, and does nothing else. They have the Counter and no other page: the voucher types on offer, a voucher handed out and shown to the guest. Everything else is refused them by the unit, by name, however it is asked: the vouchers on the controller, the voucher types, the network, the controller, the site, the people, and every operation of the steward's own. It is held twice. The unit's gate lets their session ask what the Counter's page asks and no more; and the session is one evo itself takes for nothing but asking a plugin and issuing a voucher. **Proven** by a test that asks, as a person at the front desk, every operation the steward lists and every request of every shelf, and by `scripts/prove-unit.sh` and `scripts/prove-proxy.sh`.
+
+**A PIN** is how a person at the front desk signs in. The unit makes it, at random: six digits at the standard level, eight at the extended. It is shown once, on the page People, to the administrator who adds the person or has a new one made, and is given to its person by them; the unit keeps a hash of it (Argon2id), as of a password, and nobody can look it up. A person does not choose or change their PIN. Wrong tries hold a name whether it signs in with a password or a PIN.
+
+**A PIN the administrator chooses.** The made PIN is the ordinary way. Where an administrator would sooner choose one, **Set a PIN** in the person's row takes a PIN they type, and holds it to what keeps a number somebody thought of from being the first that is guessed: digits only; six at least, eight at the extended level, and twelve at most; not one digit or one group of digits repeated (`000000`, `121212`, `123123`); not digits that count up or down (`123456`, `987654`, `890123`). What breaks a rule is refused under a code of its own, with the numbers it speaks of, and the form says it in the screen's language. A PIN that is set is kept as a made one is, replaces the one the person had, and signs them out everywhere. It is not answered back, and is written to no log. **Proven** by tests and by `scripts/prove-unit.sh`.
+
+**Who handed a voucher out.** The unit writes down every voucher it hands out, and who handed it out: the person who was signed in, by name, or the unit's keeper. The list of the controller's vouchers says so beside each voucher that was handed out here. What a caller says of who they are is not what is written down: the unit writes who signed in. **Proven** by a test.
 
 **Wrong tries.** Five wrong passwords in a row for a name hold that name for fifteen minutes, whoever tries and from wherever. A wrong name and a wrong password are answered alike. Anyone who can reach the unit can hold a name that way, which is one more reason to let only the networks the usher is used from reach it.
 
@@ -158,6 +166,7 @@ To the unit, every caller is the proxy: it does not learn the address a caller h
 | --- | --- | --- |
 | Setting the unit up | a name and a password | a name, a password, and the unit's code |
 | A password | 12 characters or more | 16 characters or more |
+| A PIN, for the front desk | six digits | eight digits |
 | A session | twelve hours | eight hours |
 | Kept signed in on a device | thirty days, where asked for | never |
 
@@ -176,7 +185,7 @@ With nothing said the level is `standard`. A value that is neither stops the uni
 
 At the ordinary level whoever reaches a new unit first sets it up. Where a unit is reachable by people it is not meant for before its administrator has opened it, run it at the extended level.
 
-**A forgotten password.** Another administrator sets a new one, on the page People. Where there is no other, whoever has the unit's files lets it be set up anew: the file of the people is taken away, and the next to open the face sets the unit up, at once and without a restart. Everything else the unit keeps stays: the controller, the voucher types, the vouchers. **Proven** by `scripts/prove-unit.sh` and a test.
+**A forgotten password or PIN.** An administrator sets a new password, or has a new PIN made, on the page People. Where there is no other, whoever has the unit's files lets it be set up anew: the file of the people is taken away, and the next to open the face sets the unit up, at once and without a restart. Everything else the unit keeps stays: the controller, the voucher types, the vouchers. **Proven** by `scripts/prove-unit.sh` and a test.
 
 ```sh
 sudo rm /var/lib/evo/state/usher/people.json        # an installed unit
@@ -189,7 +198,9 @@ echo '[]' > people.json
 docker compose cp people.json usher:/var/lib/evo/state/usher/people.json
 ```
 
-**What a session is.** A bearer the unit makes for whoever signed in, good for the usher's pages and for nothing of the steward's own administration. The browser holds it and presents it with every request; nobody sees or types it. The unit knows every session it gave and ends one at once on signing out, on a new password, and on a removal. One thing outlasts a session that ended: a line a browser had open to hear what happens stays open until that browser closes it. It hears, and nothing can be asked over it (**proven** by a test).
+**What a session is.** A bearer the unit makes for whoever signed in, good for what their role may do on the usher's pages and for nothing of the steward's own administration. The browser holds it and presents it with every request; nobody sees or types it. The unit knows every session it gave and ends one at once on signing out, on a new password or PIN, and on a removal. One thing outlasts a session that ended: a line an administrator's browser had open to hear what happens stays open until that browser closes it. It hears, and nothing can be asked over it (**proven** by a test). No such line is opened to a person at the front desk; their page asks the unit again every half minute instead.
+
+A unit that is updated from a version before the front desk signs everyone out once: a session from before is not good for what the pages now ask, and is not kept.
 
 **The unit's own bearer.** The unit keeps one bearer of its own, in `/var/lib/evo/state/https/bootstrap.token`, for its own account alone. Whoever can read the unit's files can read it, and is answered everything with it. It is how a program on the unit itself asks the steward.
 

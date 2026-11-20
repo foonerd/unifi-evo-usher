@@ -1,8 +1,13 @@
 //! The people who may sign in to an usher, and what the usher holds a
 //! name and a password to.
 //!
-//! A person is a name, a role and a password. The password is kept as an
-//! Argon2id hash and nothing else of it is kept. The people are in one
+//! A person is a name, a role and what they sign in with. An
+//! administrator may do everything and signs in with a password of their
+//! own choosing. A person at the front desk hands vouchers out and does
+//! nothing else, and signs in with a PIN: digits the usher makes at
+//! random, shown once to the administrator who has it made, which the
+//! person neither chooses nor changes. Either is kept as an Argon2id hash
+//! and nothing else of it is kept. The people are in one
 //! file under the steward's state, written whole and synced, for the
 //! steward's own account alone to read. A file that is taken away leaves
 //! an usher with nobody, which asks to be set up again: that is how
@@ -18,7 +23,7 @@ use std::os::unix::fs::{
 };
 use std::path::{Path, PathBuf};
 
-use argon2::password_hash::rand_core::OsRng;
+use argon2::password_hash::rand_core::{OsRng, RngCore as _};
 use argon2::password_hash::{PasswordHash, SaltString};
 use argon2::{
     Algorithm, Argon2, Params, PasswordHasher as _, PasswordVerifier as _,
@@ -33,8 +38,30 @@ pub const LONGEST_PASSWORD: usize = 128;
 /// The longest name, in characters.
 pub const LONGEST_NAME: usize = 64;
 
-/// The one role there is: whoever has it may do everything.
+/// The most digits a PIN has that an administrator types for a person.
+pub const LONGEST_PIN: usize = 12;
+
+/// The role of whoever may do everything.
 pub const ADMINISTRATOR: &str = "administrator";
+
+/// The role of whoever hands vouchers out, and does nothing else.
+pub const FRONT_DESK: &str = "front_desk";
+
+/// The role a name of one says, where it is one; or why it is none.
+pub fn role_held(role: &str) -> Result<&'static str, Why> {
+    match role {
+        ADMINISTRATOR => Ok(ADMINISTRATOR),
+        FRONT_DESK => Ok(FRONT_DESK),
+        other => Err(why(
+            "role_not_one",
+            format!(
+                "A person is an administrator or works the front desk; \
+                 '{other}' is neither."
+            ),
+        )
+        .with("role", other)),
+    }
+}
 
 /// How strict an usher is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,6 +112,18 @@ impl Level {
         }
     }
 
+    /// How many digits a PIN has: six at the standard level, eight at
+    /// the extended. A PIN is made at random by the usher, and guessing
+    /// one is held up as guessing a password is (NIST SP 800-63B: six
+    /// digits at least for a secret that is made at random, and a limit
+    /// on wrong tries).
+    pub fn pin_digits(self) -> usize {
+        match self {
+            Self::Standard => 6,
+            Self::Extended => 8,
+        }
+    }
+
     /// Whether a browser may be kept signed in beyond its session.
     pub fn keeps(self) -> bool {
         self == Self::Standard
@@ -116,7 +155,8 @@ pub struct Person {
     pub name: String,
     /// What the person may do.
     pub role: String,
-    /// The password, as an Argon2id hash in PHC form.
+    /// The password, or the PIN of a person at the front desk, as an
+    /// Argon2id hash in PHC form.
     password: String,
     /// When the person was added, in milliseconds since 1970.
     pub made_ms: u64,
@@ -210,6 +250,73 @@ pub fn password_held(
         ));
     }
     Ok(())
+}
+
+/// Whether a PIN that an administrator typed can be a person's at this
+/// level; or why not. A PIN the usher makes is digits at random, and is
+/// held to nothing here. One that a person thought of is held to what
+/// keeps it from being the first that is guessed: digits only; as many as
+/// a made one has at least, and [`LONGEST_PIN`] at most; not one digit or
+/// one group of digits over and over, as `000000`, `121212` and `123123`
+/// are; and not digits that count up or down, as `123456`, `987654` and
+/// `890123` do.
+pub fn pin_held(pin: &str, level: Level) -> Result<(), Why> {
+    if pin.is_empty() || !pin.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(why("pin_not_digits", "A PIN is digits only."));
+    }
+    let digits: Vec<u8> = pin.bytes().map(|byte| byte - b'0').collect();
+    let has = digits.len();
+    let least = level.pin_digits();
+    if has < least {
+        return Err(why(
+            "pin_too_short",
+            format!("A PIN is {least} digits at least; this one has {has}."),
+        )
+        .with("least", least)
+        .with("has", has));
+    }
+    if has > LONGEST_PIN {
+        return Err(why(
+            "pin_too_long",
+            format!("A PIN is {LONGEST_PIN} digits at most."),
+        )
+        .with("most", LONGEST_PIN));
+    }
+    // One digit, or one group of digits, over and over: every digit is
+    // the one that stands a group's length before it.
+    let repeats = (1..=has / 2)
+        .any(|group| (group..has).all(|at| digits[at] == digits[at - group]));
+    if repeats {
+        return Err(why(
+            "pin_repeats",
+            "A PIN is not one digit, or one group of digits, repeated.",
+        ));
+    }
+    // A run: every digit one more than the digit before it, or every
+    // digit one less, with 0 counted on from 9 and 9 back from 0.
+    let steps =
+        |by: u8| digits.windows(2).all(|pair| (pair[0] + by) % 10 == pair[1]);
+    if steps(1) || steps(9) {
+        return Err(why(
+            "pin_runs",
+            "A PIN is not digits that count up or down.",
+        ));
+    }
+    Ok(())
+}
+
+/// A PIN of so many digits, each as likely as any other.
+pub fn pin(digits: usize) -> String {
+    let mut made = String::with_capacity(digits);
+    while made.len() < digits {
+        // A byte below 250 is as likely to end in any digit as in any
+        // other; one above is thrown again.
+        let byte = (OsRng.next_u32() & 0xff) as u8;
+        if byte < 250 {
+            made.push(char::from(b'0' + byte % 10));
+        }
+    }
+    made
 }
 
 /// The Argon2id hash of a password, in PHC form, under a salt of its
@@ -371,7 +478,7 @@ impl People {
         self.keep(next)
     }
 
-    /// Give a person another password.
+    /// Give a person another password, or another PIN.
     pub fn set_password(
         &mut self,
         name: &str,
@@ -480,6 +587,137 @@ mod tests {
         );
         assert!(Level::Standard.keeps() && !Level::Extended.keeps());
         assert!(Level::Extended.asks_code() && !Level::Standard.asks_code());
+        assert!(Level::Extended.pin_digits() > Level::Standard.pin_digits());
+        assert!(Level::Standard.pin_digits() >= 6);
+    }
+
+    #[test]
+    fn a_role_is_one_of_two() {
+        assert_eq!(role_held("administrator"), Ok(ADMINISTRATOR));
+        assert_eq!(role_held("front_desk"), Ok(FRONT_DESK));
+        for other in ["", "Administrator", "office", "front desk"] {
+            let refused = role_held(other).unwrap_err();
+            assert_eq!(refused.code, "role_not_one", "{other}");
+            assert_eq!(refused.values["role"], other);
+        }
+    }
+
+    #[test]
+    fn a_pin_that_is_typed_is_held_to_what_keeps_it_from_being_guessed() {
+        let level = Level::Standard;
+        for taken in [
+            "283915",
+            "904417",
+            "12345609",
+            "112233",
+            "135790",
+            "100000",
+            "480480481",
+            "999999999998",
+        ] {
+            assert_eq!(pin_held(taken, level), Ok(()), "{taken}");
+        }
+        // Digits, and nothing else: no space, no sign, no letter, and
+        // not nothing.
+        for not_digits in [
+            "",
+            "28 3915",
+            " 283915",
+            "283915 ",
+            "28391a",
+            "+283915",
+            "2839.15",
+            "\u{664}\u{665}\u{666}\u{667}\u{668}\u{669}",
+        ] {
+            let refused = pin_held(not_digits, level).unwrap_err();
+            assert_eq!(refused.code, "pin_not_digits", "{not_digits:?}");
+            assert!(refused.values.is_empty());
+        }
+        // As many as a made one has at least, and twelve at most.
+        let short = pin_held("28391", level).unwrap_err();
+        assert_eq!(short.code, "pin_too_short");
+        assert_eq!(
+            (&short.values["least"], &short.values["has"]),
+            (&6.into(), &5.into())
+        );
+        assert_eq!(short.words, "A PIN is 6 digits at least; this one has 5.");
+        let short = pin_held("2839157", Level::Extended).unwrap_err();
+        assert_eq!(short.code, "pin_too_short");
+        assert_eq!(
+            (&short.values["least"], &short.values["has"]),
+            (&8.into(), &7.into())
+        );
+        assert_eq!(pin_held("28391574", Level::Extended), Ok(()));
+        assert_eq!(pin_held(&"283915746028"[..LONGEST_PIN], level), Ok(()));
+        let long = pin_held("2839157460283", level).unwrap_err();
+        assert_eq!(long.code, "pin_too_long");
+        assert_eq!(long.values["most"], LONGEST_PIN);
+        assert_eq!(long.words, "A PIN is 12 digits at most.");
+        // One digit or one group of digits, over and over, also where
+        // the last group is cut short.
+        for repeated in [
+            "000000",
+            "777777",
+            "121212",
+            "123123",
+            "1212121",
+            "12341234",
+            "4804804",
+            "909090909090",
+        ] {
+            assert_eq!(
+                pin_held(repeated, level).unwrap_err().code,
+                "pin_repeats",
+                "{repeated}"
+            );
+        }
+        // Digits that count up or down, on from 9 and back from 0 too.
+        for run in [
+            "123456",
+            "987654",
+            "012345",
+            "234567",
+            "567890",
+            "890123",
+            "210987",
+            "0123456789",
+            "98765432",
+        ] {
+            assert_eq!(
+                pin_held(run, level).unwrap_err().code,
+                "pin_runs",
+                "{run}"
+            );
+        }
+        // What is nearly one of them is none.
+        for near in ["123457", "000001", "121213", "123124", "987653", "124578"]
+        {
+            assert_eq!(pin_held(near, level), Ok(()), "{near}");
+        }
+    }
+
+    #[test]
+    fn a_pin_is_digits_made_at_random() {
+        for digits in [6, 8] {
+            let made = pin(digits);
+            assert_eq!(made.len(), digits);
+            assert!(made.bytes().all(|byte| byte.is_ascii_digit()), "{made}");
+        }
+        // Of two hundred, hardly two are the same, and every digit comes.
+        let many: Vec<String> = (0..200).map(|_| pin(6)).collect();
+        let different: std::collections::BTreeSet<&String> =
+            many.iter().collect();
+        assert!(different.len() >= 198, "{}", different.len());
+        for digit in '0'..='9' {
+            assert!(
+                many.iter().any(|made| made.contains(digit)),
+                "no {digit} in two hundred PINs"
+            );
+        }
+        // It is kept as a password is, and held to as one.
+        let kept = hash(&many[0]).unwrap();
+        assert!(matches(&many[0], &kept));
+        assert!(!matches(&many[1], &kept) || many[0] == many[1]);
     }
 
     #[test]

@@ -7,12 +7,18 @@
 // entry in the menu and an address of its own: the fragment `#/` and the
 // page's id. Which shelf stands on which page is said in `pages.json`.
 //
+// Who is signed in has a role. An administrator is offered every page,
+// and hears what happens on the unit as it happens. A person at the
+// front desk is offered the counter alone, is let hear nothing, and so
+// has a page that asks the usher again from time to time. What the
+// usher would refuse them is not offered.
+//
 // Everything it says, it says in the language the face speaks: the
 // words are read before anything is drawn.
 
 import * as steward from "./steward.js";
 import { name as brandName, wearBrand } from "./brand.js";
-import { fragmentOf, pageOf, paginate } from "./pages.js";
+import { ADMINISTRATOR, FRONT_DESK, fragmentOf, pageOf, paginate } from "./pages.js";
 import { advice, amiss, people } from "./people.js";
 import * as site from "./site.js";
 import { themeAddress } from "./theme.js";
@@ -79,8 +85,23 @@ const who = /** @type {HTMLElement} */ (document.getElementById("who"));
 const whoName = /** @type {HTMLElement} */ (document.getElementById("who-name"));
 const signOutButton = /** @type {HTMLButtonElement} */ (document.getElementById("sign-out"));
 
-/** Who is signed in, as the usher names them; null while nobody is. @type {{ name: string | null, unit: boolean, leastPassword: number } | null} */
+/**
+ * Who is signed in, as the usher names them.
+ *
+ * @typedef {object} Who
+ * @property {string | null} name null for the unit's keeper
+ * @property {string} role what they may do
+ * @property {boolean} unit whether it is the unit's keeper
+ * @property {number} leastPassword the fewest characters a password has
+ * @property {number} leastPin the fewest digits a PIN has
+ * @property {number} mostPin the most digits a PIN has that is typed
+ */
+
+/** Who is signed in; null while nobody is. @type {Who | null} */
 let signedIn = null;
+
+/** Whether whoever is signed in is let hear what happens on the unit. */
+const hears = () => signedIn !== null && signedIn.role !== FRONT_DESK;
 
 /**
  * Which sitting this is: one more each time a person signs out. What was
@@ -263,6 +284,10 @@ function enter() {
     waiting.push(done);
     if (entering) return;
     entering = true;
+    // Whose page stands there: it is kept for them, out of sight, until
+    // it is known who signs in.
+    const before = signedIn;
+    shelves.classList.add("away");
     signedIn = null;
     who.hidden = true;
     line.textContent = say("shell.not_signed_in");
@@ -283,6 +308,19 @@ function enter() {
       entering = false;
       line.textContent = say("shell.signed_in");
       await whoIsIn();
+      // The page is theirs who it was drawn for. Another person is shown
+      // none of it: it is drawn anew for them, as what they may see.
+      const same =
+        before === null ||
+        (signedIn !== null &&
+          before.name === signedIn.name &&
+          before.role === signedIn.role &&
+          before.unit === signedIn.unit);
+      if (!same) {
+        clearScreen();
+        look();
+      }
+      shelves.classList.remove("away");
       const told = waiting;
       waiting = [];
       for (const tell of told) tell();
@@ -309,8 +347,12 @@ async function whoIsIn() {
     const me = await steward.usher("me");
     found = {
       name: typeof me.name === "string" ? me.name : null,
+      // A role the face does not know is given what the least is.
+      role: me.role === ADMINISTRATOR ? ADMINISTRATOR : FRONT_DESK,
       unit: me.unit === true,
       leastPassword: Number(me.least_password) || 12,
+      leastPin: Number(me.least_pin) || 6,
+      mostPin: Number(me.most_pin) || 12,
     };
   } catch {
     found = null;
@@ -320,7 +362,14 @@ async function whoIsIn() {
   signedIn = found;
   who.hidden = signedIn === null;
   whoName.textContent = signedIn === null ? "" : (signedIn.name ?? say("shell.unit_keeper"));
-  if (signedIn !== null) await peoplePage.look();
+  if (signedIn === null) return;
+  if (signedIn.role === ADMINISTRATOR) {
+    await peoplePage.look();
+  } else {
+    // No line is joined for them: that the usher answered is all there
+    // is to say of it.
+    lineSays(true);
+  }
 }
 
 /**
@@ -348,10 +397,19 @@ async function askUsher(route, carried = null) {
  * stands over what a person who has signed out could see.
  */
 function takeDown() {
-  sitting += 1;
   signedIn = null;
   who.hidden = true;
   whoName.textContent = "";
+  clearScreen();
+}
+
+/**
+ * Take what is drawn off the screen, and with it the menu, the people
+ * and the page's name in the tab. What was asked for it before is not
+ * drawn when its answer comes.
+ */
+function clearScreen() {
+  sitting += 1;
   for (const standing of mounted.values()) standing.unmount();
   mounted.clear();
   drawnAs = "";
@@ -617,10 +675,13 @@ const peoplePage = people(peoplePane, { usher: askUsher, me: () => signedIn });
  * @param {any} snapshot the answer to `describe_ui_stockings`
  */
 function draw(snapshot) {
-  const pages = paginate(snapshot, named);
-  // Who may come in is the shell's own business: its page stands last.
-  // A page named the same in `pages.json` is that page.
-  if (!pages.some((page) => page.id === PEOPLE.id)) {
+  // Who it is drawn for: where that is not known, for the least.
+  const role = signedIn?.role ?? FRONT_DESK;
+  const pages = paginate(snapshot, named, role);
+  // Who may come in is the shell's own business, and an administrator's:
+  // its page stands last. A page named the same in `pages.json` is that
+  // page.
+  if (role === ADMINISTRATOR && !pages.some((page) => page.id === PEOPLE.id)) {
     pages.push({ id: PEOPLE.id, label: PEOPLE.label, shelves: [] });
   }
   // A page is called what the language spoken calls it.
@@ -787,13 +848,53 @@ function happened(happening) {
   }
 }
 
+/**
+ * Say in the bar whether the usher is reached.
+ *
+ * @param {boolean} reached
+ */
+function lineSays(reached) {
+  line.textContent = reached ? say("shell.connected") : say("shell.connection_lost");
+  line.classList.toggle("up", reached);
+  line.classList.toggle("down", !reached);
+}
+
 /** @param {boolean} joined */
 function lineIs(joined) {
-  line.textContent = joined ? say("shell.connected") : say("shell.connection_lost");
-  line.classList.toggle("up", joined);
-  line.classList.toggle("down", !joined);
+  lineSays(joined);
   // What was missed while the line was down is looked at afresh.
   if (joined) look();
+}
+
+/**
+ * How often a page that hears nothing asks the usher again, in
+ * milliseconds.
+ */
+const ASKS_AGAIN_MS = 30000;
+
+/**
+ * Ask the usher again, for a person who is let hear nothing of what
+ * happens: whether it still answers, whether they are still signed in,
+ * and what there is to draw. Where a session is held and the usher did
+ * not answer who holds it, that is asked again first: until it is
+ * known, no line is joined and nothing is drawn.
+ */
+async function askAgain() {
+  if (leaving || entering) return;
+  if (signedIn === null) {
+    if (!steward.bearer()) return;
+    await whoIsIn();
+    await look();
+    return;
+  }
+  if (hears()) return;
+  try {
+    await askUsher("me");
+  } catch {
+    lineSays(false);
+    return;
+  }
+  lineIs(true);
 }
 
 // The languages to choose from, in the bar and before the fields of the
@@ -810,7 +911,7 @@ wearBrand();
 site.watch(() => {
   wearBrand();
   retitle();
-  if (signedIn !== null) peoplePage.look();
+  if (signedIn?.role === ADMINISTRATOR) peoplePage.look();
 });
 await loadTheme();
 await loadPacks();
@@ -819,4 +920,10 @@ await loadPages();
 if (steward.bearer()) await whoIsIn();
 await look();
 if (signedIn === null) await whoIsIn();
-steward.watch(happened, lineIs);
+steward.watch(happened, lineIs, hears);
+// A page that hears nothing asks instead: now and then, and when it is
+// looked at again.
+setInterval(askAgain, ASKS_AGAIN_MS);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") askAgain();
+});

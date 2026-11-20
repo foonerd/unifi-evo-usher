@@ -2,6 +2,7 @@
   {
     "id": "counter",
     "label": "Counter",
+    "front_desk": true,
     "shelves": [{ "shelf": "issue.counter", "widgets": ["usher.counter"] }]
   },
   {

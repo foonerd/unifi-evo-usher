@@ -271,6 +271,41 @@ impl Steward {
         Caller::beyond().with(said["token"].as_str().expect("a session"))
     }
 
+    /// Add a person for the front desk, as an administrator does: the
+    /// PIN the usher made for them, which it says this once.
+    pub fn add_front_desk(&self, administrator: &Caller, name: &str) -> String {
+        let (status, said) = self.usher(
+            "POST",
+            "add_person",
+            Some(json!({ "name": name, "role": "front_desk" })),
+            administrator,
+        );
+        assert_eq!(status, 200, "{said}");
+        assert_eq!(said["role"], "front_desk", "{said}");
+        said["pin"].as_str().expect("a PIN").to_string()
+    }
+
+    /// Ask a shelf over HTTPS as `who`: the status, and the answer's
+    /// payload or the steward's refusal.
+    pub fn ask_status(
+        &self,
+        who: &Caller,
+        shelf: &str,
+        request: &str,
+        payload: Value,
+    ) -> (u16, Value) {
+        let (status, answer) = self.op(
+            "request",
+            json!({
+                "shelf": shelf,
+                "request_type": request,
+                "payload_b64": encoded(&payload),
+            }),
+            who,
+        );
+        (status, unwrapped(answer))
+    }
+
     /// Start the steward on `dir`, at the level named or at the ordinary
     /// one, on whatever code is there, and with what it is given in its
     /// environment beside.

@@ -14,6 +14,8 @@ import { compose } from "./compose.js";
  * @property {Array<{ shelf: string, widgets?: string[] }>} shelves
  *   the UI shelves that stand on it, in order; where `widgets` is given,
  *   only what is drawn with one of those kinds
+ * @property {boolean} [front_desk] whether a person at the front desk
+ *   has the page, as an administrator has every page
  */
 
 /**
@@ -33,6 +35,12 @@ const ID = /^[a-z][a-z0-9-]*$/;
  */
 export const REST = { id: "more", label: "More" };
 
+/** The role of whoever may do everything. */
+export const ADMINISTRATOR = "administrator";
+
+/** The role of whoever hands vouchers out, and does nothing else. */
+export const FRONT_DESK = "front_desk";
+
 /**
  * The pages to offer. A page stands in the order it is named in, with the
  * shelves it names in the order it names them. A stocking stands on the
@@ -40,11 +48,18 @@ export const REST = { id: "more", label: "More" };
  * is not offered. What is stocked and named by no page stands on a last
  * page, so that nothing the steward admitted is hidden.
  *
+ * An administrator is offered every page. A person at the front desk is
+ * offered the pages that are named as theirs, and no page of what no
+ * page names: the usher answers them nothing else, so nothing else is
+ * offered.
+ *
  * @param {any} snapshot the answer to `describe_ui_stockings`
  * @param {unknown} [named] the pages, as `pages.json` names them
+ * @param {string} [role] the role of whoever the pages are offered to
  * @returns {Page[]}
  */
-export function paginate(snapshot, named = []) {
+export function paginate(snapshot, named = [], role = ADMINISTRATOR) {
+  const atTheDesk = role === FRONT_DESK;
   const shown = compose(snapshot);
   const placed = new Set();
   /** @type {Page[]} */
@@ -61,6 +76,8 @@ export function paginate(snapshot, named = []) {
       continue;
     }
     const shelves = [];
+    // What stands on a page that is not theirs is placed, and not shown.
+    const theirs = !atTheDesk || page.front_desk === true;
     for (const stand of Array.isArray(page.shelves) ? page.shelves : []) {
       const shelf = shown.find((one) => one.id === stand?.shelf);
       if (shelf === undefined) continue;
@@ -73,8 +90,9 @@ export function paginate(snapshot, named = []) {
       for (const stocking of stockings) placed.add(stocking.key);
       shelves.push({ ...shelf, stockings });
     }
-    if (shelves.length > 0) pages.push({ id: page.id, label: page.label, shelves });
+    if (theirs && shelves.length > 0) pages.push({ id: page.id, label: page.label, shelves });
   }
+  if (atTheDesk) return pages;
 
   const rest = [];
   for (const shelf of shown) {

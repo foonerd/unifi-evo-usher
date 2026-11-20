@@ -2,7 +2,9 @@
 # Proof that the steward's package makes a machine a unit: installed on
 # this machine, started by systemd under every protection of its service,
 # set up and signed in to as a browser does it, asked as a browser asks,
-# given its site's name and time zone where it is started, started
+# by its administrator and by a person at its front desk, who is refused
+# what is the administrator's; given its site's name and time zone where
+# it is started, started
 # again, run at the extended level, removed, and, where the package is
 # Debian's, purged.
 #
@@ -255,6 +257,78 @@ answered | jq -e '(.types | map(.name)) == ["Day"] and .default == "Day"' > /dev
 [ "$(counter order_types '{"names":["Stay","Day"]}')" = 200 ] || fail "the voucher types are not put in an order: $(cat "$work/answer")"
 echo "  ok    a new unit has no voucher type; its administrator defines them and their order, and a front desk is offered the enabled ones"
 
+echo "prove-unit: the front desk"
+# A person for the front desk is added by the administrator. Nobody
+# chooses their PIN: the usher makes it, and says it this once.
+[ "$(usher add_person '{"name":"Ben","role":"front_desk"}' "$bearer")" = 200 ] || fail "a person is not added for the front desk: $(cat "$work/answer")"
+pin=$(jq -r '.pin' "$work/answer")
+[[ "$pin" =~ ^[0-9]{6}$ ]] || fail "the PIN the usher made is not six digits: $(cat "$work/answer")"
+! grep -q -F "$pin" "$PEOPLE" || fail "the PIN stands in the file of the people as it was made"
+[ "$(usher add_person '{"name":"Cara","role":"front_desk","password":"three small owls sing"}' "$bearer")" = 400 ] || fail "a PIN is chosen for a person at the front desk: $(cat "$work/answer")"
+[ "$(usher sign_in "$(named "Ben" "$pin")")" = 200 ] || fail "the name and the PIN do not sign in: $(cat "$work/answer")"
+jq -e '.name == "Ben" and .role == "front_desk"' "$work/answer" > /dev/null || fail "the unit says of who signed in with a PIN: $(cat "$work/answer")"
+desk=$(jq -r '.token' "$work/answer")
+# Ask a shelf as the browser of a person at the front desk does.
+at_the_desk() { ask request "$(request "$1" "$2" "${3:-{\}}")" "$desk"; }
+# What the counter's page asks is answered: who they are, what is
+# stocked, the site, how many vouchers are set aside, the types on offer.
+[ "$(usher me '' "$desk")" = 200 ] || fail "a person at the front desk is not told who they are: $(cat "$work/answer")"
+[ "$(ask describe_ui_stockings '' "$desk")" = 200 ] || fail "a person at the front desk is not told what is stocked: $(cat "$work/answer")"
+[ "$(at_the_desk site.settings get)" = 200 ] || fail "a person at the front desk is not told of the site: $(cat "$work/answer")"
+[ "$(at_the_desk stock.reserve count)" = 200 ] || fail "a person at the front desk is not told how many vouchers are set aside: $(cat "$work/answer")"
+[ "$(at_the_desk issue.counter offered)" = 200 ] || fail "a person at the front desk is not told the types on offer: $(cat "$work/answer")"
+answered | jq -e '(.types | map(.name)) == ["Day"]' > /dev/null || fail "a person at the front desk is offered: $(answered)"
+# A voucher is theirs to hand out: the counter is asked, and says that
+# no network is chosen yet, which is the administrator's to do.
+[ "$(at_the_desk issue.counter hand '{"type":"Day"}')" != 403 ] || fail "a person at the front desk is kept from handing a voucher out: $(cat "$work/answer")"
+jq -e '.error.details.subclass == "no_network_chosen"' "$work/answer" > /dev/null || fail "the counter answered a person at the front desk: $(cat "$work/answer")"
+# Everything else is an administrator's, and is refused by name: of the
+# shelves, of the usher's own routes, and of the steward's operations.
+while read -r shelf verb; do
+  [ "$(at_the_desk "$shelf" "$verb")" = 403 ] || fail "a person at the front desk is answered $shelf $verb: $(cat "$work/answer")"
+  jq -e '.error.details.subclass == "not_for_front_desk"' "$work/answer" > /dev/null || fail "$shelf $verb is refused a person at the front desk as: $(cat "$work/answer")"
+done << 'ASKED'
+issue.counter types
+issue.counter put_type
+issue.counter handed
+access.controller info
+access.controller set
+networks.directory networks
+stock.reserve held
+stock.reserve take
+site.settings set
+ASKED
+[ "$(usher people '' "$desk")" = 403 ] || fail "a person at the front desk is told of the people: $(cat "$work/answer")"
+[ "$(usher add_person "$(named "Mallory" "three small owls sing")" "$desk")" = 403 ] || fail "a person at the front desk adds a person: $(cat "$work/answer")"
+[ "$(usher make_pin '{"name":"Ben"}' "$desk")" = 403 ] || fail "a person at the front desk makes a PIN: $(cat "$work/answer")"
+[ "$(ask list_bearer_tokens '' "$desk")" = 403 ] || fail "a person at the front desk is told of the unit's bearers: $(cat "$work/answer")"
+[ "$(ask create_bearer_token "$mint" "$desk")" = 403 ] || fail "a person at the front desk has a bearer made: $(cat "$work/answer")"
+# A new PIN, which only an administrator has made, ends their session.
+[ "$(usher make_pin '{"name":"Ben"}' "$bearer")" = 200 ] || fail "a new PIN is not made: $(cat "$work/answer")"
+pin=$(jq -r '.pin' "$work/answer")
+[ "$(usher me '' "$desk")" = 401 ] || fail "a session is answered after a new PIN was made: $(cat "$work/answer")"
+# Where the administrator would sooner choose the PIN, they set one: it
+# is held to what keeps it from being guessed, is not answered back, and
+# is the person's from then on.
+[ "$(usher set_pin '{"name":"Ben","pin":"123456"}' "$bearer")" = 400 ] || fail "a PIN that counts up is set: $(cat "$work/answer")"
+jq -e '.error.details.subclass == "pin_runs"' "$work/answer" > /dev/null || fail "a PIN that counts up is refused as: $(cat "$work/answer")"
+[ "$(usher set_pin '{"name":"Ben","pin":"48027"}' "$bearer")" = 400 ] || fail "a PIN of five digits is set: $(cat "$work/answer")"
+jq -e '.error.details.subclass == "pin_too_short" and .error.details.values == {least: 6, has: 5}' "$work/answer" > /dev/null || fail "a PIN of five digits is refused as: $(cat "$work/answer")"
+[ "$(usher sign_in "$(named "Ben" "$pin")")" = 200 ] || fail "a PIN that was refused took the place of the one before: $(cat "$work/answer")"
+desk=$(jq -r '.token' "$work/answer")
+chosen=480273
+[ "$chosen" != "$pin" ] || chosen=480274
+[ "$(usher set_pin "{\"name\":\"Ben\",\"pin\":\"$chosen\"}" "$desk")" = 403 ] || fail "a person at the front desk sets a PIN: $(cat "$work/answer")"
+[ "$(usher set_pin "{\"name\":\"Ben\",\"pin\":\"$chosen\"}" "$bearer")" = 200 ] || fail "a PIN the administrator chose is not set: $(cat "$work/answer")"
+! grep -q -F "$chosen" "$work/answer" || fail "the PIN that was set is answered back: $(cat "$work/answer")"
+! grep -q -F "$chosen" "$PEOPLE" || fail "the PIN that was set stands in the file of the people as it was typed"
+[ "$(usher me '' "$desk")" = 401 ] || fail "a session is answered after a PIN was set: $(cat "$work/answer")"
+[ "$(usher sign_in "$(named "Ben" "$pin")")" = 401 ] || fail "the PIN before signs in after another was set: $(cat "$work/answer")"
+pin=$chosen
+[ "$(usher sign_in "$(named "Ben" "$pin")")" = 200 ] || fail "the name and the PIN that was set do not sign in: $(cat "$work/answer")"
+desk=$(jq -r '.token' "$work/answer")
+echo "  ok    a person at the front desk signs in with a PIN the usher made, is answered what the counter's page asks, and is refused the rest by name; a new PIN, made by the usher or set by the administrator, ends their session"
+
 echo "prove-unit: the site"
 # Ask the site's shelf as a browser someone is signed in at does.
 site() { ask request "$(request site.settings "$1" "$2")" "$bearer"; }
@@ -295,6 +369,11 @@ start restart
 [ "$(ask request "$(request issue.counter types '{}')" "$bearer")" = 200 ] || fail "who was signed in is refused after a restart: $(cat "$work/answer")"
 answered | jq -e '(.types | map(.name)) == ["Stay", "Day"] and .default == "Day" and .disabled == ["Stay"]' > /dev/null || fail "the voucher types, their order, the default and what is disabled were not kept through a restart: $(answered)"
 [ "$(usher people '' "$second")" = 401 ] || fail "a session that was signed out of is answered after a restart: $(cat "$work/answer")"
+# A person at the front desk is still signed in, as what they are.
+[ "$(usher me '' "$desk")" = 200 ] || fail "a person at the front desk is signed out by a restart: $(cat "$work/answer")"
+jq -e '.name == "Ben" and .role == "front_desk"' "$work/answer" > /dev/null || fail "started again, the unit says of a person at the front desk: $(cat "$work/answer")"
+[ "$(at_the_desk issue.counter offered)" = 200 ] || fail "a person at the front desk is refused the types on offer after a restart: $(cat "$work/answer")"
+[ "$(at_the_desk issue.counter types)" = 403 ] || fail "a person at the front desk is answered the voucher types after a restart: $(cat "$work/answer")"
 [ "$(site get '{}')" = 200 ] || fail "the site is not told after a restart: $(cat "$work/answer")"
 # What was set of the site stands, though the unit is started with the
 # first name, time zone and language as before.
@@ -304,7 +383,7 @@ jq -e '.site.name == "Hall of St Mary" and .site.language == "en"' "$work/answer
 rm "$GIVEN"
 rmdir "$(dirname "$GIVEN")"
 systemctl daemon-reload
-echo "  ok    started again, who was signed in still is, who signed out is not, and the voucher types and the site are kept as they were set"
+echo "  ok    started again, who was signed in still is, each as what they are, who signed out is not, and the voucher types and the site are kept as they were set"
 
 echo "prove-unit: the extended level"
 # Whoever has the unit's files takes the people away, and the unit asks

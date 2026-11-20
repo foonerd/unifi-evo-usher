@@ -2,6 +2,18 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## [0.3.19] - 2026-11-20
+
+- A person is an administrator or works the front desk. The front desk hands out vouchers and does nothing else: the Counter is its one page. People from before are administrators
+- The front desk signs in with a name and a PIN. The usher makes the PIN at random, six digits, or eight at the extended level, and shows it once to the administrator who adds the person; it is kept as an Argon2id hash, and five wrong tries hold the name as they do for a password. An administrator makes a new PIN, which signs the person out everywhere. The form says "Password or PIN"
+- An administrator can also set a front desk person's PIN by hand, over the one they have: "Set a PIN" on the page People, and `/usher/v1/set_pin`. A PIN that is typed is digits only, six to twelve of them, eight at least at the extended level, and is refused where it is one digit or one group of digits repeated, or digits that count up or down, each under a code of its own (`pin_not_digits`, `pin_too_short`, `pin_too_long`, `pin_repeats`, `pin_runs`). It is kept as a made one is and signs the person out everywhere
+- What the front desk may ask is held twice: its session is made with `plugins` and the new capability `voucher_issue`, which the counter declares on `offered` and `hand`, so evo refuses it the rest; and the usher's gate lets it ask only what the Counter page asks, and refuses everything else with 403 `not_for_front_desk`, the WebSocket among it. Its page asks again every thirty seconds
+- The record of hand-outs names who handed each voucher out: the person signed in, or the unit's keeper. The gate writes it on the request, over whatever the caller wrote; the list of vouchers shows it. A record from before has no name and still reads
+- `/usher/v1/people` takes a `role` for a new person and answers a front desk person's `pin` once; `/usher/v1/make_pin` makes a new one; `sign_in` and `me` answer the role, and `me` the fewest and the most digits a typed PIN has
+- Everyone is signed out once when a unit is updated to this version: a session from before lacks the capability the counter now asks for
+- When a session ends, the page behind the form to sign in is hidden, where it stayed in view, dimmed
+- All of it in the eleven languages
+
 ## [0.3.18] - 2026-11-20
 
 - The face speaks eleven languages: English, German, Spanish, French, Italian, Japanese, Dutch, Polish, the Portuguese of Portugal, Russian and Chinese in simplified characters. Every language has every text; Polish and Russian have the forms their counts take

@@ -11,7 +11,10 @@
 //! that stock them.
 //!
 //! Every voucher it hands out it writes down: which, of which type,
-//! when, and whether it was held or minted.
+//! when, whether it was held or minted, and who handed it out. A plugin
+//! is told nothing of who asks it, so who that is comes with the request:
+//! the usher's steward, which knows who has signed in, writes it there
+//! over whatever a caller sent.
 //!
 //! The voucher types are the administrator's to define. Of a type the
 //! days and the number of devices are fixed, or are chosen for each
@@ -46,7 +49,9 @@
 //!   types in that order, the one they stand in at the counter, and
 //!   answers `{"order": ["..."]}`.
 //! - `hand`: `{"type": "..."}`, with `"days"` and `"guests"` where the
-//!   type has them chosen, answers `{"voucher": {"id", "code"},
+//!   type has them chosen, and with who hands it out, `"by": "..."` for a
+//!   person or `"unit": true` for the unit's keeper, answers
+//!   `{"voucher": {"id", "code"},
 //!   "type": type, "network": "...", "join": {...}, "held": bool, "at":
 //!   n}`: the voucher, the terms of its type, the name of the wireless
 //!   network it is for, what a phone joins that network from, whether
@@ -59,9 +64,10 @@
 //!   held for the type its note names, which is kept on the voucher's
 //!   terms where no type of that name is. Answers `{"type": type}`.
 //! - `handed`: `{"ids": ["..."]}` answers `{"handed": [{"id", "type",
-//!   "at", "held"}]}`: the hand-out of each of those vouchers that was
-//!   handed out here; with no `ids`, the newest hundred, the newest
-//!   first.
+//!   "at", "held", "by", "unit"}]}`: the hand-out of each of those
+//!   vouchers that was handed out here, with `"by"` where a person
+//!   handed it out and `"unit": true` where the unit's keeper did; with
+//!   no `ids`, the newest hundred, the newest first.
 //!
 //! A refusal is given under a code, as its subclass, beside its words:
 //! the code is what a screen finds words of its own language by. What

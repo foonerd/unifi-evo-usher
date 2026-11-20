@@ -2030,7 +2030,7 @@ fn people_sign_in_and_out_and_are_looked_after_on_a_page_of_their_own() {
         json!({
             "heading": "Sign in", "forms": 1,
             "name": ["text", "username", "Name"],
-            "password": ["password", "current-password", "Password"],
+            "password": ["password", "current-password", "Password or PIN"],
             "keep": ["checkbox", "Keep me signed in on this device", true, false],
             "at": "sign-in-name",
             "widgets": 0,
@@ -2044,7 +2044,7 @@ fn people_sign_in_and_out_and_are_looked_after_on_a_page_of_their_own() {
     said_in(
         &mut browser,
         "sign-in-form",
-        "Type your name and your password.",
+        "Type your name and your password or PIN.",
     );
     fill(
         &mut browser,
@@ -2066,7 +2066,7 @@ fn people_sign_in_and_out_and_are_looked_after_on_a_page_of_their_own() {
     said_in(
         &mut browser,
         "sign-in-form",
-        "The name or the password is wrong.",
+        "The name, or the password or PIN, is wrong.",
     );
     assert_eq!(held(&mut browser), json!({ "session": null, "kept": null }));
     assert_eq!(
@@ -2496,6 +2496,512 @@ fn people_sign_in_and_out_and_are_looked_after_on_a_page_of_their_own() {
     browser.wait(
         "the form that sets an usher up",
         r#"document.getElementById("entry")?.open === true && document.getElementById("set-up-form") !== null"#,
+    );
+    assert_eq!(steward.stop(), Some(0));
+}
+
+/// What the page of the people shows of a PIN that was just made: whose
+/// it is said to be, the PIN, and whether it is said to be shown once.
+const PIN_SHOWN: &str = r##"
+    const shown = document.querySelector(".people-pin");
+    return {
+      heading: shown.querySelector("h3").textContent,
+      pin: shown.querySelector("#made-pin").textContent,
+      once: shown.querySelector(".hint").textContent.startsWith("It is shown this once."),
+      at: document.activeElement.id,
+      forms: document.querySelectorAll(".people form").length,
+    };
+"##;
+
+#[test]
+fn the_front_desk_is_given_a_pin_and_has_the_counter_alone() {
+    let Some(mut browser) = Browser::open() else {
+        return;
+    };
+    browser.size(1280, 900);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let simulated = runtime.block_on(Simulated::start());
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+    let anna = signed_in_already(&mut browser, &steward);
+
+    // The unit as its administrator leaves it for the front desk: a
+    // voucher type, the controller set, a network chosen.
+    let ask = |shelf: &str, request: &str, payload: Value| {
+        let (status, said) = steward.ask_status(&anna, shelf, request, payload);
+        assert_eq!(status, 200, "{shelf} {request}: {said}");
+        said
+    };
+    ask(
+        "issue.counter",
+        "put_type",
+        json!({ "name": "Day guest", "minutes": 1440, "guests": 1 }),
+    );
+    let presented = ask(
+        "access.controller",
+        "probe",
+        json!({ "base": simulated.base() }),
+    );
+    ask(
+        "access.controller",
+        "set",
+        json!({
+            "base": simulated.base(), "key": simulated.key(),
+            "fingerprint": presented["fingerprint"],
+        }),
+    );
+    let networks = ask("networks.directory", "networks", json!({}));
+    let guests = networks["sites"][0]["networks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|network| network["name"] == "Guests")
+        .expect("the simulated controller has a Guests network")["id"]
+        .clone();
+    ask(
+        "networks.directory",
+        "choose",
+        json!({ "site": simulated.site(), "network": guests }),
+    );
+
+    browser.go(&format!("{}/", steward.address()));
+    go_to(&mut browser, "People");
+    browser.wait(
+        "the people",
+        r#"document.querySelectorAll(".people-list li").length === 1"#,
+    );
+
+    // A person is added for the front desk: a name, what they may do,
+    // and no password to think of.
+    press_on_people(&mut browser, "Add a person");
+    browser.wait(
+        "the form",
+        r#"document.getElementById("add-person-form") !== null"#,
+    );
+    let offered = browser.look(
+        r#"
+        const form = document.getElementById("add-person-form");
+        return {
+          asked: form.querySelector("legend").textContent,
+          may: [...form.querySelectorAll('input[name="role"]')].map((choice) => [
+            choice.value, choice.labels[0].textContent.trim(), choice.checked,
+          ]),
+          password: onScreen(document.getElementById("add-person-password")),
+          at: document.activeElement.id,
+        };
+        "#,
+    );
+    assert_eq!(
+        offered,
+        json!({
+            "asked": "What they may do",
+            "may": [
+                ["administrator", "Everything on these pages (administrator)", true],
+                ["front_desk", "Hand out vouchers, and nothing else (front desk)", false],
+            ],
+            "password": true,
+            "at": "add-person-name",
+        })
+    );
+    fill(&mut browser, json!({ "add-person-name": "Ben" }));
+    browser.act(r#"document.getElementById("add-person-front_desk").click();"#);
+    let for_the_desk = browser.look(
+        r#"
+        return {
+          password: onScreen(document.getElementById("add-person-password")),
+          again: onScreen(document.getElementById("add-person-again")),
+          said: document.getElementById("add-person-pin-part").textContent,
+          told: onScreen(document.getElementById("add-person-pin-part")),
+        };
+        "#,
+    );
+    assert_eq!(
+        for_the_desk,
+        json!({
+            "password": false, "again": false, "told": true,
+            "said": "They sign in with this name and a PIN that the usher makes. It is shown to you once, when you add them: give it to them yourself.",
+        })
+    );
+    // For the eye: a person added for the front desk.
+    if let Some(to) = picture_of(Some("people-front-desk")) {
+        browser.picture(&to);
+    }
+    browser
+        .act(r#"document.getElementById("add-person-form").requestSubmit();"#);
+    done_on_people(&mut browser, "Added Ben, for the front desk.");
+
+    // The PIN is the usher's making, and is shown this once: six digits,
+    // large, with whose it is, and nothing else to do but to take it.
+    browser.wait("the PIN", r#"document.getElementById("made-pin") !== null"#);
+    let shown = browser.look(PIN_SHOWN);
+    let pin = shown["pin"].as_str().unwrap().to_string();
+    assert!(
+        pin.len() == 6 && pin.bytes().all(|byte| byte.is_ascii_digit()),
+        "{pin}"
+    );
+    assert_eq!(
+        shown,
+        json!({
+            "heading": "A PIN for Ben", "pin": pin, "once": true,
+            "at": "made-pin-done", "forms": 0,
+        })
+    );
+    // For the eye: the PIN as it is shown, this once.
+    if let Some(to) = picture_of(Some("people-pin")) {
+        browser.picture(&to);
+    }
+    let listed = browser.look(
+        r#"
+        return [...document.querySelectorAll(".people-list li")].map((row) => [
+          row.querySelector(".person-name").textContent,
+          row.querySelector(".person-role").textContent.split(",")[0],
+          [...row.querySelectorAll("button")].map((b) => b.getAttribute("aria-label")),
+        ]);
+        "#,
+    );
+    assert_eq!(
+        listed,
+        json!([
+            ["Anna", "Administrator", []],
+            [
+                "Ben",
+                "Front desk",
+                ["Make a new PIN for Ben", "Set a PIN for Ben", "Remove Ben"]
+            ],
+        ])
+    );
+    browser.act(r#"document.getElementById("made-pin-done").click();"#);
+    let after = browser.look(&format!(
+        r#"
+        return {{
+          pin: document.body.innerText.includes({pin}),
+          shown: document.querySelector(".people-pin") !== null,
+          add: onScreen(document.getElementById("add-person")),
+        }};
+        "#,
+        pin = json!(pin),
+    ));
+    assert_eq!(
+        after,
+        json!({ "pin": false, "shown": false, "add": true }),
+        "once it is taken, it is on the page no longer"
+    );
+    assert_eq!(steward.sign_in("Ben", &pin).0, 200);
+
+    // A new PIN is asked for once more before it is made: the one the
+    // person has stops being theirs.
+    press_on_people(&mut browser, "Make a new PIN for Ben");
+    browser.wait(
+        "asked once more",
+        r#"document.querySelector(".people-sure")?.textContent === "Make a new PIN for Ben? The one they have stops working, and they are signed out.""#,
+    );
+    press_on_people(&mut browser, "Keep the PIN");
+    assert_eq!(steward.sign_in("Ben", &pin).0, 200, "kept, it is as it was");
+    press_on_people(&mut browser, "Make a new PIN for Ben");
+    browser.wait(
+        "asked once more",
+        r#"document.querySelector(".people-sure") !== null"#,
+    );
+    press_on_people(&mut browser, "Make a new PIN for Ben");
+    done_on_people(
+        &mut browser,
+        "Ben has a new PIN, and is signed out everywhere.",
+    );
+    browser.wait(
+        "the new PIN",
+        r#"document.getElementById("made-pin") !== null"#,
+    );
+    let new_pin = browser.look(PIN_SHOWN)["pin"].as_str().unwrap().to_string();
+    assert!(
+        new_pin.len() == 6 && new_pin.bytes().all(|byte| byte.is_ascii_digit()),
+        "{new_pin}"
+    );
+    if new_pin != pin {
+        assert_eq!(steward.sign_in("Ben", &pin).0, 401, "the old PIN is none");
+    }
+    browser.act(r#"document.getElementById("made-pin-done").click();"#);
+
+    // Where the administrator would sooner choose the PIN, she sets one:
+    // a form with one field, in which the PIN is shown as it is typed,
+    // since she is choosing it and has to tell it to Ben.
+    press_on_people(&mut browser, "Set a PIN for Ben");
+    browser.wait(
+        "the form",
+        r#"document.getElementById("set-pin-form") !== null"#,
+    );
+    let form = browser.look(
+        r#"
+        const form = document.getElementById("set-pin-form");
+        const field = document.getElementById("set-pin-new");
+        return {
+          heading: form.querySelector("h3").textContent,
+          field: [field.type, field.inputMode, field.autocomplete, field.labels[0].textContent],
+          fields: form.querySelectorAll("input:not([hidden])").length,
+          told: [...form.querySelectorAll(".hint")].map((hint) => hint.textContent),
+          does: [...form.querySelectorAll("button")].map((button) => button.textContent),
+          at: document.activeElement.id,
+        };
+        "#,
+    );
+    assert_eq!(
+        form,
+        json!({
+            "heading": "Set a PIN for Ben",
+            "field": ["text", "numeric", "off", "PIN"],
+            "fields": 1,
+            "told": [
+                "Choose a PIN for Ben, and give it to them yourself. They are signed out everywhere, and sign in with it from then on.",
+                "6 to 12 digits. Not one digit or one group of digits repeated, and not digits that count up or down.",
+            ],
+            "does": ["Save", "Cancel"],
+            "at": "set-pin-new",
+        })
+    );
+    // What is no PIN is said on the form, by the rule it breaks, and the
+    // form stays for another to be typed.
+    browser.act(r#"document.getElementById("set-pin-form").requestSubmit();"#);
+    said_in(&mut browser, "set-pin-form", "Type a PIN.");
+    for (typed, said) in [
+        ("48027", "A PIN is 6 digits at least; this one has 5."),
+        ("4802739518462", "A PIN is 12 digits at most."),
+        ("48o273", "A PIN is digits only."),
+        (
+            "121212",
+            "A PIN is not one digit, or one group of digits, repeated.",
+        ),
+        ("123456", "A PIN is not digits that count up or down."),
+    ] {
+        fill(&mut browser, json!({ "set-pin-new": typed }));
+        browser
+            .act(r#"document.getElementById("set-pin-form").requestSubmit();"#);
+        said_in(&mut browser, "set-pin-form", said);
+    }
+    assert_eq!(
+        steward.sign_in("Ben", &new_pin).0,
+        200,
+        "nothing was set yet"
+    );
+    // For the eye: a PIN that is refused, with why.
+    if let Some(to) = picture_of(Some("people-set-pin")) {
+        browser.picture(&to);
+    }
+    // A PIN that will do, with a space after it as a hand leaves one.
+    let chosen = if new_pin == "480273" {
+        "480274"
+    } else {
+        "480273"
+    };
+    fill(&mut browser, json!({ "set-pin-new": format!("{chosen} ") }));
+    browser.act(r#"document.getElementById("set-pin-form").requestSubmit();"#);
+    done_on_people(
+        &mut browser,
+        "Ben has a new PIN, and is signed out everywhere.",
+    );
+    // It is set, and is on the page no longer: nothing is shown of a PIN
+    // the administrator typed herself.
+    let after = browser.look(&format!(
+        r#"
+        return {{
+          pin: document.body.innerText.includes({chosen}),
+          shown: document.querySelector(".people-pin") !== null,
+          form: document.getElementById("set-pin-form") !== null,
+        }};
+        "#,
+        chosen = json!(chosen),
+    ));
+    assert_eq!(
+        after,
+        json!({ "pin": false, "shown": false, "form": false })
+    );
+    assert_eq!(
+        steward.sign_in("Ben", &new_pin).0,
+        401,
+        "the PIN before is none"
+    );
+    assert_eq!(steward.sign_in("Ben", chosen).0, 200);
+    let new_pin = chosen.to_string();
+
+    // Ben signs in at this browser, with his name and the PIN where a
+    // password goes.
+    browser.act(r#"document.getElementById("sign-out").click();"#);
+    browser.wait(
+        "the form to sign in",
+        r#"document.getElementById("entry").open === true && document.getElementById("sign-in-form") !== null"#,
+    );
+    // Anna's session went with her signing out here; she is signed in
+    // elsewhere, to look at what Ben does.
+    let anna = steward.signed_in("Anna", PASSWORD);
+    fill(
+        &mut browser,
+        json!({ "sign-in-name": "Ben", "sign-in-password": new_pin }),
+    );
+    browser.act(r#"document.getElementById("sign-in-form").requestSubmit();"#);
+    browser.wait(
+        "the counter",
+        r#"document.getElementById("entry").open === false && widget("usher.counter")?.querySelector("button.usher-type") != null"#,
+    );
+    // He has the counter, and nothing else: no menu, since there is
+    // nowhere else to go, no page of the people, and nothing drawn that
+    // he would be refused. The bar says who he is, and that the usher is
+    // reached, though no line is joined for him.
+    browser.wait(
+        "the bar",
+        r#"document.getElementById("line").textContent === "Connected""#,
+    );
+    let his = browser.look(
+        r##"
+        return {
+          who: document.getElementById("who-name").textContent,
+          widgets: [...document.querySelectorAll("[data-widget]")].map((w) => w.dataset.widget),
+          pages: [...document.querySelectorAll("#shelves > .page")].map((page) => page.dataset.page),
+          menu: [menuEntries().length, onScreen(document.getElementById("menu"))],
+          people: document.querySelector(".people") !== null,
+          title: document.title,
+          line: document.getElementById("line").className,
+          signOut: onScreen(document.getElementById("sign-out")),
+          language: onScreen(document.getElementById("language")),
+          refused: document.body.innerText.includes("administrator's"),
+        };
+        "##,
+    );
+    assert_eq!(
+        his,
+        json!({
+            "who": "Ben", "widgets": ["usher.counter"], "pages": ["counter"],
+            "menu": [1, false], "people": false, "title": "Usher",
+            "line": "up", "signOut": true, "language": true, "refused": false,
+        })
+    );
+    // An address of another page leads to the one he has.
+    browser.act(r##"location.hash = "#/people";"##);
+    browser.wait(
+        "still the counter",
+        r#"onScreen(widget("usher.counter")) && document.querySelector(".people") === null"#,
+    );
+
+    // A guest is handed a voucher, from his screen.
+    browser.act(r#"widget("usher.counter").querySelector("button.usher-type").click();"#);
+    browser.wait(
+        "the voucher",
+        r#"widget("usher.counter").querySelector(".usher-ticket .usher-voucher") !== null"#,
+    );
+    // For the eye: what a person at the front desk has.
+    if let Some(to) = picture_of(Some("front-desk")) {
+        browser.picture(&to);
+    }
+    // The record names him.
+    let (_, handed) =
+        steward.ask_status(&anna, "issue.counter", "handed", json!({}));
+    assert_eq!(handed["handed"][0]["by"], "Ben", "{handed}");
+    assert_eq!(handed["handed"].as_array().unwrap().len(), 1, "{handed}");
+
+    // The page that hears nothing asks again when it is looked at: with
+    // his session ended elsewhere, he is asked in again, and what stood
+    // on the page is out of sight until it is known who signs in.
+    let (status, _) = steward.usher(
+        "POST",
+        "make_pin",
+        Some(json!({ "name": "Ben" })),
+        &anna,
+    );
+    assert_eq!(status, 200);
+    browser.act(r#"document.dispatchEvent(new Event("visibilitychange"));"#);
+    browser.wait(
+        "the form to sign in",
+        r#"document.getElementById("entry").open === true && document.getElementById("sign-in-form") !== null"#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"return getComputedStyle(document.getElementById("shelves")).visibility;"#
+        ),
+        json!("hidden")
+    );
+
+    // Anna signs in over it: the page is drawn anew for her, with every
+    // page an administrator has, and none of what stood there for Ben.
+    fill(
+        &mut browser,
+        json!({ "sign-in-name": "Anna", "sign-in-password": PASSWORD }),
+    );
+    browser.act(r#"document.getElementById("sign-in-form").requestSubmit();"#);
+    browser.wait(
+        "her pages",
+        r#"document.getElementById("entry").open === false && menuEntries().length === 7 && document.getElementById("who-name").textContent === "Anna""#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"return [getComputedStyle(document.getElementById("shelves")).visibility, widget("usher.counter").querySelector(".usher-ticket") === null];"#
+        ),
+        json!(["visible", true]),
+        "the voucher Ben handed out does not stand on her page"
+    );
+    // The list of the controller's vouchers says who handed it out.
+    go_to(&mut browser, "Vouchers");
+    browser.wait(
+        "who handed it out",
+        r#"widget("usher.vouchers").querySelector("tbody tr")?.cells[1].textContent.includes(", by Ben")"#,
+    );
+    let said = browser.look(
+        r#"
+        const cell = widget("usher.vouchers").querySelector("tbody tr").cells[1];
+        return [cell.textContent.startsWith("handed out"), cell.querySelectorAll("time").length];
+        "#,
+    );
+    assert_eq!(said, json!([true, 1]));
+    // For the eye: the list, with who handed a voucher out.
+    if let Some(to) = picture_of(Some("vouchers-handed-by")) {
+        browser.picture(&to);
+    }
+
+    // And the other way about: Anna's session ended, Ben signs in over
+    // her page, and is shown none of it.
+    let hers = held(&mut browser)["session"]
+        .as_str()
+        .expect("a session")
+        .to_string();
+    let (status, _) = steward.usher(
+        "POST",
+        "sign_out",
+        Some(json!({})),
+        &Caller::beyond().with(&hers),
+    );
+    assert_eq!(status, 200);
+    browser.act(r##"location.hash = "#/people";"##);
+    browser.wait(
+        "the form to sign in",
+        r#"document.getElementById("entry").open === true && document.getElementById("sign-in-form") !== null"#,
+    );
+    let newest = steward
+        .usher("POST", "make_pin", Some(json!({ "name": "Ben" })), &anna)
+        .1["pin"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    fill(
+        &mut browser,
+        json!({ "sign-in-name": "Ben", "sign-in-password": newest }),
+    );
+    browser.act(r#"document.getElementById("sign-in-form").requestSubmit();"#);
+    browser.wait(
+        "the counter alone",
+        r#"document.getElementById("entry").open === false && document.getElementById("who-name").textContent === "Ben" && widget("usher.counter") !== null && widget("usher.vouchers") === null"#,
+    );
+    let his = browser.look(
+        r#"
+        return {
+          widgets: [...document.querySelectorAll("[data-widget]")].map((w) => w.dataset.widget),
+          menu: menuEntries().length,
+          people: document.querySelector(".people") !== null,
+          seen: getComputedStyle(document.getElementById("shelves")).visibility,
+        };
+        "#,
+    );
+    assert_eq!(
+        his,
+        json!({ "widgets": ["usher.counter"], "menu": 1, "people": false, "seen": "visible" })
     );
     assert_eq!(steward.stop(), Some(0));
 }
@@ -3549,7 +4055,7 @@ fn the_face_speaks_the_language_a_person_a_browser_or_the_site_says() {
     said_in(
         &mut browser,
         "sign-in-form",
-        "Der Name oder das Passwort ist falsch.",
+        "Der Name, das Passwort oder die PIN ist falsch.",
     );
     fill(
         &mut browser,

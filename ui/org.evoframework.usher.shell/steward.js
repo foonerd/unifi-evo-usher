@@ -346,11 +346,16 @@ export async function signOut() {
  * is taken up again by itself when it drops, and anew when another
  * session's bearer is held than the one it was joined with.
  *
+ * The steward opens the line to an administrator, and to nobody else: a
+ * session that is not let hear what happens joins none.
+ *
  * @param {(happening: { type: string } & Record<string, unknown>) => void} onHappening
  * @param {(joined: boolean) => void} onLine told when the line is up or down
+ * @param {() => boolean} [hears] whether whoever is signed in is let hear
+ *   what happens
  * @returns {() => void} ends the watch
  */
-export function watch(onHappening, onLine) {
+export function watch(onHappening, onLine, hears = () => true) {
   /** @type {WebSocket | null} */
   let line = null;
   /** The bearer the line was joined with. @type {string | null} */
@@ -364,9 +369,10 @@ export function watch(onHappening, onLine) {
     if (ended) return;
     const scheme = location.protocol === "https:" ? "wss" : "ws";
     const token = bearer();
-    if (!token) {
-      // The steward opens the line to who has signed in only. Until
-      // someone has, there is nothing to join, and nothing is down.
+    if (!token || !hears()) {
+      // The steward opens the line to who has signed in, and may hear
+      // it, only. Until someone has, there is nothing to join, and
+      // nothing is down.
       again = setTimeout(join, 500);
       return;
     }

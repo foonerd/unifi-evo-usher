@@ -1,5 +1,6 @@
 //! The record of what the counter handed out: which voucher, of which
-//! type, when, and whether it was held or minted for the asking.
+//! type, when, whether it was held or minted for the asking, and who
+//! handed it out.
 //!
 //! The record is a file of lines, one hand-out a line, that only grows:
 //! a hand-out is added at its end and synced before it is answered. A
@@ -28,6 +29,13 @@ pub struct HandOut {
     pub at: u64,
     /// Whether it was held for the type, or minted for the asking.
     pub held: bool,
+    /// The name of the person who handed it out, where a person did. A
+    /// hand-out written down before the record named anyone has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<String>,
+    /// Whether the unit's keeper handed it out, who is no person.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unit: bool,
 }
 
 /// What the counter handed out, the oldest first.
@@ -127,7 +135,60 @@ mod tests {
             kind: "Day".to_string(),
             at,
             held: false,
+            by: None,
+            unit: false,
         }
+    }
+
+    #[test]
+    fn the_record_names_who_handed_a_voucher_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("handed.jsonl");
+        // A hand-out as it was written down before anyone was named.
+        fs::write(
+            &path,
+            "{\"id\":\"old\",\"type\":\"Day\",\"at\":5,\"held\":true}\n",
+        )
+        .unwrap();
+        let mut handed = Handed::open(dir.path()).unwrap();
+        assert_eq!(handed.unread(), 0, "an older line is still a hand-out");
+        let old = handed.of("old").unwrap();
+        assert_eq!((old.by.as_deref(), old.unit), (None, false));
+
+        handed
+            .record(HandOut {
+                by: Some("Ben".to_string()),
+                ..hand_out("b", 10)
+            })
+            .unwrap();
+        handed
+            .record(HandOut {
+                unit: true,
+                ..hand_out("u", 20)
+            })
+            .unwrap();
+        let again = Handed::open(dir.path()).unwrap();
+        assert_eq!(again.of("b").unwrap().by.as_deref(), Some("Ben"));
+        assert!(again.of("u").unwrap().unit);
+        assert_eq!(again.of("u").unwrap().by, None);
+        // A line says who only where there is somebody to say.
+        let lines: Vec<String> = fs::read_to_string(&path)
+            .unwrap()
+            .lines()
+            .map(str::to_string)
+            .collect();
+        assert_eq!(
+            lines[0],
+            "{\"id\":\"old\",\"type\":\"Day\",\"at\":5,\"held\":true}"
+        );
+        assert_eq!(
+            lines[1],
+            "{\"id\":\"b\",\"type\":\"Day\",\"at\":10,\"held\":false,\"by\":\"Ben\"}"
+        );
+        assert_eq!(
+            lines[2],
+            "{\"id\":\"u\",\"type\":\"Day\",\"at\":20,\"held\":false,\"unit\":true}"
+        );
     }
 
     #[test]

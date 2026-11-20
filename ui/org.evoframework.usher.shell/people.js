@@ -2,10 +2,20 @@
 // that lists them, adds one, sets a new password for one, removes one,
 // and lets whoever is signed in change their own password.
 //
+// A person is an administrator, who signs in with a password and may do
+// everything, or works the front desk, where vouchers are handed out and
+// nothing else is done. A person at the front desk signs in with a PIN
+// the usher makes for them: it is shown here once, when it is made, for
+// the administrator to give them, and is kept nowhere it can be read.
+// Where an administrator would sooner choose the PIN, they type one for
+// the person here; the usher holds it to what keeps it from being
+// guessed, and shows it to nobody.
+//
 // One form stands on the page at a time, and it is taken off the page
 // when it is done with: a browser and a password manager then see what
 // was typed for what it was.
 
+import { ADMINISTRATOR, FRONT_DESK } from "./pages.js";
 import { day as dayOf } from "./site.js";
 import { refusal, say } from "./words.js";
 
@@ -67,7 +77,7 @@ const wordsOf = (why) => refusal(why);
  * @property {(route: string, carried?: Record<string, unknown> | null) => Promise<any>} usher
  *   asks one of the usher's own routes; a refusal is thrown as an `Error`
  *   whose message is in words
- * @property {() => { name: string | null, unit: boolean, leastPassword: number } | null} me
+ * @property {() => { name: string | null, role: string, unit: boolean, leastPassword: number, leastPin: number, mostPin: number } | null} me
  *   who is signed in
  */
 
@@ -155,9 +165,10 @@ export function people(element, hands) {
    * @param {string} form.does what its button says
    * @param {Array<Node | string>} form.fields
    * @param {HTMLElement} form.opener what was pressed to open it
-   * @param {(said: HTMLElement) => Promise<string | null>} form.send asks
-   *   the usher; what it returns is what was done, or null where the
-   *   form stays for something to be typed again
+   * @param {(said: HTMLElement) => Promise<string | { words: string, name: string, pin: string } | null>} form.send
+   *   asks the usher; what it returns is what was done, with the PIN
+   *   that was made where one was, or null where the form stays for
+   *   something to be typed again
    */
   const open = ({ id, title, does, fields, opener, send }) => {
     const alert = made("p", { class: "said", role: "alert" });
@@ -176,8 +187,13 @@ export function people(element, hands) {
       alert.textContent = "";
       asking = true;
       try {
-        const words = await send(alert);
-        if (words !== null) await done(words);
+        const did = await send(alert);
+        if (typeof did === "string") {
+          await done(did);
+        } else if (did !== null) {
+          await done(did.words);
+          showPin(did.name, did.pin);
+        }
       } catch (why) {
         alert.textContent = wordsOf(why);
       } finally {
@@ -194,6 +210,31 @@ export function people(element, hands) {
     doing.hidden = true;
     desk.replaceChildren(form);
     /** @type {HTMLElement | null} */ (form.querySelector("input:not([hidden])"))?.focus();
+  };
+
+  /**
+   * Show a PIN that was just made, this once: it is kept nowhere it can
+   * be read again, so whoever had it made gives it to its person now.
+   *
+   * @param {string} name whose it is
+   * @param {string} pin
+   */
+  const showPin = (name, pin) => {
+    const heading = made("h3", { id: "made-pin-title" }, [say("people.pin_for", { name })]);
+    const close = made("button", { type: "button", id: "made-pin-done" }, [say("common.done")]);
+    const shown = made("div", { class: "people-pin", role: "group", "aria-labelledby": heading.id }, [
+      heading,
+      made("p", { class: "pin", id: "made-pin" }, [pin]),
+      made("p", { class: "hint" }, [say("people.pin_once", { name })]),
+      made("div", { class: "row" }, [close]),
+    ]);
+    close.addEventListener("click", () => {
+      shut();
+      said.focus();
+    });
+    doing.hidden = true;
+    desk.replaceChildren(shown);
+    close.focus();
   };
 
   add.addEventListener("click", () => {
@@ -219,26 +260,68 @@ export function people(element, hands) {
       type: "password",
       autocomplete: "new-password",
     });
+    // What they are to do: everything, or the front desk.
+    /** @param {string} role @param {string} label @param {boolean} first */
+    const choice = (role, label, first) => {
+      const input = made("input", {
+        id: `add-person-${role}`,
+        name: "role",
+        type: "radio",
+        value: role,
+        ...(first ? { checked: "" } : {}),
+      });
+      return {
+        input,
+        label: made("label", { class: "check", for: input.id }, [input, made("span", {}, [label])]),
+      };
+    };
+    const everything = choice(ADMINISTRATOR, say("people.does_everything"), true);
+    const theDesk = choice(FRONT_DESK, say("people.does_front_desk"), false);
+    const theirPassword = made("div", { id: "add-person-password-part" }, [
+      passwordLabel,
+      password,
+      made("p", { class: "hint" }, [advice(least())]),
+      againLabel,
+      again,
+      made("p", { class: "hint" }, [say("people.add_hint")]),
+    ]);
+    const theirPin = made("p", { class: "hint", id: "add-person-pin-part", hidden: "" }, [
+      say("people.add_desk_hint"),
+    ]);
+    const does = made("fieldset", { class: "people-role" }, [
+      made("legend", {}, [say("people.they_do")]),
+      everything.label,
+      theDesk.label,
+    ]);
+    does.addEventListener("change", () => {
+      const desk = theDesk.input.checked;
+      theirPassword.hidden = desk;
+      theirPin.hidden = !desk;
+      // A password that is not asked for is not asked to be typed.
+      for (const field of [password, again]) field.required = !desk;
+    });
     open({
       id: "add-person-form",
       title: say("people.add"),
       does: say("people.add_do"),
       opener: add,
-      fields: [
-        made("p", { class: "hint" }, [say("people.add_hint")]),
-        nameLabel,
-        name,
-        passwordLabel,
-        password,
-        made("p", { class: "hint" }, [advice(least())]),
-        againLabel,
-        again,
-      ],
+      fields: [nameLabel, name, does, theirPassword, theirPin],
       send: async (alert) => {
         if (name.value.trim() === "") {
           alert.textContent = say("people.type_their_name");
           name.focus();
           return null;
+        }
+        if (theDesk.input.checked) {
+          const added = await hands.usher("add_person", {
+            name: name.value.trim(),
+            role: FRONT_DESK,
+          });
+          return {
+            words: say("people.added_desk", { name: added.added }),
+            name: added.added,
+            pin: String(added.pin ?? ""),
+          };
         }
         const wrong = amiss(password.value, again.value);
         if (wrong !== null) {
@@ -366,6 +449,98 @@ export function people(element, hands) {
   };
 
   /**
+   * Set a PIN the administrator chooses for a person at the front desk.
+   * It is shown as it is typed: whoever types it is choosing it, and has
+   * to tell it to its person.
+   *
+   * @param {string} name whose PIN is set
+   * @param {HTMLElement} opener
+   */
+  const setPinFor = (name, opener) => {
+    const [pinLabel, pin] = fieldOf("set-pin-new", say("people.pin_label"), {
+      name: "pin",
+      type: "text",
+      inputmode: "numeric",
+      autocomplete: "off",
+      autocapitalize: "off",
+      spellcheck: "false",
+      maxlength: "32",
+    });
+    open({
+      id: "set-pin-form",
+      title: say("people.pin_set_for", { name }),
+      does: say("common.save"),
+      opener,
+      fields: [
+        made("p", { class: "hint" }, [say("people.pin_set_hint", { name })]),
+        pinLabel,
+        pin,
+        made("p", { class: "hint" }, [
+          say("people.pin_rules", {
+            least: hands.me()?.leastPin ?? 6,
+            most: hands.me()?.mostPin ?? 12,
+          }),
+        ]),
+      ],
+      send: async (alert) => {
+        const typed = pin.value.trim();
+        if (typed === "") {
+          alert.textContent = say("people.type_pin");
+          pin.focus();
+          return null;
+        }
+        try {
+          const set = await hands.usher("set_pin", { name, pin: typed });
+          return say("people.pin_made", { name: set.set });
+        } catch (why) {
+          // What is wrong with it is said, and it stands there to be
+          // typed over.
+          alert.textContent = wordsOf(why);
+          pin.select();
+          return null;
+        }
+      },
+    });
+  };
+
+  /**
+   * Ask once more before a new PIN is made for a person, in the row they
+   * stand in: the one they have stops being theirs at once.
+   *
+   * @param {string} name
+   * @param {HTMLElement} row the row's buttons
+   */
+  const newPinAfterAsking = (name, row) => {
+    const before = [...row.childNodes];
+    const sure = made("button", { type: "button", class: "quiet" }, [
+      say("people.pin_new_named", { name }),
+    ]);
+    const keep = made("button", { type: "button", class: "quiet" }, [say("people.pin_keep")]);
+    row.replaceChildren(
+      made("p", { class: "people-sure" }, [say("people.pin_new_sure", { name })]),
+      sure,
+      keep,
+    );
+    keep.focus();
+    keep.addEventListener("click", () => {
+      row.replaceChildren(...before);
+      /** @type {HTMLElement | null} */ (row.querySelector("button"))?.focus();
+    });
+    sure.addEventListener("click", async () => {
+      sure.disabled = true;
+      try {
+        const made = await hands.usher("make_pin", { name });
+        await done(say("people.pin_made", { name: made.name }));
+        showPin(made.name, String(made.pin ?? ""));
+      } catch (why) {
+        await look();
+        said.textContent = wordsOf(why);
+        said.focus();
+      }
+    });
+  };
+
+  /**
    * Ask once more before a person is removed, in the row they stand in.
    *
    * @param {string} name
@@ -403,8 +578,13 @@ export function people(element, hands) {
   /** @param {{ name: string, role: string, made_ms: number, you: boolean }} person */
   const rowOf = (person) => {
     const since = day(person.made_ms);
+    const atTheDesk = person.role === FRONT_DESK;
     const role =
-      person.role === "administrator" ? say("people.role_administrator") : person.role;
+      person.role === ADMINISTRATOR
+        ? say("people.role_administrator")
+        : atTheDesk
+          ? say("people.role_front_desk")
+          : person.role;
     const told = made("div", { class: "person" }, [
       made("span", { class: "person-name" }, [person.name]),
       ...(person.you ? [made("span", { class: "person-you" }, [say("people.you")])] : []),
@@ -414,14 +594,19 @@ export function people(element, hands) {
     ]);
     const row = made("div", { class: "row" });
     if (!person.you) {
+      // What a person signs in with is set anew by an administrator: a
+      // password by typing one, a PIN by having the usher make one, or,
+      // where the administrator would sooner choose it, by typing one.
       const set = made(
         "button",
         {
           type: "button",
           class: "quiet",
-          "aria-label": say("people.set_for", { name: person.name }),
+          "aria-label": atTheDesk
+            ? say("people.pin_new_named", { name: person.name })
+            : say("people.set_for", { name: person.name }),
         },
-        [say("people.set_new")],
+        [atTheDesk ? say("people.pin_new") : say("people.set_new")],
       );
       const remove = made(
         "button",
@@ -432,9 +617,25 @@ export function people(element, hands) {
         },
         [say("people.remove")],
       );
-      set.addEventListener("click", () => setFor(person.name, set));
+      set.addEventListener("click", () =>
+        atTheDesk ? newPinAfterAsking(person.name, row) : setFor(person.name, set),
+      );
       remove.addEventListener("click", () => removeAfterAsking(person.name, row));
-      row.append(set, remove);
+      row.append(set);
+      if (atTheDesk) {
+        const choose = made(
+          "button",
+          {
+            type: "button",
+            class: "quiet",
+            "aria-label": say("people.pin_set_for", { name: person.name }),
+          },
+          [say("people.pin_set")],
+        );
+        choose.addEventListener("click", () => setPinFor(person.name, choose));
+        row.append(choose);
+      }
+      row.append(remove);
     }
     const item = made("li", {}, [told, row]);
     item.dataset.person = person.name;

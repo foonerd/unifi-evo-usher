@@ -153,6 +153,49 @@ struct Handing {
     /// The devices chosen, of a type whose devices are.
     #[serde(default)]
     guests: Option<u64>,
+    /// The name of the person who hands the voucher out. Whoever stands
+    /// between the counter and a caller writes it: the counter is told
+    /// nothing of who asks it.
+    #[serde(default)]
+    by: Option<String>,
+    /// Whether the unit's keeper hands it out, who is no person.
+    #[serde(default)]
+    unit: bool,
+}
+
+/// Who hands a voucher out, as the record names them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Issuer {
+    by: Option<String>,
+    unit: bool,
+}
+
+/// The longest name the record keeps of who handed a voucher out, in
+/// characters.
+const LONGEST_ISSUER: usize = 64;
+
+impl Issuer {
+    /// Who a request says hands the voucher out; or why that is nobody a
+    /// record can name.
+    fn of(by: Option<String>, unit: bool) -> Result<Self, Refusal> {
+        let by = by.map(|name| name.trim().to_string());
+        let named = match &by {
+            None => true,
+            Some(name) => {
+                !name.is_empty()
+                    && name.chars().count() <= LONGEST_ISSUER
+                    && !name.chars().any(char::is_control)
+            }
+        };
+        if !named || (by.is_some() && unit) {
+            return Err(Refusal::AsAsked(why(
+                "not_as_asked",
+                "who hands the voucher out is not named as a record names \
+                 one: a name of 64 characters at most, or the unit",
+            )));
+        }
+        Ok(Self { by, unit })
+    }
 }
 
 #[derive(Deserialize)]
@@ -261,7 +304,7 @@ impl Counter {
     /// Write a hand-out down, and say when it was. The guest has the
     /// voucher whether it is written down or not, so a record that
     /// cannot be written is said in the log and holds nothing up.
-    fn note(&self, id: &str, kind: &str, held: bool) -> u64 {
+    fn note(&self, id: &str, kind: &str, held: bool, issuer: &Issuer) -> u64 {
         let at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|since| since.as_secs())
@@ -271,6 +314,8 @@ impl Counter {
             kind: kind.to_string(),
             at,
             held,
+            by: issuer.by.clone(),
+            unit: issuer.unit,
         };
         if let Err(e) = self
             .handed
@@ -351,7 +396,9 @@ impl Counter {
             }
             "hand" => {
                 let handing: Handing = asked(payload)?;
-                self.hand(&handing.kind, handing.days, handing.guests).await
+                let issuer = Issuer::of(handing.by, handing.unit)?;
+                self.hand(&handing.kind, handing.days, handing.guests, &issuer)
+                    .await
             }
             "assign" => {
                 let assigning: Assigning = asked(payload)?;
@@ -392,11 +439,14 @@ impl Counter {
     /// A type whose days or devices are chosen is issued on what was
     /// chosen for this voucher. No voucher is held for such a type, so
     /// one is minted.
+    ///
+    /// Who hands it out is written down with it.
     async fn hand(
         &self,
         name: &str,
         days: Option<u64>,
         guests: Option<u64>,
+        issuer: &Issuer,
     ) -> Result<Value, Refusal> {
         let defined = self
             .types
@@ -454,7 +504,7 @@ impl Counter {
             }
         };
         if let Some(voucher) = held {
-            let at = self.note(&voucher.id, &kind.name, true);
+            let at = self.note(&voucher.id, &kind.name, true, issuer);
             return Ok(json!({
                 "voucher": { "id": voucher.id, "code": voucher.code },
                 "type": kind,
@@ -493,7 +543,7 @@ impl Counter {
                     "{CONTROLLER} minted nothing to hand out: {none}"
                 ))
             })?;
-        let at = self.note(&voucher.id, &kind.name, false);
+        let at = self.note(&voucher.id, &kind.name, false, issuer);
         Ok(json!({
             "voucher": { "id": voucher.id, "code": voucher.code },
             "type": kind,

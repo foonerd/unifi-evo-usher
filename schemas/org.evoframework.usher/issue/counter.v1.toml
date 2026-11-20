@@ -20,10 +20,17 @@ none held, one is minted for the asking on the shelf
 `access.controller`. The counter asks those shelves as any caller does.
 
 Every voucher handed out is written down: which, of which type, when,
-and whether it was held or minted. A hand-out is `{ id: string, type:
-string, at: integer, held: bool }`, `at` in seconds since
-1970-01-01T00:00:00Z. The record is kept through a restart, and keeps
-the newest ten thousand.
+whether it was held or minted, and who handed it out. A hand-out is
+`{ id: string, type: string, at: integer, held: bool, by?: string,
+unit?: true }`, `at` in seconds since 1970-01-01T00:00:00Z, `by` the
+name of the person who handed it out, and `unit` where the unit's keeper
+did, who is no person; a hand-out written down before the record named
+anyone has neither. The record is kept through a restart, and keeps the
+newest ten thousand.
+
+A plugin is told nothing of who asks it. Who hands a voucher out comes
+with the request, written there by whoever stands between the counter
+and a caller and knows who that caller is.
 
 A type is `{ name: string, minutes: integer, guests: integer | null,
 megabytes: integer | null, down_kbps: integer | null, up_kbps: integer |
@@ -166,8 +173,10 @@ payload_out = "json"
 request_type = "hand"
 description = """
 Hand out one voucher of a type. Payload `{ type: string, days?:
-integer, guests?: integer }`: the type by its name, and what is chosen
-for this voucher where the type has days or devices to choose. Returns
+integer, guests?: integer, by?: string, unit?: bool }`: the type by its
+name, what is chosen for this voucher where the type has days or devices
+to choose, and who hands it out, a person by a name of 64 characters at
+most or the unit's keeper, and not both. Returns
 `{ voucher: { id: string, code: string }, type: type,
 network: string, join: { text: string, side: integer, rows: [string] } |
 null, held: bool, at: integer }`: the voucher, by the controller's
@@ -293,8 +302,9 @@ its note names, is refused as permanent and holds nothing.
 name = "a-hand-out-is-written-down"
 detail = """
 After `hand` returned a voucher, `handed` with its identifier returns
-its hand-out, with the type it was handed out as and whether it was
-held, and does so after a restart of the plugin. `handed` with the
+its hand-out, with the type it was handed out as, whether it was held
+and who the request said handed it out, and does so after a restart of
+the plugin. `handed` with the
 identifier of a voucher that was not handed out here returns none.
 """
 

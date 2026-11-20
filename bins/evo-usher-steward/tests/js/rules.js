@@ -138,6 +138,40 @@ hold(
 hold("a list that is none", laid(paginate(snapshot, { id: "one" })).map(([id]) => id), [REST.id]);
 hold("nothing stocked, no page", paginate(undefined, named), []);
 
+// Which pages a person at the front desk is offered: the ones named as
+// theirs, and no page of what no page names.
+const forTheDesk = [
+  { id: "one", label: "One", shelves: [{ shelf: "c.last", widgets: ["k.two"] }] },
+  {
+    id: "two",
+    label: "Two",
+    front_desk: true,
+    shelves: [{ shelf: "a.first" }, { shelf: "c.last", widgets: ["k.two", "k.gone"] }],
+  },
+];
+hold(
+  "a person at the front desk is offered the pages named as theirs",
+  laid(paginate(snapshot, forTheDesk, "front_desk")),
+  // What stands on an administrator's page before it does not stand here.
+  [["two", [["a.first", ["k.one", "k.two"]], ["c.last", ["k.gone"]]]]],
+);
+hold(
+  "an administrator is offered every page, and what no page names",
+  paginate(snapshot, forTheDesk, "administrator").map((page) => page.id),
+  ["one", "two", REST.id],
+);
+hold(
+  "who has no role named is offered what an administrator is",
+  paginate(snapshot, forTheDesk).map((page) => page.id),
+  ["one", "two", REST.id],
+);
+hold("with no page theirs, the front desk is offered none", paginate(snapshot, named, "front_desk"), []);
+hold(
+  "a page is theirs only where it says so",
+  paginate(snapshot, [{ ...forTheDesk[1], front_desk: "yes" }], "front_desk"),
+  [],
+);
+
 // Which page an address asks for.
 hold("a page's address", fragmentOf("two"), "#/two");
 hold("the page named", pageOf("#/two", pages), "two");
@@ -545,7 +579,7 @@ const refused_ = (reason, message, more = {}) => Object.assign(new Error(message
 hold(
   "by its code",
   words.refusal(refused_("wrong_name_or_password", "anything")),
-  "The name or the password is wrong.",
+  "The name, or the password or PIN, is wrong.",
 );
 hold(
   "with the values it carries",

@@ -872,6 +872,84 @@ async fn every_hand_out_is_written_down_and_its_voucher_not_assigned() {
 }
 
 #[tokio::test]
+async fn a_hand_out_names_who_the_request_says_handed_it_out() {
+    let dir = tempfile::tempdir().unwrap();
+    let stand = Arc::new(Stand::working());
+    let counter = Counter::open(dir.path(), Some(stand.clone())).unwrap();
+    ask(&counter, "put_type", house_guests()).await.unwrap();
+
+    // A person, the unit's keeper, and nobody that was said.
+    for who in [
+        json!({ "by": " Ben at the desk " }),
+        json!({ "unit": true }),
+        json!({}),
+    ] {
+        let mut handing = json!({ "type": "House guests" });
+        for (said, value) in who.as_object().unwrap() {
+            handing[said] = value.clone();
+        }
+        ask(&counter, "hand", handing).await.unwrap();
+    }
+    let told = ask(&counter, "handed", json!({})).await.unwrap();
+    let told: Vec<Value> = told["handed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|hand_out| {
+            json!({ "by": hand_out.get("by"), "unit": hand_out.get("unit") })
+        })
+        .collect();
+    // The newest first; a name without the spaces around it; and a
+    // hand-out says who only where there is somebody to say.
+    assert_eq!(
+        told,
+        [
+            json!({ "by": null, "unit": null }),
+            json!({ "by": null, "unit": true }),
+            json!({ "by": "Ben at the desk", "unit": null }),
+        ]
+    );
+    // Who handed a voucher out is not what a guest is shown: the answer
+    // to `hand` says nothing of it.
+    let handed = ask(
+        &counter,
+        "hand",
+        json!({ "type": "House guests", "by": "Ben" }),
+    )
+    .await
+    .unwrap();
+    assert!(handed.get("by").is_none() && handed.get("unit").is_none());
+
+    // Who is no name a record keeps is refused, and nothing is minted
+    // for it.
+    let minted = stand.asked().len();
+    for nobody in [
+        json!({ "by": "" }),
+        json!({ "by": "   " }),
+        json!({ "by": "n".repeat(65) }),
+        json!({ "by": "Ben\nand more" }),
+        json!({ "by": "Ben", "unit": true }),
+        json!({ "by": 7 }),
+    ] {
+        let mut handing = json!({ "type": "House guests" });
+        for (said, value) in nobody.as_object().unwrap() {
+            handing[said] = value.clone();
+        }
+        let refused = ask(&counter, "hand", handing).await;
+        assert!(
+            matches!(&refused, Err(Refusal::AsAsked(why)) if why.code == "not_as_asked"),
+            "{nobody}: {refused:?}"
+        );
+    }
+    assert_eq!(stand.asked().len(), minted);
+
+    // It is there when the plugin is started again.
+    let again = Counter::open(dir.path(), None).unwrap();
+    let kept = ask(&again, "handed", json!({})).await.unwrap();
+    assert_eq!(kept["handed"][0]["by"], "Ben", "{kept}");
+}
+
+#[tokio::test]
 async fn an_open_network_is_joined_from_the_voucher() {
     let dir = tempfile::tempdir().unwrap();
     for (security, joined) in [

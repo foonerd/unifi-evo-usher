@@ -15,8 +15,24 @@
 //! here, before evo sees it, but for the files of the face, the one
 //! thing the door asks before anyone has signed in, and the routes that
 //! are how one signs in. evo's pairing is closed: no bearer is had by
-//! any other way than the usher's own. What a session may do, once
-//! through, is evo's to say, as before.
+//! any other way than the usher's own.
+//!
+//! What a session may do, once through, is evo's to say, by what its
+//! bearer is good for; and for a person at the front desk it is held
+//! here as well, to what the counter's page asks and no more: the types
+//! on offer, a voucher handed out, how many are set aside, what the site
+//! is called, and what the shell reads to draw the page. Everything else
+//! is refused them here, by name, whatever their bearer would be good
+//! for.
+//!
+//! Where a shelf is asked, the gate reads what is asked of which, and
+//! evo is given exactly what the gate read. A voucher that is handed out
+//! is handed out by somebody: the gate, which knows whose session it is,
+//! writes the person on the request, over whatever the caller wrote
+//! there, for the counter to put in its record. The unit's keeper asks
+//! a shelf with a bearer the usher has made for that, good for what an
+//! administrator's is: the unit's own bearer is evo's making, and
+//! carries no capability a plugin of the usher's declares.
 //!
 //! evo is shown the one bearer the gate judged, and no other a request
 //! carries beside it. Where a session opens the WebSocket, evo is shown
@@ -28,13 +44,18 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use axum::body::Body;
 use axum::extract::{Request, State};
 use axum::http::{header, HeaderValue, Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::Response;
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine as _;
 use evo_auth_bearer::{BearerToken, BearerTokenValidator};
+use serde_json::{Map, Value};
 
-use crate::signin::{self, Asking, Settings, Usher};
+use crate::people::FRONT_DESK;
+use crate::signin::{self, Asking, Refused, Settings, Usher};
 
 /// The operation of evo's a caller who has not signed in may ask: which
 /// shell is active, which the door asks so as to open the right one.
@@ -43,6 +64,35 @@ pub const OPEN: [&str; 1] = ["describe_active_ui_selection"];
 /// The operation the WebSocket is opened on. A browser cannot set a
 /// header on one, and presents its bearer as a subprotocol there.
 const SOCKET: &str = "ws";
+
+/// The operation of evo's a shelf of the catalogue is asked with.
+const ASK_A_SHELF: &str = "request";
+
+/// The operations of evo's a person at the front desk may ask beside
+/// [`OPEN`] and asking a shelf: what is stocked, which the shell draws
+/// its pages from.
+pub const OF_THE_SHELL: [&str; 1] = ["describe_ui_stockings"];
+
+/// What a person at the front desk may ask of a shelf: what the
+/// counter's page asks, and no more. The types on offer and a voucher
+/// handed out; how many vouchers are set aside for each type, which the
+/// page says beside the type; and what the site is called, how it looks,
+/// what time it keeps and what language it speaks, which every page
+/// wears.
+pub const OF_THE_COUNTER: [(&str, &str); 4] = [
+    ("issue.counter", "offered"),
+    ("issue.counter", "hand"),
+    ("stock.reserve", "count"),
+    ("site.settings", "get"),
+];
+
+/// The shelf and the request a voucher is handed out with.
+const HANDING: (&str, &str) = ("issue.counter", "hand");
+
+/// The longest that is read of what is asked of a shelf, in bytes: room
+/// for the largest thing a shelf of the usher's takes, a site's logo,
+/// several times over.
+const MOST_ASKED: usize = 2 * 1024 * 1024;
 
 /// What a bearer presented as a WebSocket subprotocol begins with.
 const AS_SUBPROTOCOL: &str = "evo.bearer.";
@@ -121,10 +171,34 @@ async fn admit(
         return next.run(request).await;
     };
 
+    // A person at the front desk asks what the counter's page asks.
+    let at_the_desk =
+        matches!(&who, Asking::Person { role, .. } if role == FRONT_DESK);
+    if at_the_desk && !let_in_front_desk(request.method(), &asked) {
+        return not_for_the_desk();
+    }
+    // Where a shelf is asked, what is asked of which is read here, and
+    // evo is given what was read. The operation counts as that one
+    // however its name is spelt.
+    let asks_a_shelf = matches!(&asked, Asked::Evo(operation)
+        if operation == ASK_A_SHELF || unescaped(operation) == ASK_A_SHELF)
+        && request.method() == Method::POST;
+    if asks_a_shelf {
+        request = match of_a_shelf(request, &who).await {
+            Ok(read) => read,
+            Err(refused) => return *refused,
+        };
+    }
+
     let on_the_line = asked == Asked::Evo(SOCKET.to_string());
     let to_evo = match &who {
         Asking::Person { .. } if on_the_line => match gate.usher.line().await {
             Ok(of_the_line) => of_the_line,
+            Err(refused) => return *refused,
+        },
+        // The unit's keeper asks a shelf as an administrator does.
+        Asking::Unit if asks_a_shelf => match gate.usher.as_keeper().await {
+            Ok(of_the_keeper) => of_the_keeper,
             Err(refused) => return *refused,
         },
         _ => shown.bearer.clone(),
@@ -275,6 +349,113 @@ fn let_in_unsigned(method: &Method, asked: &Asked) -> bool {
     }
 }
 
+/// Whether a person at the front desk is let in: to what anyone is let
+/// in to, to what the shell reads to draw a page, to ask a shelf, which
+/// [`of_a_shelf`] then holds to the counter's page, and to say who they
+/// are and to sign out.
+fn let_in_front_desk(method: &Method, asked: &Asked) -> bool {
+    if let_in_unsigned(method, asked) {
+        return true;
+    }
+    match asked {
+        Asked::File => false,
+        Asked::Evo(operation) => {
+            OF_THE_SHELL.contains(&operation.as_str())
+                || (operation == ASK_A_SHELF && method == Method::POST)
+        }
+        Asked::Usher(route) => {
+            signin::OF_THE_FRONT_DESKS.contains(&route.as_str())
+        }
+    }
+}
+
+/// Read what a request asks of a shelf, and give evo what was read: the
+/// same request, written anew from how it was understood here, so that
+/// evo can understand it no other way.
+///
+/// A person at the front desk is refused whatever the counter's page
+/// does not ask. A voucher that is handed out has whoever asks written
+/// on it, over whatever the caller wrote there: the person by their
+/// name, or the unit's keeper.
+///
+/// What cannot be read as asking a shelf is refused a person at the
+/// front desk, and is left for evo to refuse anyone else, in its own
+/// words: it names no shelf, and so hands nothing out.
+async fn of_a_shelf(
+    request: Request,
+    who: &Asking,
+) -> Result<Request, Refused> {
+    let at_the_desk =
+        matches!(who, Asking::Person { role, .. } if role == FRONT_DESK);
+    let (mut parts, body) = request.into_parts();
+    let bytes = axum::body::to_bytes(body, MOST_ASKED).await.map_err(|_| {
+        Box::new(signin::refusal(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "contract_violation",
+            "asked_too_long",
+            "What was sent is too long to be asked of a shelf.",
+        ))
+    })?;
+    let unread = || {
+        Box::new(signin::refusal(
+            StatusCode::BAD_REQUEST,
+            "contract_violation",
+            "not_as_asked",
+            "What was sent does not ask a shelf: it names no shelf and no \
+             request, or carries nothing the request takes.",
+        ))
+    };
+    let read = serde_json::from_slice::<Map<String, Value>>(&bytes)
+        .ok()
+        .and_then(|asked| {
+            let shelf = asked.get("shelf")?.as_str()?.to_string();
+            let request_type = asked.get("request_type")?.as_str()?.to_string();
+            Some((asked, shelf, request_type))
+        });
+    let Some((mut asked, shelf, request_type)) = read else {
+        if at_the_desk {
+            return Err(unread());
+        }
+        return Ok(Request::from_parts(parts, Body::from(bytes)));
+    };
+    let asking = (shelf.as_str(), request_type.as_str());
+    if at_the_desk && !OF_THE_COUNTER.contains(&asking) {
+        return Err(Box::new(not_for_the_desk()));
+    }
+    if asking == HANDING {
+        let handing = asked
+            .get("payload_b64")
+            .and_then(Value::as_str)
+            .and_then(|payload| STANDARD.decode(payload).ok())
+            .and_then(|payload| {
+                serde_json::from_slice::<Map<String, Value>>(&payload).ok()
+            });
+        let Some(mut handing) = handing else {
+            return Err(unread());
+        };
+        handing.remove("by");
+        handing.remove("unit");
+        match who {
+            Asking::Person { name, .. } => {
+                handing.insert("by".to_string(), Value::String(name.clone()));
+            }
+            Asking::Unit => {
+                handing.insert("unit".to_string(), Value::Bool(true));
+            }
+        }
+        asked.insert(
+            "payload_b64".to_string(),
+            Value::String(STANDARD.encode(Value::Object(handing).to_string())),
+        );
+    }
+    let written = Value::Object(asked).to_string().into_bytes();
+    parts.headers.remove(header::TRANSFER_ENCODING);
+    parts
+        .headers
+        .insert(header::CONTENT_LENGTH, HeaderValue::from(written.len()));
+    Ok(Request::from_parts(parts, Body::from(written)))
+}
+
 /// A bearer as a request presents it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Shown {
@@ -334,10 +515,19 @@ fn refused() -> Response {
     )
 }
 
+/// The answer to a person at the front desk who asks what is an
+/// administrator's.
+fn not_for_the_desk() -> Response {
+    signin::refusal(
+        StatusCode::FORBIDDEN,
+        "permission_denied",
+        "not_for_front_desk",
+        "That is an administrator's to do. The front desk hands out vouchers.",
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use axum::body::Body;
-
     use super::*;
 
     const API: &str = "/api/v1";
@@ -548,8 +738,304 @@ mod tests {
         assert!(shown.headers().is_empty());
     }
 
+    fn desk() -> Asking {
+        Asking::Person {
+            name: "Ben".to_string(),
+            role: FRONT_DESK.to_string(),
+            session: "s-desk".to_string(),
+        }
+    }
+
+    fn administrator() -> Asking {
+        Asking::Person {
+            name: "Anna".to_string(),
+            role: crate::people::ADMINISTRATOR.to_string(),
+            session: "s-admin".to_string(),
+        }
+    }
+
+    #[test]
+    fn the_front_desk_is_let_in_to_what_the_counters_page_asks() {
+        let get = Method::GET;
+        let post = Method::POST;
+        // The face's files are read, as by anyone.
+        assert!(let_in_front_desk(&get, &Asked::File));
+        assert!(!let_in_front_desk(&post, &Asked::File));
+        // What the door and the shell read, and asking a shelf.
+        assert!(let_in_front_desk(
+            &get,
+            &evo("describe_active_ui_selection")
+        ));
+        assert!(let_in_front_desk(&get, &evo("describe_ui_stockings")));
+        assert!(let_in_front_desk(&post, &evo("request")));
+        for method in [&get, &Method::PUT, &Method::DELETE] {
+            assert!(!let_in_front_desk(method, &evo("request")), "{method}");
+        }
+        // Nothing else of the steward's: its bearers, its plugins'
+        // administration, the line of what happens.
+        for operation in [
+            "create_bearer_token",
+            "list_bearer_tokens",
+            "revoke_bearer_token",
+            "household_protection_set",
+            "list_plugins",
+            "list_subjects",
+            "course_correct",
+            "activate_theme",
+            "ws",
+            "",
+            "request/",
+            "describe_ui_stockings/",
+        ] {
+            for method in [&get, &post] {
+                assert!(
+                    !let_in_front_desk(method, &evo(operation)),
+                    "{method} {operation}"
+                );
+            }
+        }
+        // Of the usher's own routes: the way in, who they are, and
+        // signing out. The people are an administrator's.
+        for route in signin::ROUTES {
+            assert_eq!(
+                let_in_front_desk(&post, &usher(route)),
+                ["state", "set_up", "sign_in", "sign_out", "me"]
+                    .contains(&route),
+                "{route}"
+            );
+        }
+        assert!(!let_in_front_desk(&get, &usher("")));
+    }
+
+    /// A request that asks a shelf, as a caller sends one.
+    fn asking_a_shelf(
+        shelf: &str,
+        request_type: &str,
+        payload: &str,
+    ) -> Request {
+        let body = serde_json::json!({
+            "shelf": shelf,
+            "request_type": request_type,
+            "payload_b64": STANDARD.encode(payload),
+        })
+        .to_string();
+        Request::builder()
+            .method(Method::POST)
+            .uri("/api/v1/request")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::CONTENT_LENGTH, body.len())
+            .body(Body::from(body))
+            .unwrap()
+    }
+
+    /// What evo is given: the length it is told, and what is asked, with
+    /// the payload read.
+    async fn given(request: Request) -> (usize, Value, Value) {
+        let told = request.headers()[header::CONTENT_LENGTH]
+            .to_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let bytes = axum::body::to_bytes(request.into_body(), MOST_ASKED)
+            .await
+            .unwrap();
+        assert_eq!(bytes.len(), told, "the length evo is told");
+        let asked: Value = serde_json::from_slice(&bytes).unwrap();
+        let payload = serde_json::from_slice(
+            &STANDARD
+                .decode(asked["payload_b64"].as_str().unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+        (told, asked, payload)
+    }
+
+    async fn subclass_of(refused: Refused) -> (StatusCode, String) {
+        let status = refused.status();
+        let bytes = axum::body::to_bytes(refused.into_body(), MOST_ASKED)
+            .await
+            .unwrap();
+        let said: Value = serde_json::from_slice(&bytes).unwrap();
+        (
+            status,
+            said["error"]["details"]["subclass"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+        )
+    }
+
+    #[tokio::test]
+    async fn the_front_desk_asks_a_shelf_what_the_counters_page_asks() {
+        for (shelf, request_type) in OF_THE_COUNTER {
+            let read =
+                of_a_shelf(asking_a_shelf(shelf, request_type, "{}"), &desk())
+                    .await;
+            assert!(read.is_ok(), "{shelf} {request_type}");
+        }
+        for (shelf, request_type) in [
+            ("issue.counter", "types"),
+            ("issue.counter", "put_type"),
+            ("issue.counter", "handed"),
+            ("issue.counter", "assign"),
+            ("access.controller", "list"),
+            ("access.controller", "set"),
+            ("networks.directory", "choose"),
+            ("stock.reserve", "held"),
+            ("stock.reserve", "take"),
+            ("site.settings", "set"),
+            ("site.settings", "put_logo"),
+            ("issue.counter", "Hand"),
+            ("", ""),
+        ] {
+            let refused =
+                of_a_shelf(asking_a_shelf(shelf, request_type, "{}"), &desk())
+                    .await
+                    .unwrap_err();
+            assert_eq!(
+                subclass_of(refused).await,
+                (StatusCode::FORBIDDEN, "not_for_front_desk".to_string()),
+                "{shelf} {request_type}"
+            );
+            // An administrator, and the unit's keeper, ask any of them.
+            for who in [administrator(), Asking::Unit] {
+                assert!(of_a_shelf(
+                    asking_a_shelf(shelf, request_type, "{}"),
+                    &who
+                )
+                .await
+                .is_ok());
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn whoever_hands_a_voucher_out_is_written_on_the_request() {
+        // By name, over whatever the caller wrote there.
+        let forged =
+            r#"{"type": "Day", "days": 2, "by": "Anna", "unit": true}"#;
+        for (who, by) in [(desk(), "Ben"), (administrator(), "Anna")] {
+            let read = of_a_shelf(
+                asking_a_shelf("issue.counter", "hand", forged),
+                &who,
+            )
+            .await
+            .unwrap();
+            let (_, asked, payload) = given(read).await;
+            assert_eq!(asked["shelf"], "issue.counter");
+            assert_eq!(asked["request_type"], "hand");
+            assert_eq!(
+                payload,
+                serde_json::json!({ "type": "Day", "days": 2, "by": by })
+            );
+        }
+        // The unit's keeper is no person.
+        let read = of_a_shelf(
+            asking_a_shelf(
+                "issue.counter",
+                "hand",
+                r#"{"type": "Day", "by": "Anna"}"#,
+            ),
+            &Asking::Unit,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            given(read).await.2,
+            serde_json::json!({ "type": "Day", "unit": true })
+        );
+        // Nothing is written on what hands nothing out.
+        let read = of_a_shelf(
+            asking_a_shelf("issue.counter", "offered", r#"{"by": "x"}"#),
+            &desk(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(given(read).await.2, serde_json::json!({ "by": "x" }));
+        // A hand-out whose payload cannot be read is nobody's to make.
+        for who in [desk(), administrator(), Asking::Unit] {
+            let mut request = asking_a_shelf("issue.counter", "hand", "{}");
+            *request.body_mut() = Body::from(
+                r#"{"shelf":"issue.counter","request_type":"hand","payload_b64":"not base64"}"#,
+            );
+            let refused = of_a_shelf(request, &who).await.unwrap_err();
+            assert_eq!(
+                subclass_of(refused).await,
+                (StatusCode::BAD_REQUEST, "not_as_asked".to_string())
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn evo_is_given_what_the_gate_read_and_nothing_spelt_twice() {
+        // A shelf named twice: the gate reads one of them, and evo is
+        // given that one alone.
+        let twice = format!(
+            r#"{{"shelf":"site.settings","request_type":"get","shelf":"issue.counter","request_type":"types","payload_b64":"{}"}}"#,
+            STANDARD.encode("{}")
+        );
+        let request = |body: &str| {
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/request")
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+        let refused = of_a_shelf(request(&twice), &desk()).await.unwrap_err();
+        assert_eq!(
+            subclass_of(refused).await.1,
+            "not_for_front_desk",
+            "the shelf the gate reads is the one evo would be given"
+        );
+        let read = of_a_shelf(request(&twice), &administrator()).await.unwrap();
+        let (_, asked, _) = given(read).await;
+        assert_eq!(asked["shelf"], "issue.counter");
+        assert_eq!(asked["request_type"], "types");
+        assert_eq!(asked.as_object().unwrap().len(), 3);
+
+        // What asks no shelf at all is refused the front desk here, and
+        // left for evo to refuse anyone else, as it came.
+        for unread in [
+            "",
+            "[]",
+            "{}",
+            r#"{"shelf": 1, "request_type": "get"}"#,
+            "{",
+        ] {
+            let refused =
+                of_a_shelf(request(unread), &desk()).await.unwrap_err();
+            assert_eq!(
+                subclass_of(refused).await,
+                (StatusCode::BAD_REQUEST, "not_as_asked".to_string()),
+                "{unread}"
+            );
+            let passed =
+                of_a_shelf(request(unread), &administrator()).await.unwrap();
+            let bytes = axum::body::to_bytes(passed.into_body(), MOST_ASKED)
+                .await
+                .unwrap();
+            assert_eq!(bytes, unread.as_bytes(), "{unread}");
+        }
+        // And what is too long to be asked of a shelf is nobody's.
+        let long = "x".repeat(MOST_ASKED + 1);
+        let refused = of_a_shelf(request(&long), &administrator())
+            .await
+            .unwrap_err();
+        assert_eq!(
+            subclass_of(refused).await,
+            (StatusCode::PAYLOAD_TOO_LARGE, "asked_too_long".to_string())
+        );
+    }
+
     #[test]
     fn the_refusal_reads_as_one_of_evos() {
+        let of_the_desk = not_for_the_desk();
+        assert_eq!(of_the_desk.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            of_the_desk.headers()[header::CONTENT_TYPE],
+            "application/json"
+        );
+
         let refused = refused();
         assert_eq!(refused.status(), StatusCode::UNAUTHORIZED);
         assert_eq!(refused.headers()[header::CONTENT_TYPE], "application/json");

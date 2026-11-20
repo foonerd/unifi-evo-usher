@@ -6,13 +6,17 @@
 // One that no guest has used can be set aside: the counter then keeps
 // it for the voucher type its note names, and gives it to a guest before
 // it has another made. One the counter handed out is shown as handed out
-// until its guest uses it, and is not set aside.
+// until its guest uses it, and is not set aside; it says when it was
+// handed out, and by whom where the counter's record names them.
 
 import { el, id, placeOf, words } from "./dom.js";
 import { HELD_CHANGED, TYPES_KEPT, VOUCHER_HANDED } from "./events.js";
 import { CONTROLLER_SET } from "./networks.js";
 import { COUNTER, RESERVE } from "./shelves.js";
 import { number, say } from "./words.js";
+
+/** What stands in words where a moment is to go, until it is put there. */
+const MARK = "\u0001";
 
 /** The most vouchers of a kind that are put on the screen at once. */
 const SHOWN = 100;
@@ -190,6 +194,48 @@ export function vouchers(element, context) {
     return byId;
   };
 
+  /**
+   * Words with a moment among them: the words of a key, with the moment
+   * standing where they say `{when}`.
+   *
+   * @param {string} words the words, with a mark where the moment goes
+   * @param {HTMLElement | string} when the moment
+   * @returns {Array<HTMLElement | string>}
+   */
+  const around = (words, when) => {
+    const [before, after = ""] = words.split(MARK);
+    return [before, when, after].filter((part) => part !== "");
+  };
+
+  /**
+   * When a voucher was handed out, and by whom where the record names
+   * them: a person by their name, or the unit's keeper.
+   *
+   * @param {any} out the hand-out, as the counter tells it
+   * @param {boolean} said whether it is said already that it was handed
+   *   out, so that only when and by whom is left to say
+   * @returns {Array<HTMLElement | string>}
+   */
+  const handedOut = (out, said) => {
+    const when = at(Number(out?.at));
+    if (typeof out?.by === "string" && out.by !== "") {
+      const values = { when: MARK, name: out.by };
+      return around(
+        said ? say("vouchers.handed_by", values) : say("vouchers.handed_at_by", values),
+        when,
+      );
+    }
+    if (out?.unit === true) {
+      return around(
+        said
+          ? say("vouchers.handed_by_unit", { when: MARK })
+          : say("vouchers.handed_at_by_unit", { when: MARK }),
+        when,
+      );
+    }
+    return said ? [when] : around(say("vouchers.handed_at", { when: MARK }), when);
+  };
+
   /** The others on the page are told that what is held has changed. */
   const heldChanged = () => document.dispatchEvent(new Event(HELD_CHANGED));
 
@@ -334,13 +380,20 @@ export function vouchers(element, context) {
             ? [
                 pill(say("vouchers.pill_handed"), "held"),
                 el("br"),
-                el("span", { class: "usher-hint" }, at(Number(out.at))),
+                el("span", { class: "usher-hint" }, ...handedOut(out, true)),
               ]
             : [
                 pill(
                   standingSaid(standing(voucher)),
                   TONES[/** @type {keyof typeof TONES} */ (standing(voucher))] ?? "",
                 ),
+                // One that was handed out here says so still, and by whom.
+                ...(out === undefined || isHeld
+                  ? []
+                  : [
+                      el("br"),
+                      el("span", { class: "usher-hint" }, ...handedOut(out, false)),
+                    ]),
               ]),
       ),
       el("td", {}, at(voucher.created)),

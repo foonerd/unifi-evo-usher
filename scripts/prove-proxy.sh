@@ -32,7 +32,9 @@
 # believing nothing but that authority, the face is loaded, a caller who
 # has not signed in is refused, the unit is set up with a name and a
 # password and signed in to, and with the session that gave is answered
-# and hears a happening over the WebSocket. Last, the proxy is given
+# and hears a happening over the WebSocket; a person is added for the
+# front desk, signs in with the PIN the usher made, is told the types on
+# offer and is refused what is an administrator's. Last, the proxy is given
 # another authority than the unit's and must then pass nothing on: it
 # believes the unit by the unit's authority and by nothing else.
 #
@@ -529,6 +531,35 @@ prove() {
   wait "$listener" || fail "no happening came over the WebSocket: $(cat "$dir/line.err")"
   [ "$(printf '%s' "$said" | jq -r '.type')" = household_protection_changed ] || fail "what came over the WebSocket is no happening: $said"
   echo "  ok    a happening arrives over the WebSocket, joined with the session"
+
+  # A person at the front desk: added by the administrator, with a PIN
+  # the usher makes, of as many digits as the unit's level asks. They
+  # sign in with it, are answered what the counter's page asks, are
+  # refused by name what is an administrator's, and no line of what
+  # happens is opened to them.
+  local pin desk digits=6
+  [ "$proxy" != extended ] || digits=8
+  status=$(post /usher/v1/add_person '{"name": "Ben", "role": "front_desk"}' -H "Authorization: Bearer $bearer")
+  [ "$status" = 200 ] || fail "a person is not added for the front desk: $status $(cat "$dir/answer")"
+  pin=$(jq -r '.pin' "$dir/answer")
+  { [[ "$pin" =~ ^[0-9]+$ ]] && [ "${#pin}" = "$digits" ]; } || fail "the PIN the usher made is not $digits digits: $(cat "$dir/answer")"
+  status=$(post /usher/v1/sign_in "$(person Ben "$pin")")
+  [ "$status" = 200 ] || fail "the name and the PIN do not sign in: $status $(cat "$dir/answer")"
+  jq -e '.name == "Ben" and .role == "front_desk"' "$dir/answer" > /dev/null || fail "the unit says of who signed in with a PIN: $(cat "$dir/answer")"
+  desk=$(jq -r '.token' "$dir/answer")
+  status=$(post /api/v1/request "$(request issue.counter offered '{}')" -H "Authorization: Bearer $desk")
+  [ "$status" = 200 ] || fail "a person at the front desk is not told the types on offer: $status $(cat "$dir/answer")"
+  status=$(post /api/v1/request "$types" -H "Authorization: Bearer $desk")
+  [ "$status" = 403 ] || fail "a person at the front desk is answered the voucher types: $status $(cat "$dir/answer")"
+  jq -e '.error.details.subclass == "not_for_front_desk"' "$dir/answer" > /dev/null || fail "the voucher types are refused a person at the front desk as: $(cat "$dir/answer")"
+  status=$(ask /usher/v1/people -H "Authorization: Bearer $desk")
+  [ "$status" = 403 ] || fail "a person at the front desk is told of the people: $status $(cat "$dir/answer")"
+  status=$(ask /api/v1/list_bearer_tokens -H "Authorization: Bearer $desk")
+  [ "$status" = 403 ] || fail "a person at the front desk is told of the unit's bearers: $status $(cat "$dir/answer")"
+  status=$(ask /api/v1/ws --http1.1 -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" \
+    -H "Sec-WebSocket-Key: dGhlIHVzaGVyJ3MgcHJvb2Y=" -H "Sec-WebSocket-Protocol: evo.bearer.$desk")
+  [ "$status" = 403 ] || fail "the line of what happens is opened to a person at the front desk: $status $(cat "$dir/answer")"
+  echo "  ok    a person at the front desk signs in with a PIN the usher made, is told the types on offer, and is refused what is an administrator's and the line of what happens"
 
   if [ "$behind" = no ]; then
     # What the unit kept is there when it is started again, who is

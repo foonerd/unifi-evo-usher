@@ -12,6 +12,7 @@ use std::time::Instant;
 use common::{
     short_dir, Caller, Steward, OTHER_PASSWORD, PASSWORD, UNITS_CODE,
 };
+use evo_usher_controller_unifi::simulated::Simulated;
 use serde_json::{json, Value};
 
 /// What the counter answers who may ask it: its types, of which a new
@@ -622,6 +623,8 @@ fn who_has_not_signed_in_gets_the_face_and_the_way_in_and_no_more() {
         "people",
         "add_person",
         "set_password",
+        "make_pin",
+        "set_pin",
         "remove_person",
         "change_my_password",
     ];
@@ -1010,5 +1013,761 @@ fn a_line_hears_what_happens_and_is_no_way_to_ask() {
         assert_eq!(steward.line(no_session, true).err(), Some(401));
         assert_eq!(steward.line(no_session, false).err(), Some(401));
     }
+    assert_eq!(steward.stop(), Some(0));
+}
+
+/// A unit with a controller set, a network chosen for vouchers and one
+/// voucher type, as its administrator leaves it for the front desk.
+fn ready_for_the_desk(
+    steward: &Steward,
+    simulated: &Simulated,
+    administrator: &Caller,
+) -> Value {
+    let ask = |shelf: &str, request: &str, payload: Value| {
+        let (status, said) =
+            steward.ask_status(administrator, shelf, request, payload);
+        assert_eq!(status, 200, "{shelf} {request}: {said}");
+        said
+    };
+    let day = json!({
+        "name": "Day guest", "minutes": 1440, "guests": 1,
+        "megabytes": null, "down_kbps": null, "up_kbps": null,
+    });
+    ask("issue.counter", "put_type", day.clone());
+    let presented = ask(
+        "access.controller",
+        "probe",
+        json!({ "base": simulated.base() }),
+    );
+    ask(
+        "access.controller",
+        "set",
+        json!({
+            "base": simulated.base(),
+            "key": simulated.key(),
+            "fingerprint": presented["fingerprint"],
+        }),
+    );
+    let networks = ask("networks.directory", "networks", json!({}));
+    let guests = networks["sites"][0]["networks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|network| network["name"] == "Guests")
+        .expect("the simulated controller has a Guests network")["id"]
+        .clone();
+    ask(
+        "networks.directory",
+        "choose",
+        json!({ "site": simulated.site(), "network": guests }),
+    );
+    day
+}
+
+/// Who a hand-out says handed the voucher out.
+fn handed_by(steward: &Steward, who: &Caller, id: &Value) -> Value {
+    let (status, told) = steward.ask_status(
+        who,
+        "issue.counter",
+        "handed",
+        json!({ "ids": [id] }),
+    );
+    assert_eq!(status, 200, "{told}");
+    let hand_out = &told["handed"][0];
+    json!({ "by": hand_out.get("by"), "unit": hand_out.get("unit") })
+}
+
+#[test]
+fn the_front_desk_signs_in_with_a_pin_and_hands_vouchers_out() {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let simulated = runtime.block_on(Simulated::start());
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+    let anna = steward.set_up("Anna", PASSWORD);
+    let day = ready_for_the_desk(&steward, &simulated, &anna);
+
+    // An administrator adds a person for the front desk. Nobody chooses
+    // their PIN: the usher makes it, six digits, and says it this once.
+    let (status, said) = steward.usher(
+        "POST",
+        "add_person",
+        Some(json!({ "name": " Ben ", "role": "front_desk" })),
+        &anna,
+    );
+    assert_eq!(status, 200, "{said}");
+    assert_eq!(said["added"], "Ben", "{said}");
+    assert_eq!(said["role"], "front_desk", "{said}");
+    let pin = said["pin"].as_str().expect("a PIN").to_string();
+    assert!(
+        pin.len() == 6 && pin.bytes().all(|byte| byte.is_ascii_digit()),
+        "{pin}"
+    );
+    // It is kept as a password is: as a hash of it.
+    let kept = fs::read_to_string(steward.people_file()).unwrap();
+    assert!(!kept.contains(&pin), "the PIN is kept as it is typed");
+    assert_eq!(kept.matches("$argon2id$").count(), 2, "{kept}");
+    // The people are told with what each of them may do.
+    let (_, told) = steward.usher("GET", "people", None, &anna);
+    let roles: Vec<(&str, &str)> = told["people"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|person| {
+            (
+                person["name"].as_str().unwrap(),
+                person["role"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(roles, [("Anna", "administrator"), ("Ben", "front_desk")]);
+
+    // What is no way to add a person is refused under its own code.
+    for (asked, code) in [
+        (
+            json!({ "name": "Cara", "role": "front_desk", "password": PASSWORD }),
+            "pin_not_chosen",
+        ),
+        (json!({ "name": "Cara" }), "password_needed"),
+        (
+            json!({ "name": "Cara", "role": "administrator" }),
+            "password_needed",
+        ),
+        (
+            json!({ "name": "Cara", "role": "office", "password": PASSWORD }),
+            "role_not_one",
+        ),
+        (
+            json!({ "name": "ben", "role": "front_desk" }),
+            "person_exists",
+        ),
+    ] {
+        let (status, said) =
+            steward.usher("POST", "add_person", Some(asked.clone()), &anna);
+        assert_eq!((status, subclass(&said)), (400, code), "{asked}: {said}");
+    }
+    assert_eq!(
+        steward.usher("GET", "people", None, &anna).1["people"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+
+    // Ben signs in with the name and the PIN, where a password goes.
+    let (status, said) = steward.sign_in("ben", &pin);
+    assert_eq!(status, 200, "{said}");
+    assert_eq!(said["name"], "Ben", "{said}");
+    assert_eq!(said["role"], "front_desk", "{said}");
+    let bearer = said["token"].as_str().unwrap().to_string();
+    let ben = Caller::beyond().with(&bearer);
+    let (status, me) = steward.usher("GET", "me", None, &ben);
+    assert_eq!(status, 200, "{me}");
+    assert_eq!(me["name"], "Ben", "{me}");
+    assert_eq!(me["role"], "front_desk", "{me}");
+    assert_eq!(me["unit"], false, "{me}");
+
+    // The session is good, at evo, for asking the plugins and for
+    // issuing a voucher, and for nothing that sets a unit up or hears
+    // what happens on it: evo itself refuses it the rest.
+    let good_for = |bearer: &str| -> Vec<String> {
+        let mut scopes: Vec<String> =
+            evo_auth_bearer::BearerToken::decode(bearer)
+                .expect("a bearer of evo's")
+                .capabilities
+                .capabilities()
+                .iter()
+                .map(|capability| capability.scope().to_string())
+                .collect();
+        scopes.sort();
+        scopes.dedup();
+        scopes
+    };
+    assert_eq!(good_for(&bearer), ["plugins", "voucher_issue"]);
+    assert_eq!(
+        good_for(anna.bearer.as_deref().unwrap()),
+        ["network_admin", "plugins", "subjects", "voucher_issue"]
+    );
+
+    // The counter's page: the types on offer, how many are set aside,
+    // what the site is called, what is stocked, and a voucher.
+    let (status, offered) =
+        steward.ask_status(&ben, "issue.counter", "offered", json!({}));
+    assert_eq!(status, 200, "{offered}");
+    assert_eq!(offered["types"], json!([day]), "{offered}");
+    for (shelf, request) in
+        [("stock.reserve", "count"), ("site.settings", "get")]
+    {
+        let (status, said) =
+            steward.ask_status(&ben, shelf, request, json!({}));
+        assert_eq!(status, 200, "{shelf} {request}: {said}");
+    }
+    let (status, stocked) =
+        steward.op("describe_ui_stockings", json!({}), &ben);
+    assert_eq!(status, 200, "{stocked}");
+    let (status, handed) = steward.ask_status(
+        &ben,
+        "issue.counter",
+        "hand",
+        // Who a caller says hands it out is not what is written down.
+        json!({ "type": "Day guest", "by": "Anna", "unit": true }),
+    );
+    assert_eq!(status, 200, "{handed}");
+    assert_eq!(handed["type"], day, "{handed}");
+    assert_eq!(handed["network"], "Guests", "{handed}");
+    let bens = handed["voucher"]["id"].clone();
+    assert!(handed["voucher"]["code"].is_string(), "{handed}");
+    assert!(handed.get("by").is_none(), "{handed}");
+
+    // The record names who handed each voucher out: the person at the
+    // front desk, the administrator, and the unit's keeper, who is no
+    // person.
+    assert_eq!(
+        handed_by(&steward, &anna, &bens),
+        json!({ "by": "Ben", "unit": null })
+    );
+    let (status, annas) = steward.ask_status(
+        &anna,
+        "issue.counter",
+        "hand",
+        json!({ "type": "Day guest", "by": "Ben" }),
+    );
+    assert_eq!(status, 200, "{annas}");
+    assert_eq!(
+        handed_by(&steward, &anna, &annas["voucher"]["id"]),
+        json!({ "by": "Anna", "unit": null })
+    );
+    let keepers = steward.ask(
+        "issue.counter",
+        "hand",
+        json!({ "type": "Day guest", "by": "Ben" }),
+    );
+    assert_eq!(
+        handed_by(&steward, &anna, &keepers["voucher"]["id"]),
+        json!({ "by": null, "unit": true })
+    );
+
+    // Everything else is an administrator's. Of the shelves:
+    for (shelf, request, payload) in [
+        ("issue.counter", "types", json!({})),
+        ("issue.counter", "put_type", day.clone()),
+        ("issue.counter", "drop_type", json!({ "name": "Day guest" })),
+        (
+            "issue.counter",
+            "enable_type",
+            json!({ "name": "Day guest", "enabled": false }),
+        ),
+        (
+            "issue.counter",
+            "set_default",
+            json!({ "name": "Day guest" }),
+        ),
+        (
+            "issue.counter",
+            "order_types",
+            json!({ "names": ["Day guest"] }),
+        ),
+        ("issue.counter", "handed", json!({})),
+        (
+            "issue.counter",
+            "assign",
+            json!({ "site": simulated.site(), "id": bens }),
+        ),
+        ("access.controller", "info", json!({})),
+        (
+            "access.controller",
+            "list",
+            json!({ "site": simulated.site() }),
+        ),
+        ("access.controller", "forget", json!({})),
+        ("networks.directory", "networks", json!({})),
+        ("networks.directory", "chosen", json!({})),
+        ("stock.reserve", "held", json!({})),
+        ("stock.reserve", "take", json!({ "type": "Day guest" })),
+        ("stock.reserve", "release", json!({ "id": "x" })),
+        ("site.settings", "set", json!({ "name": "Ben's" })),
+        ("site.settings", "remove_logo", json!({})),
+        ("no.such", "shelf", json!({})),
+    ] {
+        let (status, said) = steward.ask_status(&ben, shelf, request, payload);
+        assert_eq!(
+            (status, subclass(&said)),
+            (403, "not_for_front_desk"),
+            "{shelf} {request}: {said}"
+        );
+    }
+    // Nothing of it was done.
+    assert_eq!(
+        steward
+            .ask_status(&anna, "issue.counter", "types", json!({}))
+            .1["types"],
+        json!([day])
+    );
+    assert_eq!(
+        steward
+            .ask_status(&anna, "site.settings", "get", json!({}))
+            .1["name"],
+        ""
+    );
+
+    // Of the usher's own routes: the people are an administrator's, and
+    // a PIN is not its person's to change.
+    for (route, asked) in [
+        ("people", None),
+        (
+            "add_person",
+            Some(json!({ "name": "Cara", "password": PASSWORD })),
+        ),
+        (
+            "add_person",
+            Some(json!({ "name": "Cara", "role": "front_desk" })),
+        ),
+        (
+            "set_password",
+            Some(json!({ "name": "Anna", "password": OTHER_PASSWORD })),
+        ),
+        ("make_pin", Some(json!({ "name": "Ben" }))),
+        ("set_pin", Some(json!({ "name": "Ben", "pin": "480273" }))),
+        ("remove_person", Some(json!({ "name": "Anna" }))),
+        (
+            "change_my_password",
+            Some(json!({ "current": pin, "password": OTHER_PASSWORD })),
+        ),
+    ] {
+        let method = if asked.is_some() { "POST" } else { "GET" };
+        let (status, said) = steward.usher(method, route, asked.clone(), &ben);
+        assert_eq!(
+            (status, subclass(&said)),
+            (403, "not_for_front_desk"),
+            "{route}: {said}"
+        );
+    }
+    assert_eq!(
+        steward.sign_in("Anna", PASSWORD).0,
+        200,
+        "Anna's is as it was"
+    );
+
+    // And of the steward's own operations, every one evo lists, read or
+    // written, but what the door and the shell read and the asking of a
+    // shelf, which is held to the counter's page above.
+    let may = ["describe_active_ui_selection", "describe_ui_stockings"];
+    for operation in evo::projection_schema::canonical_schema()
+        .iter()
+        .map(|operation| operation.id.as_str().to_string())
+    {
+        for method in ["GET", "POST", "PUT", "DELETE"] {
+            let (status, said) = steward.put_to(
+                method,
+                &format!("/api/v1/{operation}"),
+                (method != "GET").then_some(&json!({})),
+                &[],
+                &ben,
+            );
+            if may.contains(&operation.as_str()) {
+                assert_ne!(status, 403, "{method} {operation}: {said}");
+                assert_ne!(status, 401, "{method} {operation}: {said}");
+            } else if operation == "request" && method == "POST" {
+                // What names no shelf asks none.
+                assert_eq!(status, 400, "{method} {operation}: {said}");
+            } else {
+                assert_eq!(status, 403, "{method} {operation}: {said}");
+                assert!(
+                    said.contains("not_for_front_desk"),
+                    "{method} {operation}: {said}"
+                );
+            }
+        }
+    }
+    // The line of what happens is not opened to them: they would hear
+    // on it what they may not ask.
+    assert_eq!(steward.line(&bearer, true).err(), Some(403));
+    assert_eq!(steward.line(&bearer, false).err(), Some(403));
+    assert!(steward.line(anna.bearer.as_deref().unwrap(), true).is_ok());
+    // The face's files are read, as by anyone, and nothing is written.
+    assert_eq!(steward.put_to("GET", "/", None, &[], &ben).0, 200);
+    assert_eq!(
+        steward.put_to("POST", "/", Some(&json!({})), &[], &ben).0,
+        403
+    );
+
+    // The session is kept through a restart, as what it is.
+    assert_eq!(steward.stop(), Some(0));
+    let steward = Steward::start(dir.path());
+    assert_eq!(
+        steward.usher("GET", "me", None, &ben).1["role"],
+        "front_desk"
+    );
+    assert_eq!(
+        steward
+            .ask_status(&ben, "issue.counter", "offered", json!({}))
+            .0,
+        200
+    );
+    assert_eq!(
+        steward
+            .ask_status(&ben, "issue.counter", "types", json!({}))
+            .0,
+        403
+    );
+    assert_eq!(steward.stop(), Some(0));
+}
+
+#[test]
+fn a_pin_is_held_as_a_password_is_and_a_new_one_ends_its_sessions() {
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+    let anna = steward.set_up("Anna", PASSWORD);
+    let pin = steward.add_front_desk(&anna, "Ben");
+    let ben = steward.signed_in("Ben", &pin);
+    let offered = |who: &Caller| {
+        steward
+            .ask_status(who, "issue.counter", "offered", json!({}))
+            .0
+    };
+    assert_eq!(offered(&ben), 200);
+
+    // A password is not set for a person whose way in is a PIN, nor a
+    // PIN made for one whose way in is a password.
+    let (status, said) = steward.usher(
+        "POST",
+        "set_password",
+        Some(json!({ "name": "Ben", "password": OTHER_PASSWORD })),
+        &anna,
+    );
+    assert_eq!(
+        (status, subclass(&said)),
+        (400, "signs_in_with_pin"),
+        "{said}"
+    );
+    assert_eq!(said["error"]["details"]["values"]["name"], "Ben", "{said}");
+    let (status, said) = steward.usher(
+        "POST",
+        "make_pin",
+        Some(json!({ "name": "Anna" })),
+        &anna,
+    );
+    assert_eq!(
+        (status, subclass(&said)),
+        (400, "signs_in_with_password"),
+        "{said}"
+    );
+    let (status, said) = steward.usher(
+        "POST",
+        "make_pin",
+        Some(json!({ "name": "Nobody" })),
+        &anna,
+    );
+    assert_eq!((status, subclass(&said)), (400, "no_such_person"), "{said}");
+    assert_eq!(offered(&ben), 200, "none of that ended Ben's session");
+
+    // A new PIN: said this once, another than the one before, and
+    // whoever was signed in under the old one is not any longer.
+    let (status, said) = steward.usher(
+        "POST",
+        "make_pin",
+        Some(json!({ "name": "ben" })),
+        &anna,
+    );
+    assert_eq!(status, 200, "{said}");
+    assert_eq!(said["name"], "Ben", "{said}");
+    let new_pin = said["pin"].as_str().unwrap().to_string();
+    assert!(
+        new_pin.len() == 6 && new_pin.bytes().all(|byte| byte.is_ascii_digit()),
+        "{new_pin}"
+    );
+    assert_eq!(offered(&ben), 401, "the old session ended");
+    if new_pin != pin {
+        assert_eq!(steward.sign_in("Ben", &pin).0, 401, "the old PIN is none");
+    }
+    let ben = steward.signed_in("Ben", &new_pin);
+    assert_eq!(offered(&ben), 200);
+
+    // Five wrong PINs in a row hold the name, the right one too, and
+    // say nothing of whether there is such a person.
+    for nth in 0..5 {
+        let (status, said) = steward.sign_in("Ben", "000000");
+        if new_pin == "000000" {
+            break;
+        }
+        assert_eq!(
+            (status, subclass(&said)),
+            (401, "wrong_name_or_password"),
+            "try {nth}: {said}"
+        );
+    }
+    if new_pin != "000000" {
+        let (status, said) = steward.sign_in("Ben", &new_pin);
+        assert_eq!((status, subclass(&said)), (429, "held"), "{said}");
+        // Who is signed in already is not held up by it.
+        assert_eq!(offered(&ben), 200);
+        // An administrator who makes a new PIN lets them in again.
+        let (_, said) = steward.usher(
+            "POST",
+            "make_pin",
+            Some(json!({ "name": "Ben" })),
+            &anna,
+        );
+        let newest = said["pin"].as_str().unwrap().to_string();
+        assert_eq!(steward.sign_in("Ben", &newest).0, 200);
+    }
+
+    // Removed, a person at the front desk is signed out at once; and the
+    // last administrator still is not removed.
+    let ben = steward.signed_in(
+        "Ben",
+        steward
+            .usher("POST", "make_pin", Some(json!({ "name": "Ben" })), &anna)
+            .1["pin"]
+            .as_str()
+            .unwrap(),
+    );
+    assert_eq!(offered(&ben), 200);
+    let (status, said) = steward.usher(
+        "POST",
+        "remove_person",
+        Some(json!({ "name": "Anna" })),
+        &anna,
+    );
+    assert_eq!(
+        (status, subclass(&said)),
+        (400, "only_administrator"),
+        "a person at the front desk is no administrator: {said}"
+    );
+    let (status, said) = steward.usher(
+        "POST",
+        "remove_person",
+        Some(json!({ "name": "Ben" })),
+        &anna,
+    );
+    assert_eq!(status, 200, "{said}");
+    assert_eq!(offered(&ben), 401);
+    assert_eq!(steward.stop(), Some(0));
+}
+
+#[test]
+fn at_the_extended_level_a_pin_is_longer() {
+    let dir = short_dir();
+    let steward = Steward::start_extended(dir.path());
+    let (status, said) = steward.usher(
+        "POST",
+        "set_up",
+        Some(json!({
+            "name": "Anna",
+            "password": "three small owls sing at night",
+            "code": steward.units_code(),
+        })),
+        &Caller::beyond(),
+    );
+    assert_eq!(status, 200, "{said}");
+    let anna = Caller::beyond().with(said["token"].as_str().unwrap());
+    let pin = steward.add_front_desk(&anna, "Ben");
+    assert!(
+        pin.len() == 8 && pin.bytes().all(|byte| byte.is_ascii_digit()),
+        "{pin}"
+    );
+    let (status, said) = steward.sign_in("Ben", &pin);
+    assert_eq!(status, 200, "{said}");
+    assert_eq!(said["kept"], false, "{said}");
+    assert_eq!(steward.stop(), Some(0));
+}
+
+#[test]
+fn an_administrator_sets_a_pin_they_chose_for_the_front_desk() {
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+    let anna = steward.set_up("Anna", PASSWORD);
+    let made = steward.add_front_desk(&anna, "Ben");
+    let ben = steward.signed_in("Ben", &made);
+    let offered = |who: &Caller| {
+        steward
+            .ask_status(who, "issue.counter", "offered", json!({}))
+            .0
+    };
+    assert_eq!(offered(&ben), 200);
+    let set = |name: &str, pin: &str, who: &Caller| {
+        steward.usher(
+            "POST",
+            "set_pin",
+            Some(json!({ "name": name, "pin": pin })),
+            who,
+        )
+    };
+    // A PIN that differs from the one the usher made, whatever that was.
+    let chosen = if made == "480273" { "480274" } else { "480273" };
+
+    // What is no PIN is refused, each under its own code, with the
+    // numbers it speaks of, and changes nothing.
+    for (pin, code, values) in [
+        ("48027", "pin_too_short", json!({ "least": 6, "has": 5 })),
+        ("4802739518462", "pin_too_long", json!({ "most": 12 })),
+        ("48 0273", "pin_not_digits", Value::Null),
+        ("four80", "pin_not_digits", Value::Null),
+        ("", "pin_not_digits", Value::Null),
+        ("000000", "pin_repeats", Value::Null),
+        ("121212", "pin_repeats", Value::Null),
+        ("123123", "pin_repeats", Value::Null),
+        ("123456", "pin_runs", Value::Null),
+        ("987654", "pin_runs", Value::Null),
+    ] {
+        let (status, said) = set("Ben", pin, &anna);
+        assert_eq!((status, subclass(&said)), (400, code), "{pin}: {said}");
+        assert_eq!(said["error"]["details"]["values"], values, "{pin}: {said}");
+        assert_eq!(said["error"]["class"], "contract_violation", "{said}");
+    }
+    assert_eq!(offered(&ben), 200, "none of that ended Ben's session");
+    assert_eq!(steward.sign_in("Ben", &made).0, 200, "nor took his PIN");
+
+    // Nor is a PIN set for an administrator, for nobody, or by anything
+    // sent beside the two.
+    let (status, said) = set("Anna", chosen, &anna);
+    assert_eq!(
+        (status, subclass(&said)),
+        (400, "signs_in_with_password"),
+        "{said}"
+    );
+    assert_eq!(said["error"]["details"]["values"]["name"], "Anna", "{said}");
+    let (status, said) = set("Nobody", chosen, &anna);
+    assert_eq!((status, subclass(&said)), (400, "no_such_person"), "{said}");
+    let (status, said) = steward.usher(
+        "POST",
+        "set_pin",
+        Some(json!({ "name": "Ben", "pin": chosen, "role": "administrator" })),
+        &anna,
+    );
+    assert_eq!((status, subclass(&said)), (400, "not_as_asked"), "{said}");
+    assert_eq!(
+        steward.sign_in("Anna", PASSWORD).0,
+        200,
+        "Anna's is as it was"
+    );
+
+    // Only an administrator sets one: not the person themselves, and
+    // nobody who has not signed in.
+    let (status, said) = set("Ben", chosen, &ben);
+    assert_eq!(
+        (status, subclass(&said)),
+        (403, "not_for_front_desk"),
+        "{said}"
+    );
+    assert_eq!(set("Ben", chosen, &Caller::beyond()).0, 401);
+    assert_eq!(steward.sign_in("Ben", chosen).0, 401, "nothing was set");
+
+    // Set by an administrator, it is Ben's from then on: he is told
+    // nothing of it by the usher, the answer does not say it, it is kept
+    // as a hash, the one before is none, and he is signed out wherever
+    // he was.
+    let (status, said) = set("ben", chosen, &anna);
+    assert_eq!(status, 200, "{said}");
+    assert_eq!(said, json!({ "set": "Ben" }));
+    let kept = fs::read_to_string(steward.people_file()).unwrap();
+    assert!(!kept.contains(chosen), "the PIN is kept as it was typed");
+    assert_eq!(kept.matches("$argon2id$").count(), 2, "{kept}");
+    assert_eq!(offered(&ben), 401, "the session under the old PIN ended");
+    assert_eq!(steward.sign_in("Ben", &made).0, 401, "the old PIN is none");
+    let (status, said) = steward.sign_in("Ben", chosen);
+    assert_eq!(status, 200, "{said}");
+    assert_eq!(said["role"], "front_desk", "{said}");
+    let ben = Caller::beyond().with(said["token"].as_str().unwrap());
+    assert_eq!(offered(&ben), 200);
+    assert_eq!(
+        steward
+            .ask_status(&ben, "issue.counter", "types", json!({}))
+            .0,
+        403,
+        "a PIN that was set gives what a made one gives, and no more"
+    );
+
+    // A PIN that is set lifts the hold that wrong tries put on a name.
+    for _ in 0..5 {
+        assert_eq!(steward.sign_in("Ben", "135790").0, 401);
+    }
+    assert_eq!(steward.sign_in("Ben", chosen).0, 429);
+    assert_eq!(set("Ben", "135791", &anna).0, 200);
+    assert_eq!(steward.sign_in("Ben", "135791").0, 200);
+
+    // The usher still makes one where it is asked to, and that one
+    // replaces the one that was set.
+    let (status, said) = steward.usher(
+        "POST",
+        "make_pin",
+        Some(json!({ "name": "Ben" })),
+        &anna,
+    );
+    assert_eq!(status, 200, "{said}");
+    let again = said["pin"].as_str().unwrap().to_string();
+    if again != "135791" {
+        assert_eq!(steward.sign_in("Ben", "135791").0, 401);
+    }
+    assert_eq!(steward.sign_in("Ben", &again).0, 200);
+
+    // Neither PIN that was set stands in what the usher keeps of its
+    // people and of who is signed in: every text there is a name, a
+    // role, a hash or a session's own identifier.
+    assert_eq!(steward.stop(), Some(0));
+    fn texts(of: &Value, into: &mut Vec<String>) {
+        match of {
+            Value::String(text) => into.push(text.clone()),
+            Value::Array(all) => all.iter().for_each(|one| texts(one, into)),
+            Value::Object(all) => all.values().for_each(|one| texts(one, into)),
+            _ => {}
+        }
+    }
+    let mut kept = Vec::new();
+    let usher = dir.path().join("state/usher");
+    for entry in fs::read_dir(&usher).unwrap().flatten() {
+        let file: Value =
+            serde_json::from_slice(&fs::read(entry.path()).unwrap()).unwrap();
+        texts(&file, &mut kept);
+    }
+    assert!(kept.len() >= 4, "{kept:?}");
+    for pin in [chosen, "135791"] {
+        assert!(
+            !kept.iter().any(|text| text.contains(pin)),
+            "{pin} stands in what the usher keeps"
+        );
+    }
+}
+
+#[test]
+fn at_the_extended_level_a_pin_that_is_set_is_longer_too() {
+    let dir = short_dir();
+    let steward = Steward::start_extended(dir.path());
+    let (status, said) = steward.usher(
+        "POST",
+        "set_up",
+        Some(json!({
+            "name": "Anna",
+            "password": "three small owls sing at night",
+            "code": steward.units_code(),
+        })),
+        &Caller::beyond(),
+    );
+    assert_eq!(status, 200, "{said}");
+    let anna = Caller::beyond().with(said["token"].as_str().unwrap());
+    steward.add_front_desk(&anna, "Ben");
+    let set = |pin: &str| {
+        steward.usher(
+            "POST",
+            "set_pin",
+            Some(json!({ "name": "Ben", "pin": pin })),
+            &anna,
+        )
+    };
+    let (status, said) = set("4802739");
+    assert_eq!((status, subclass(&said)), (400, "pin_too_short"), "{said}");
+    assert_eq!(
+        said["error"]["details"]["values"],
+        json!({ "least": 8, "has": 7 }),
+        "{said}"
+    );
+    assert_eq!(set("48027395").0, 200);
+    assert_eq!(steward.sign_in("Ben", "48027395").0, 200);
+    // Who is signed in is told how long a PIN is, for the form that sets
+    // one to say.
+    let (_, me) = steward.usher("GET", "me", None, &anna);
+    assert_eq!((&me["least_pin"], &me["most_pin"]), (&json!(8), &json!(12)));
     assert_eq!(steward.stop(), Some(0));
 }

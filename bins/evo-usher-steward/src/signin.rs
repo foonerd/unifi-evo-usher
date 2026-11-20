@@ -1,12 +1,20 @@
 //! Signing in to an usher, and the usher's own routes for it.
 //!
 //! A person signs in with a name and a password, which the usher checks
-//! itself. Whoever is let in is given a session: a bearer evo makes for
-//! the usher over the steward's own client socket, good for what the
-//! person's role may do and for a time, and known to the usher for as
-//! long as it lasts. Nobody sees or types a bearer; a browser keeps the
-//! one it was given. Signing out, a new password and removing a person
-//! end that person's sessions at once.
+//! itself; a person at the front desk with a name and the PIN the usher
+//! made for them, where a password goes. Whoever is let in is given a
+//! session: a bearer evo makes for the usher over the steward's own
+//! client socket, good for what the person's role may do and for a time,
+//! and known to the usher for as long as it lasts. Nobody sees or types a
+//! bearer; a browser keeps the one it was given. Signing out, a new
+//! password or PIN and removing a person end that person's sessions at
+//! once.
+//!
+//! An administrator's session is good for everything the usher's plugins
+//! take. A front desk's is good for asking the plugins and for issuing a
+//! voucher, and for nothing that sets a unit up or reads what it keeps:
+//! evo refuses it the rest, and the usher's gate before evo lets it ask
+//! no more than the counter's page does.
 //!
 //! A new usher has nobody. Whoever opens it first sets it up, by making
 //! its first administrator; in the extended level that takes the code
@@ -44,7 +52,7 @@ use subtle::ConstantTimeEq as _;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::UnixStream;
 
-use crate::people::{self, Level, People, ADMINISTRATOR};
+use crate::people::{self, Level, People, ADMINISTRATOR, FRONT_DESK};
 
 /// Where the usher's own routes begin, beside evo's.
 pub const PREFIX: &str = "/usher/v1";
@@ -55,7 +63,7 @@ pub const OPEN: [&str; 3] = ["state", "set_up", "sign_in"];
 
 /// Every route the usher has of its own.
 #[cfg(test)]
-pub const ROUTES: [&str; 10] = [
+pub const ROUTES: [&str; 12] = [
     "state",
     "set_up",
     "sign_in",
@@ -64,16 +72,41 @@ pub const ROUTES: [&str; 10] = [
     "people",
     "add_person",
     "set_password",
+    "make_pin",
+    "set_pin",
     "remove_person",
     "change_my_password",
 ];
 
+/// The routes a person at the front desk may ask beside the open ones:
+/// who they are, and signing out.
+pub const OF_THE_FRONT_DESKS: [&str; 2] = ["sign_out", "me"];
+
+/// The capability issuing a voucher asks for: the usher's own, which the
+/// counter's manifest declares on the two requests a front desk makes.
+pub const ISSUING: &str = "voucher_issue";
+
 /// What a session of an administrator's is good for, by evo's names:
-/// asking the plugins, what lets guests on to the network, and hearing
-/// what happens. It is not good for evo's own bearers, its plugins'
-/// administration or the system.
-pub const OF_AN_ADMINISTRATOR: [&str; 3] =
-    ["plugins", "network_admin", "subjects"];
+/// asking the plugins, what lets guests on to the network, issuing a
+/// voucher, and hearing what happens. It is not good for evo's own
+/// bearers, its plugins' administration or the system.
+pub const OF_AN_ADMINISTRATOR: [&str; 4] =
+    ["plugins", "network_admin", ISSUING, "subjects"];
+
+/// What a session of a front desk's is good for: asking the plugins, and
+/// issuing a voucher. Whatever sets a unit up, or reads what it keeps,
+/// asks for more, and evo refuses it.
+pub const OF_A_FRONT_DESK: [&str; 2] = ["plugins", ISSUING];
+
+/// What the unit's keeper asks a shelf with: what an administrator's
+/// session is good for there. The unit's own bearer is evo's making, and
+/// carries no capability a plugin declares.
+const OF_THE_KEEPER: [&str; 3] = ["plugins", "network_admin", ISSUING];
+
+/// For how long the bearer the keeper asks a shelf with is good, in
+/// seconds, and how long before its end another is made.
+const KEEPER_SECONDS: u64 = 600;
+const KEEPER_SPARE_MS: u64 = 60_000;
 
 /// What the bearer of a line is good for: hearing what happens, and
 /// reading what the steward knows of. Nothing is asked of a plugin with
@@ -120,6 +153,8 @@ pub enum Asking {
     Person {
         /// The person's name.
         name: String,
+        /// What the person may do: their role, as it is now.
+        role: String,
         /// The bearer's own identifier, which the session is known by.
         session: String,
     },
@@ -138,6 +173,11 @@ struct Session {
     /// session is theirs for as long as that is their password.
     #[serde(default)]
     under: String,
+    /// The role the session's bearer was made for. A session kept from
+    /// before roles has none, and its bearer is not good for what its
+    /// person's role asks now: it is not kept.
+    #[serde(default)]
+    of: String,
 }
 
 /// The live sessions, kept through a restart: evo's bearers outlive one,
@@ -161,7 +201,9 @@ impl Sessions {
             path,
             live: kept
                 .into_iter()
-                .filter(|session| session.until_ms > now)
+                .filter(|session| {
+                    session.until_ms > now && !session.of.is_empty()
+                })
                 .map(|session| (session.id.clone(), session))
                 .collect(),
         })
@@ -200,7 +242,14 @@ impl Sessions {
         }
     }
 
-    fn add(&mut self, id: String, person: &str, until_ms: u64, under: &str) {
+    fn add(
+        &mut self,
+        id: String,
+        person: &str,
+        until_ms: u64,
+        under: &str,
+        of: &str,
+    ) {
         self.live.insert(
             id.clone(),
             Session {
@@ -208,6 +257,7 @@ impl Sessions {
                 person: person.to_string(),
                 until_ms,
                 under: under.to_string(),
+                of: of.to_string(),
             },
         );
         self.keep();
@@ -334,6 +384,9 @@ pub struct Usher {
     /// The steward's shelves, as evo hands them to a distribution: the
     /// usher's own routes ask a shelf through it, as any caller does.
     shelves: Arc<dyn Dispatcher>,
+    /// The bearer the unit's keeper asks a shelf with, and until when it
+    /// is good, in milliseconds since 1970.
+    keepers: tokio::sync::Mutex<Option<(String, u64)>>,
 }
 
 impl Usher {
@@ -371,6 +424,7 @@ impl Usher {
             nobodys,
             checking: tokio::sync::Semaphore::new(2),
             shelves,
+            keepers: tokio::sync::Mutex::new(None),
         }))
     }
 
@@ -444,13 +498,21 @@ impl Usher {
             .of(id, now_ms())
             .cloned();
         if let Some(session) = session {
-            let stands =
-                self.people().find(&session.person).is_some_and(|person| {
-                    !session.under.is_empty() && person.stamp() == session.under
-                });
-            if stands {
+            // And for as long as the person's role is the one the
+            // session's bearer was made for.
+            let role = self
+                .people()
+                .find(&session.person)
+                .filter(|person| {
+                    !session.under.is_empty()
+                        && person.stamp() == session.under
+                        && person.role == session.of
+                })
+                .map(|person| person.role.clone());
+            if let Some(role) = role {
                 return Some(Asking::Person {
                     name: session.person,
+                    role,
                     session: session.id,
                 });
             }
@@ -515,13 +577,54 @@ impl Usher {
         })
     }
 
-    /// Give a person a session.
+    /// A bearer for evo to be shown where the unit's keeper asks a
+    /// shelf: good for what an administrator's session is good for
+    /// there, and for a short while. It is shown to evo and to nobody
+    /// else, and is made anew before its time is up.
+    pub async fn as_keeper(&self) -> Result<String, Refused> {
+        let mut kept = self.keepers.lock().await;
+        let now = now_ms();
+        if let Some((bearer, until_ms)) = kept.as_ref() {
+            if *until_ms > now + KEEPER_SPARE_MS {
+                return Ok(bearer.clone());
+            }
+        }
+        let minted = mint(
+            &self.socket,
+            &OF_THE_KEEPER,
+            KEEPER_SECONDS,
+            "the unit's keeper asking a shelf, through the usher",
+        )
+        .await
+        .map_err(|why| {
+            tracing::error!("no bearer could be made for the keeper: {why}");
+            Box::new(refusal(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "unavailable",
+                "no_session",
+                "The usher cannot ask its shelves just now. Try again in a moment.",
+            ))
+        })?;
+        *kept = Some((minted.token.clone(), minted.until_ms));
+        Ok(minted.token)
+    }
+
+    /// Give a person a session, good for what their role may do.
     async fn let_in(&self, name: &str, kept: bool) -> Result<Value, Refused> {
         let kept = kept && self.level.keeps();
         let seconds = self.level.session_seconds(kept);
+        let role = self.people().find(name).map(|person| person.role.clone());
+        let Some(role) = role else {
+            return Err(Box::new(wrong()));
+        };
+        let good_for: &[&str] = if role == FRONT_DESK {
+            &OF_A_FRONT_DESK
+        } else {
+            &OF_AN_ADMINISTRATOR
+        };
         let minted = mint(
             &self.socket,
-            &OF_AN_ADMINISTRATOR,
+            good_for,
             seconds,
             "a session of the usher's, for a person who signed in",
         )
@@ -535,10 +638,12 @@ impl Usher {
                     "The usher cannot let anyone in just now. Try again in a moment.",
                 )
             })?;
-        // The session is the person's under the password they have now.
+        // The session is the person's under the password they have now,
+        // and in the role they have now.
         let under = self
             .people()
             .find(name)
+            .filter(|person| person.role == role)
             .map(|person| person.stamp().to_string())
             .filter(|under| !under.is_empty());
         let Some(under) = under else {
@@ -549,11 +654,12 @@ impl Usher {
             name,
             minted.until_ms,
             &under,
+            &role,
         );
         Ok(json!({
             "token": minted.token,
             "name": name,
-            "role": ADMINISTRATOR,
+            "role": role,
             "until_ms": minted.until_ms,
             "kept": kept,
         }))
@@ -776,6 +882,30 @@ fn held(left_ms: u64) -> Response {
     )
 }
 
+/// The refusal of a PIN for a person whose way in is a password.
+fn signs_in_with_password(name: &str) -> Why {
+    why(
+        "signs_in_with_password",
+        format!(
+            "{name} signs in with a password, not a PIN. Set a new \
+             password instead."
+        ),
+    )
+    .with("name", name)
+}
+
+/// The refusal of a password for a person whose way in is a PIN.
+fn signs_in_with_pin(name: &str) -> Why {
+    why(
+        "signs_in_with_pin",
+        format!(
+            "{name} signs in with a PIN, not a password. An administrator \
+             makes a new PIN instead."
+        ),
+    )
+    .with("name", name)
+}
+
 fn wrong() -> Response {
     refusal(
         StatusCode::UNAUTHORIZED,
@@ -814,6 +944,28 @@ struct Naming {
 struct NameAndPassword {
     name: String,
     password: String,
+}
+
+/// A person at the front desk, and the PIN an administrator typed for
+/// them.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NameAndPin {
+    name: String,
+    pin: String,
+}
+
+/// A person to add: an administrator with the password given, or, for
+/// the front desk, with no password, since theirs is a PIN the usher
+/// makes.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Adding {
+    name: String,
+    #[serde(default)]
+    password: Option<String>,
+    #[serde(default)]
+    role: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1009,7 +1161,11 @@ async fn sign_out(
 
 async fn me(State(usher): State<Arc<Usher>>, request: Request) -> Response {
     match asking(&request) {
-        Ok(Asking::Person { name, session }) => {
+        Ok(Asking::Person {
+            name,
+            role,
+            session,
+        }) => {
             let until_ms = usher
                 .sessions
                 .lock()
@@ -1019,9 +1175,11 @@ async fn me(State(usher): State<Arc<Usher>>, request: Request) -> Response {
             answer(
                 StatusCode::OK,
                 &json!({
-                    "name": name, "role": ADMINISTRATOR, "until_ms": until_ms,
+                    "name": name, "role": role, "until_ms": until_ms,
                     "unit": false, "level": usher.level.as_str(),
                     "least_password": usher.level.least_password(),
+                    "least_pin": usher.level.pin_digits(),
+                    "most_pin": people::LONGEST_PIN,
                 }),
             )
         }
@@ -1031,6 +1189,8 @@ async fn me(State(usher): State<Arc<Usher>>, request: Request) -> Response {
                 "name": null, "role": ADMINISTRATOR, "until_ms": null,
                 "unit": true, "level": usher.level.as_str(),
                 "least_password": usher.level.least_password(),
+                "least_pin": usher.level.pin_digits(),
+                "most_pin": people::LONGEST_PIN,
             }),
         ),
         Err(refused) => *refused,
@@ -1060,6 +1220,22 @@ async fn list(State(usher): State<Arc<Usher>>, request: Request) -> Response {
     answer(StatusCode::OK, &json!({ "people": listed }))
 }
 
+/// A PIN made for a person, and the hash it is kept as.
+async fn pin_made(usher: &Usher) -> Result<(String, String), Refused> {
+    let pin = people::pin(usher.level.pin_digits());
+    let hashed = {
+        let pin = pin.clone();
+        tokio::task::spawn_blocking(move || people::hash(&pin)).await
+    };
+    match hashed {
+        Ok(Ok(hash)) => Ok((pin, hash)),
+        _ => Err(Box::new(not_as_asked(&why(
+            "pin_not_kept",
+            "The PIN could not be kept.",
+        )))),
+    }
+}
+
 async fn add_person(
     State(usher): State<Arc<Usher>>,
     request: Request,
@@ -1067,19 +1243,50 @@ async fn add_person(
     if let Err(refused) = asking(&request) {
         return *refused;
     }
-    let asked: NameAndPassword = match carried(request).await {
+    let asked: Adding = match carried(request).await {
         Ok(asked) => asked,
         Err(refused) => return *refused,
     };
+    let role =
+        match people::role_held(asked.role.as_deref().unwrap_or(ADMINISTRATOR))
+        {
+            Ok(role) => role,
+            Err(why) => return not_as_asked(&why),
+        };
     let name = match people::name_held(&asked.name) {
         Ok(name) => name,
         Err(why) => return not_as_asked(&why),
     };
-    if let Err(why) = people::password_held(&asked.password, &name, usher.level)
-    {
+    if role == FRONT_DESK {
+        // Nobody chooses a PIN: the usher makes it, and says it once.
+        if asked.password.is_some() {
+            return not_as_asked(&why(
+                "pin_not_chosen",
+                "A person at the front desk signs in with a PIN the usher \
+                 makes: none is chosen for them.",
+            ));
+        }
+        let (pin, hash) = match pin_made(&usher).await {
+            Ok(made) => made,
+            Err(refused) => return *refused,
+        };
+        return match usher.people().add(&name, FRONT_DESK, hash, now_ms()) {
+            Ok(()) => answer(
+                StatusCode::OK,
+                &json!({ "added": name, "role": FRONT_DESK, "pin": pin }),
+            ),
+            Err(e) => unkept(e),
+        };
+    }
+    let Some(password) = asked.password else {
+        return not_as_asked(&why(
+            "password_needed",
+            "An administrator is given a password.",
+        ));
+    };
+    if let Err(why) = people::password_held(&password, &name, usher.level) {
         return not_as_asked(&why);
     }
-    let password = asked.password;
     let hash = match tokio::task::spawn_blocking(move || {
         people::hash(&password)
     })
@@ -1094,9 +1301,104 @@ async fn add_person(
         }
     };
     match usher.people().add(&name, ADMINISTRATOR, hash, now_ms()) {
-        Ok(()) => answer(StatusCode::OK, &json!({ "added": name })),
+        Ok(()) => answer(
+            StatusCode::OK,
+            &json!({ "added": name, "role": ADMINISTRATOR }),
+        ),
         Err(e) => unkept(e),
     }
+}
+
+/// Make a new PIN for a person at the front desk. It is said this once;
+/// whoever was signed in under the one before is not any longer.
+async fn make_pin(
+    State(usher): State<Arc<Usher>>,
+    request: Request,
+) -> Response {
+    if let Err(refused) = asking(&request) {
+        return *refused;
+    }
+    let asked: Naming = match carried(request).await {
+        Ok(asked) => asked,
+        Err(refused) => return *refused,
+    };
+    let found = usher
+        .people()
+        .find(&asked.name)
+        .map(|person| (person.name.clone(), person.role.clone()));
+    let Some((name, role)) = found else {
+        return not_as_asked(&people::nobody_called(asked.name.trim()));
+    };
+    if role != FRONT_DESK {
+        return not_as_asked(&signs_in_with_password(&name));
+    }
+    let (pin, hash) = match pin_made(&usher).await {
+        Ok(made) => made,
+        Err(refused) => return *refused,
+    };
+    if let Err(e) = usher.people().set_password(&name, hash) {
+        return unkept(e);
+    }
+    usher
+        .sessions
+        .lock()
+        .expect("the sessions' lock")
+        .end_of(&name, None);
+    usher.tries.lock().expect("the tries' lock").right(&name);
+    answer(StatusCode::OK, &json!({ "name": name, "pin": pin }))
+}
+
+/// Set a PIN for a person at the front desk: one the administrator
+/// typed, where the usher is not to make it. It is held to what keeps a
+/// PIN somebody thought of from being guessed, is kept as a made one is,
+/// and is the person's from then on: whoever was signed in under the one
+/// before is not any longer. It is not answered back, and stands in no
+/// log.
+async fn set_pin(
+    State(usher): State<Arc<Usher>>,
+    request: Request,
+) -> Response {
+    if let Err(refused) = asking(&request) {
+        return *refused;
+    }
+    let asked: NameAndPin = match carried(request).await {
+        Ok(asked) => asked,
+        Err(refused) => return *refused,
+    };
+    let found = usher
+        .people()
+        .find(&asked.name)
+        .map(|person| (person.name.clone(), person.role.clone()));
+    let Some((name, role)) = found else {
+        return not_as_asked(&people::nobody_called(asked.name.trim()));
+    };
+    if role != FRONT_DESK {
+        return not_as_asked(&signs_in_with_password(&name));
+    }
+    if let Err(why) = people::pin_held(&asked.pin, usher.level) {
+        return not_as_asked(&why);
+    }
+    let pin = asked.pin;
+    let hash =
+        match tokio::task::spawn_blocking(move || people::hash(&pin)).await {
+            Ok(Ok(hash)) => hash,
+            _ => {
+                return not_as_asked(&why(
+                    "pin_not_kept",
+                    "The PIN could not be kept.",
+                ))
+            }
+        };
+    if let Err(e) = usher.people().set_password(&name, hash) {
+        return unkept(e);
+    }
+    usher
+        .sessions
+        .lock()
+        .expect("the sessions' lock")
+        .end_of(&name, None);
+    usher.tries.lock().expect("the tries' lock").right(&name);
+    answer(StatusCode::OK, &json!({ "set": name }))
 }
 
 async fn set_password(
@@ -1110,10 +1412,16 @@ async fn set_password(
         Ok(asked) => asked,
         Err(refused) => return *refused,
     };
-    let name = match usher.people().find(&asked.name) {
-        Some(person) => person.name.clone(),
-        None => return not_as_asked(&people::nobody_called(asked.name.trim())),
+    let found = usher
+        .people()
+        .find(&asked.name)
+        .map(|person| (person.name.clone(), person.role.clone()));
+    let Some((name, role)) = found else {
+        return not_as_asked(&people::nobody_called(asked.name.trim()));
     };
+    if role == FRONT_DESK {
+        return not_as_asked(&signs_in_with_pin(&name));
+    }
     if let Err(why) = people::password_held(&asked.password, &name, usher.level)
     {
         return not_as_asked(&why);
@@ -1176,7 +1484,11 @@ async fn change_my_password(
     request: Request,
 ) -> Response {
     let (name, session) = match asking(&request) {
-        Ok(Asking::Person { name, session }) => (name, session),
+        // A PIN is the usher's making, and is not changed by its person.
+        Ok(Asking::Person { name, role, .. }) if role == FRONT_DESK => {
+            return not_as_asked(&signs_in_with_pin(&name))
+        }
+        Ok(Asking::Person { name, session, .. }) => (name, session),
         Ok(Asking::Unit) => {
             return not_as_asked(&why(
                 "unit_has_no_password",
@@ -1260,6 +1572,8 @@ pub fn routes(usher: Arc<Usher>) -> Router {
         .route(&at("people"), get(list))
         .route(&at("add_person"), post(add_person))
         .route(&at("set_password"), post(set_password))
+        .route(&at("make_pin"), post(make_pin))
+        .route(&at("set_pin"), post(set_pin))
         .route(&at("remove_person"), post(remove_person))
         .route(&at("change_my_password"), post(change_my_password))
         .with_state(usher)
@@ -1317,17 +1631,30 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let now = now_ms();
         let mut sessions = Sessions::open(dir.path()).unwrap();
-        sessions.add("s-1".to_string(), "Anna", now + 60_000, "first");
-        sessions.add("s-2".to_string(), "Anna", now + 60_000, "first");
-        sessions.add("s-3".to_string(), "Ben", now + 60_000, "bens");
-        sessions.add("s-old".to_string(), "Ben", now.saturating_sub(1), "bens");
+        let of = ADMINISTRATOR;
+        sessions.add("s-1".to_string(), "Anna", now + 60_000, "first", of);
+        sessions.add("s-2".to_string(), "Anna", now + 60_000, "first", of);
+        sessions.add(
+            "s-3".to_string(),
+            "Ben",
+            now + 60_000,
+            "bens",
+            FRONT_DESK,
+        );
+        sessions.add(
+            "s-old".to_string(),
+            "Ben",
+            now.saturating_sub(1),
+            "bens",
+            of,
+        );
         assert_eq!(sessions.of("s-1", now).unwrap().person, "Anna");
         assert_eq!(sessions.of("s-1", now).unwrap().under, "first");
         assert!(sessions.of("s-old", now).is_none(), "its time is up");
         assert!(sessions.of("s-1", now + 60_001).is_none());
 
         let mut again = Sessions::open(dir.path()).unwrap();
-        assert!(again.of("s-3", now).is_some());
+        assert_eq!(again.of("s-3", now).unwrap().of, FRONT_DESK);
         // A new password ends a person's other sessions and keeps one,
         // which is held to the new password from then on.
         again.end_of("anna", Some("s-2"));
@@ -1345,5 +1672,43 @@ mod tests {
         again.end("s-2");
         again.end_of("Ben", None);
         assert!(Sessions::open(dir.path()).unwrap().live.is_empty());
+    }
+
+    #[test]
+    fn a_session_kept_from_before_roles_is_not_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let now = now_ms();
+        // As an earlier version wrote one: no role it was made for.
+        fs::write(
+            dir.path().join("sessions.json"),
+            json!([
+                { "id": "s-before", "person": "Anna", "until_ms": now + 60_000, "under": "first" },
+                { "id": "s-now", "person": "Anna", "until_ms": now + 60_000, "under": "first", "of": ADMINISTRATOR },
+            ])
+            .to_string(),
+        )
+        .unwrap();
+        let sessions = Sessions::open(dir.path()).unwrap();
+        assert!(sessions.of("s-before", now).is_none());
+        assert!(sessions.of("s-now", now).is_some());
+    }
+
+    #[test]
+    fn a_front_desks_session_is_good_for_less_than_an_administrators() {
+        for of_the_desk in OF_A_FRONT_DESK {
+            assert!(
+                OF_AN_ADMINISTRATOR.contains(&of_the_desk),
+                "{of_the_desk}"
+            );
+        }
+        // Nothing that sets a unit up, and no hearing of what happens.
+        assert!(!OF_A_FRONT_DESK.contains(&"network_admin"));
+        assert!(!OF_A_FRONT_DESK.contains(&"subjects"));
+        assert!(OF_A_FRONT_DESK.contains(&ISSUING));
+        // The keeper asks a shelf with what an administrator's session
+        // has there.
+        for of_the_keeper in OF_THE_KEEPER {
+            assert!(OF_AN_ADMINISTRATOR.contains(&of_the_keeper));
+        }
     }
 }
