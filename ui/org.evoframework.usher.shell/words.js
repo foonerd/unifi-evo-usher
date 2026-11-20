@@ -7,10 +7,11 @@
 // still says everything.
 //
 // Which language is spoken is settled once, as the page is opened: the
-// one a person picked on this browser; else, where the site follows a
-// browser, the first of the browser's own languages the face speaks;
-// else the site's language; else English. A change of it opens the page
-// anew, so that nothing stays behind in the language before.
+// one last picked on this browser; else, where the site follows a
+// browser, which it does only where an administrator says so, the first
+// of the browser's own languages the face speaks; else the site's
+// language, which is English unless it was set. A change of it opens
+// the page anew, so that nothing stays behind in the language before.
 
 /** The language spoken where nothing says another, and where a text is missing. */
 export const ENGLISH = "en";
@@ -62,7 +63,7 @@ let texts = {};
 let english = {};
 
 /** What the site says of its language, as far as it is known. */
-let site = { language: ENGLISH, follows: true };
+let site = { language: ENGLISH, follows: false };
 
 /** @returns {string} the tag of the language that is spoken */
 export function language() {
@@ -207,10 +208,10 @@ async function askSite() {
     if (!answer.ok) return;
     const told = (await answer.json())?.site;
     if (typeof told?.language === "string") {
-      site = { language: told.language, follows: told.follows_browser !== false };
+      site = { language: told.language, follows: told.follows_browser === true };
     }
   } catch {
-    // The face speaks by the browser's own language, or English.
+    // The face speaks what was picked on this browser, or English.
   }
 }
 
@@ -301,7 +302,7 @@ export function pick(to) {
  */
 export function siteSpeaks(speaks, follows) {
   if (typeof speaks !== "string" || speaks === "") return;
-  site = { language: speaks, follows: follows !== false };
+  site = { language: speaks, follows: follows === true };
   if (made === null) return;
   const now = wanted();
   if (now !== tag) {

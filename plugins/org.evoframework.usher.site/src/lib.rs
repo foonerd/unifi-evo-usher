@@ -467,7 +467,7 @@ mod tests {
                 new,
                 json!({
                     "name": "", "time_zone": null, "language": "en",
-                    "follows_browser": true,
+                    "follows_browser": false,
                     "logo": null, "set_here": false,
                     "language_set_here": false,
                     "limits": {
@@ -489,20 +489,20 @@ mod tests {
                 set,
                 json!({
                     "name": "Parish Hall", "time_zone": "Europe/Warsaw",
-                    "language": "en", "follows_browser": true,
+                    "language": "en", "follows_browser": false,
                 })
             );
             let set = asked(
                 &mut site,
                 "set",
-                br#"{"name": "Parish Hall", "time_zone": "Europe/Warsaw", "language": "de", "follows_browser": false}"#,
+                br#"{"name": "Parish Hall", "time_zone": "Europe/Warsaw", "language": "de", "follows_browser": true}"#,
             )
             .unwrap();
             assert_eq!(
                 set,
                 json!({
                     "name": "Parish Hall", "time_zone": "Europe/Warsaw",
-                    "language": "de", "follows_browser": false,
+                    "language": "de", "follows_browser": true,
                 })
             );
             let put = asked(&mut site, "put_logo", logo.as_bytes()).unwrap();
@@ -516,7 +516,7 @@ mod tests {
         assert_eq!(kept["name"], "Parish Hall");
         assert_eq!(kept["time_zone"], "Europe/Warsaw");
         assert_eq!(kept["language"], "de");
-        assert_eq!(kept["follows_browser"], false);
+        assert_eq!(kept["follows_browser"], true);
         assert_eq!(kept["language_set_here"], true);
         assert_eq!(kept["set_here"], true);
         assert_eq!(kept["logo"]["width"], 300);
@@ -536,7 +536,7 @@ mod tests {
             set,
             json!({
                 "name": "The Hall", "time_zone": null,
-                "language": "de", "follows_browser": false,
+                "language": "de", "follows_browser": true,
             })
         );
 

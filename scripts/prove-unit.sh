@@ -208,7 +208,7 @@ echo "  ok    a caller who presents nothing is refused, and no bearer is made fo
 echo "prove-unit: setting up and signing in"
 [ "$(usher state)" = 200 ] || fail "the unit does not say what state it is in: $(cat "$work/answer")"
 jq -e '.set_up == false and .level == "standard" and .least_password == 12 and .keeps == true' "$work/answer" > /dev/null || fail "a new unit says of itself: $(cat "$work/answer")"
-jq -e '.site == {name: "", logo: null, language: "en", follows_browser: true}' "$work/answer" > /dev/null || fail "a new unit says of its site: $(cat "$work/answer")"
+jq -e '.site == {name: "", logo: null, language: "en", follows_browser: false}' "$work/answer" > /dev/null || fail "a new unit says of its site: $(cat "$work/answer")"
 [ ! -e "$CODE" ] || fail "a unit of the ordinary level made a code, which it asks nobody for"
 echo "  ok    a new unit says that nobody has set it up, and at the ordinary level it makes no code"
 [ "$(usher sign_in "$(named "$NAME" "$PASSWORD")")" = 409 ] || fail "a unit nobody set up signs someone in: $(cat "$work/answer")"
@@ -259,7 +259,7 @@ echo "prove-unit: the site"
 # Ask the site's shelf as a browser someone is signed in at does.
 site() { ask request "$(request site.settings "$1" "$2")" "$bearer"; }
 [ "$(site get '{}')" = 200 ] || fail "the site is not told: $(cat "$work/answer")"
-answered | jq -e '.name == "" and .time_zone == null and .logo == null and .set_here == false and .language == "en" and .follows_browser == true and .language_set_here == false' > /dev/null || fail "a new unit has a site nobody set: $(answered)"
+answered | jq -e '.name == "" and .time_zone == null and .logo == null and .set_here == false and .language == "en" and .follows_browser == false and .language_set_here == false' > /dev/null || fail "a new unit has a site nobody set: $(answered)"
 # A unit is given its site's name, time zone and language where it is
 # started, as its service file says how: in a drop-in.
 service=$(systemctl show -p FragmentPath --value evo.service)
@@ -271,21 +271,21 @@ printf '[Service]\nEnvironment="USHER_SITE_NAME=Parish Hall"\nEnvironment=USHER_
 systemctl daemon-reload
 start restart
 [ "$(site get '{}')" = 200 ] || fail "the site is not told: $(cat "$work/answer")"
-answered | jq -e '.name == "Parish Hall" and .time_zone == "Europe/Warsaw" and .set_here == false and .language == "de" and .follows_browser == true and .language_set_here == false' > /dev/null || fail "the unit does not go by the name, the time zone and the language it was started with: $(answered)"
+answered | jq -e '.name == "Parish Hall" and .time_zone == "Europe/Warsaw" and .set_here == false and .language == "de" and .follows_browser == false and .language_set_here == false' > /dev/null || fail "the unit does not go by the name, the time zone and the language it was started with: $(answered)"
 # Anyone is told the name, for the form a person signs in by to wear,
 # and the language the form speaks, and nothing else of the site.
 [ "$(usher state)" = 200 ] || fail "the unit does not say what state it is in: $(cat "$work/answer")"
-jq -e '.site == {name: "Parish Hall", logo: null, language: "de", follows_browser: true}' "$work/answer" > /dev/null || fail "before anyone has signed in, the unit says of its site: $(cat "$work/answer")"
+jq -e '.site == {name: "Parish Hall", logo: null, language: "de", follows_browser: false}' "$work/answer" > /dev/null || fail "before anyone has signed in, the unit says of its site: $(cat "$work/answer")"
 echo "  ok    given a name, a time zone and a language where it is started, the unit goes by them, and anyone is told the name and the language"
 [ "$(ask request "$(request site.settings set '{"name":"Mallory","time_zone":null}')" "")" = 401 ] || fail "a caller who has not signed in sets the site: $(cat "$work/answer")"
 [ "$(site set '{"name":"Hall of St Mary","time_zone":"London time"}')" != 200 ] || fail "a time zone that is none is taken: $(cat "$work/answer")"
 [ "$(site set '{"name":"Hall of St Mary","language":"German"}')" != 200 ] || fail "a language that is none is taken: $(cat "$work/answer")"
 jq -e '.error.details.subclass == "language_not_one"' "$work/answer" > /dev/null || fail "a language that is none is refused as: $(cat "$work/answer")"
-[ "$(site set '{"name":" Hall of St Mary ","time_zone":"Europe/London","language":"en","follows_browser":false}')" = 200 ] || fail "the site's name, time zone and language are not set: $(cat "$work/answer")"
-answered | jq -e '.name == "Hall of St Mary" and .time_zone == "Europe/London" and .language == "en" and .follows_browser == false' > /dev/null || fail "the site was set as: $(answered)"
+[ "$(site set '{"name":" Hall of St Mary ","time_zone":"Europe/London","language":"en","follows_browser":true}')" = 200 ] || fail "the site's name, time zone and language are not set: $(cat "$work/answer")"
+answered | jq -e '.name == "Hall of St Mary" and .time_zone == "Europe/London" and .language == "en" and .follows_browser == true' > /dev/null || fail "the site was set as: $(answered)"
 [ "$(stat -c '%U %a' "$SITE" 2> /dev/null)" = "evo 600" ] || fail "the site is kept as $(stat -c '%U %a' "$SITE" 2>&1), not in $SITE for the steward alone"
 [ "$(usher state)" = 200 ] || fail "the unit does not say what state it is in: $(cat "$work/answer")"
-jq -e '.site == {name: "Hall of St Mary", logo: null, language: "en", follows_browser: false}' "$work/answer" > /dev/null || fail "its site set, the unit says of it: $(cat "$work/answer")"
+jq -e '.site == {name: "Hall of St Mary", logo: null, language: "en", follows_browser: true}' "$work/answer" > /dev/null || fail "its site set, the unit says of it: $(cat "$work/answer")"
 echo "  ok    its administrator sets another name, time zone and language, kept for the steward alone; nobody who has not signed in sets them"
 
 echo "prove-unit: what is kept"
@@ -298,7 +298,7 @@ answered | jq -e '(.types | map(.name)) == ["Stay", "Day"] and .default == "Day"
 [ "$(site get '{}')" = 200 ] || fail "the site is not told after a restart: $(cat "$work/answer")"
 # What was set of the site stands, though the unit is started with the
 # first name, time zone and language as before.
-answered | jq -e '.name == "Hall of St Mary" and .time_zone == "Europe/London" and .set_here == true and .language == "en" and .follows_browser == false and .language_set_here == true' > /dev/null || fail "the site's name, time zone and language were not kept through a restart: $(answered)"
+answered | jq -e '.name == "Hall of St Mary" and .time_zone == "Europe/London" and .set_here == true and .language == "en" and .follows_browser == true and .language_set_here == true' > /dev/null || fail "the site's name, time zone and language were not kept through a restart: $(answered)"
 [ "$(usher state)" = 200 ] || fail "the unit does not say what state it is in: $(cat "$work/answer")"
 jq -e '.site.name == "Hall of St Mary" and .site.language == "en"' "$work/answer" > /dev/null || fail "started again, the unit says of its site: $(cat "$work/answer")"
 rm "$GIVEN"

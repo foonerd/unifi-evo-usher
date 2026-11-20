@@ -386,9 +386,10 @@ impl Site {
     }
 
     /// Whether a browser whose own language the face speaks is spoken to
-    /// in it, before the site's.
+    /// in it, before the site's. It is not, unless an administrator says
+    /// so: a screen nobody has picked a language on speaks the site's.
     pub fn follows_browser(&self) -> bool {
-        self.kept.follows_browser.unwrap_or(true)
+        self.kept.follows_browser.unwrap_or(false)
     }
 
     /// Whether the language was set here, and is not what the unit was
@@ -521,7 +522,7 @@ mod tests {
         assert_eq!(site.name(), "");
         assert_eq!(site.time_zone(), None);
         assert_eq!(site.language(), "en");
-        assert!(site.follows_browser());
+        assert!(!site.follows_browser());
         assert!(!site.language_set_here());
         assert!(site.logo().is_none());
         assert!(!site.set_here());
@@ -845,25 +846,25 @@ mod tests {
     }
 
     #[test]
-    fn a_site_speaks_english_and_follows_a_browser_until_told_otherwise() {
+    fn a_site_speaks_english_and_follows_no_browser_until_told_otherwise() {
         let dir = tempfile::tempdir().unwrap();
         {
             let mut site = Site::open(dir.path(), nothing_given()).unwrap();
             // Set without a word of the language, it stays what it was.
             site.set("Here", None).unwrap();
             assert_eq!(site.language(), "en");
-            assert!(site.follows_browser());
+            assert!(!site.follows_browser());
             assert!(!site.language_set_here());
 
-            site.set_all("Here", None, Some("de"), Some(false)).unwrap();
+            site.set_all("Here", None, Some("de"), Some(true)).unwrap();
             assert_eq!(site.language(), "de");
-            assert!(!site.follows_browser());
+            assert!(site.follows_browser());
             assert!(site.language_set_here());
 
             // A language that is none is refused, and nothing is changed:
             // not the name it came with either.
             let why = rule(
-                site.set_all("There", None, Some("German"), Some(true))
+                site.set_all("There", None, Some("German"), Some(false))
                     .unwrap_err(),
             );
             assert_eq!(
@@ -873,20 +874,20 @@ mod tests {
             );
             assert_eq!(site.name(), "Here");
             assert_eq!(site.language(), "de");
-            assert!(!site.follows_browser());
+            assert!(site.follows_browser());
 
             // What is not said stays.
             site.set("Here again", Some("UTC")).unwrap();
             assert_eq!(site.language(), "de");
-            assert!(!site.follows_browser());
-            site.set_all("Here again", Some("UTC"), None, Some(true))
+            assert!(site.follows_browser());
+            site.set_all("Here again", Some("UTC"), None, Some(false))
                 .unwrap();
             assert_eq!(site.language(), "de");
-            assert!(site.follows_browser());
+            assert!(!site.follows_browser());
         }
         let site = Site::open(dir.path(), nothing_given()).unwrap();
         assert_eq!(site.language(), "de");
-        assert!(site.follows_browser());
+        assert!(!site.follows_browser());
         assert_eq!(site.name(), "Here again");
     }
 
@@ -907,7 +908,7 @@ mod tests {
         assert_eq!(site.time_zone(), Some("Europe/Warsaw"));
         // No language was set there: it is the one the unit is given.
         assert_eq!(site.language(), "de");
-        assert!(site.follows_browser());
+        assert!(!site.follows_browser());
         assert!(!site.language_set_here());
     }
 

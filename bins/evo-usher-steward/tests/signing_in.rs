@@ -54,7 +54,7 @@ fn a_new_unit_is_set_up_by_whoever_opens_it_first() {
             "least_password": 12, "keeps": true,
             "site": {
                 "name": "", "logo": null,
-                "language": "en", "follows_browser": true,
+                "language": "en", "follows_browser": false,
             },
         })
     );
@@ -425,7 +425,7 @@ fn the_extended_level_takes_the_units_code_and_a_longer_password() {
             "least_password": 16, "keeps": false,
             "site": {
                 "name": "", "logo": null,
-                "language": "en", "follows_browser": true,
+                "language": "en", "follows_browser": false,
             },
         })
     );
@@ -811,7 +811,7 @@ fn anyone_is_told_the_sites_name_logo_and_language_and_nothing_else_of_it() {
             "least_password": 12, "keeps": true,
             "site": {
                 "name": "Parish Hall", "logo": null,
-                "language": "de", "follows_browser": true,
+                "language": "de", "follows_browser": false,
             },
         })
     );
@@ -840,8 +840,8 @@ fn anyone_is_told_the_sites_name_logo_and_language_and_nothing_else_of_it() {
     );
     assert_eq!(status, 200, "{said}");
     // Named without a word of the language, the site speaks what the
-    // unit was started with; then it is told another, and to speak it
-    // to every browser.
+    // unit was started with; then it is told another, and to speak
+    // each browser's own language before it.
     let (_, state) = steward.usher("GET", "state", None, &nobody);
     assert_eq!(state["site"]["language"], "de");
     let (status, said) = ask(
@@ -849,7 +849,7 @@ fn anyone_is_told_the_sites_name_logo_and_language_and_nothing_else_of_it() {
         "set",
         json!({
             "name": "St Mary's Hall", "time_zone": "Europe/Warsaw",
-            "language": "en", "follows_browser": false,
+            "language": "en", "follows_browser": true,
         }),
     );
     assert_eq!(status, 200, "{said}");
@@ -876,7 +876,7 @@ fn anyone_is_told_the_sites_name_logo_and_language_and_nothing_else_of_it() {
         "site": {
             "name": "St Mary's Hall",
             "logo": { "png_b64": carried, "width": 220, "height": 62 },
-            "language": "en", "follows_browser": false,
+            "language": "en", "follows_browser": true,
         },
     });
     for (who, caller) in [

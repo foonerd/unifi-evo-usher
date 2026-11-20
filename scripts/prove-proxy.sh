@@ -440,7 +440,7 @@ prove() {
   # And what its site is called and what language it speaks, as it was
   # started with: the form it is set up by wears the name, in that
   # language. Nothing else of the site is said.
-  jq -e --arg name "$USHER_SITE_NAME" --arg language "$USHER_LANGUAGE" '.site == {name: $name, logo: null, language: $language, follows_browser: true}' "$dir/answer" > /dev/null \
+  jq -e --arg name "$USHER_SITE_NAME" --arg language "$USHER_LANGUAGE" '.site == {name: $name, logo: null, language: $language, follows_browser: false}' "$dir/answer" > /dev/null \
     || fail "a new unit that was started with a name says of its site: $(cat "$dir/answer")"
   # Whoever opens it first sets it up, with a name and a password; at
   # the extended level with the unit's code as well.
@@ -477,20 +477,20 @@ prove() {
   status=$(post /api/v1/request "$(request site.settings get '{}')" -H "Authorization: Bearer $bearer")
   [ "$status" = 200 ] || fail "the site is not told to who has signed in: $status $(cat "$dir/answer")"
   jq -r '.payload_b64' "$dir/answer" | base64 -d \
-    | jq -e --arg name "$USHER_SITE_NAME" --arg zone "$USHER_TIME_ZONE" --arg language "$USHER_LANGUAGE" '.name == $name and .time_zone == $zone and .set_here == false and .logo == null and .language == $language and .follows_browser == true and .language_set_here == false' > /dev/null \
+    | jq -e --arg name "$USHER_SITE_NAME" --arg zone "$USHER_TIME_ZONE" --arg language "$USHER_LANGUAGE" '.name == $name and .time_zone == $zone and .set_here == false and .logo == null and .language == $language and .follows_browser == false and .language_set_here == false' > /dev/null \
     || fail "the unit does not go by the name, the time zone and the language it was started with: $(jq -r '.payload_b64' "$dir/answer" | base64 -d)"
   # A language that is none is refused, under a code a screen finds its
   # own words by, and changes nothing.
   status=$(post /api/v1/request "$(request site.settings set '{"name": "Elsewhere", "language": "German"}')" -H "Authorization: Bearer $bearer")
   [ "$status" != 200 ] || fail "a language that is none is taken: $(cat "$dir/answer")"
   jq -e '.error.details.subclass == "language_not_one"' "$dir/answer" > /dev/null || fail "a language that is none is refused as: $(cat "$dir/answer")"
-  said=$(jq -cn --arg name "$SET_NAME" --arg zone "$SET_ZONE" --arg language "$SET_LANGUAGE" '{name: $name, time_zone: $zone, language: $language, follows_browser: false}')
+  said=$(jq -cn --arg name "$SET_NAME" --arg zone "$SET_ZONE" --arg language "$SET_LANGUAGE" '{name: $name, time_zone: $zone, language: $language, follows_browser: true}')
   status=$(post /api/v1/request "$(request site.settings set "$said")")
   [ "$status" = 401 ] || fail "a caller who has not signed in sets the site: $status $(cat "$dir/answer")"
   status=$(post /api/v1/request "$(request site.settings set "$said")" -H "Authorization: Bearer $bearer")
   [ "$status" = 200 ] || fail "the site's name, time zone and language are not set: $status $(cat "$dir/answer")"
   status=$(ask /usher/v1/state)
-  jq -e --arg name "$SET_NAME" --arg language "$SET_LANGUAGE" '.site == {name: $name, logo: null, language: $language, follows_browser: false}' "$dir/answer" > /dev/null \
+  jq -e --arg name "$SET_NAME" --arg language "$SET_LANGUAGE" '.site == {name: $name, logo: null, language: $language, follows_browser: true}' "$dir/answer" > /dev/null \
     || fail "before anyone has signed in, the unit says of its site: $status $(cat "$dir/answer")"
   echo "  ok    the unit goes by the name, the time zone and the language it was started with; its administrator sets others, and anyone is told the name and the language"
 
@@ -544,11 +544,11 @@ prove() {
     jq -e '.set_up == true' "$dir/answer" > /dev/null || fail "started again, the unit says of itself: $status $(cat "$dir/answer")"
     # What its administrator set of the site stands, though the unit is
     # started with the first name, time zone and language as before.
-    jq -e --arg name "$SET_NAME" --arg language "$SET_LANGUAGE" '.site.name == $name and .site.language == $language and .site.follows_browser == false' "$dir/answer" > /dev/null || fail "started again, the unit says of its site: $(cat "$dir/answer")"
+    jq -e --arg name "$SET_NAME" --arg language "$SET_LANGUAGE" '.site.name == $name and .site.language == $language and .site.follows_browser == true' "$dir/answer" > /dev/null || fail "started again, the unit says of its site: $(cat "$dir/answer")"
     status=$(post /api/v1/request "$(request site.settings get '{}')" -H "Authorization: Bearer $bearer")
     [ "$status" = 200 ] || fail "the site is not told after a restart: $status $(cat "$dir/answer")"
     jq -r '.payload_b64' "$dir/answer" | base64 -d \
-      | jq -e --arg name "$SET_NAME" --arg zone "$SET_ZONE" --arg language "$SET_LANGUAGE" '.name == $name and .time_zone == $zone and .set_here == true and .language == $language and .follows_browser == false and .language_set_here == true' > /dev/null \
+      | jq -e --arg name "$SET_NAME" --arg zone "$SET_ZONE" --arg language "$SET_LANGUAGE" '.name == $name and .time_zone == $zone and .set_here == true and .language == $language and .follows_browser == true and .language_set_here == true' > /dev/null \
       || fail "what was set of the site was not kept through a restart: $(jq -r '.payload_b64' "$dir/answer" | base64 -d)"
     echo "  ok    started again, the unit has its people, still answers who was signed in, and goes by the name, the time zone and the language that were set"
     if [ "$proxy" = alone ]; then

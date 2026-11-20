@@ -1,4 +1,13 @@
 [
   { "tag": "en", "name": "English" },
-  { "tag": "de", "name": "Deutsch" }
+  { "tag": "de", "name": "Deutsch" },
+  { "tag": "es", "name": "Español" },
+  { "tag": "fr", "name": "Français" },
+  { "tag": "it", "name": "Italiano" },
+  { "tag": "ja", "name": "日本語" },
+  { "tag": "nl", "name": "Nederlands" },
+  { "tag": "pl", "name": "Polski" },
+  { "tag": "pt", "name": "Português" },
+  { "tag": "ru", "name": "Русский" },
+  { "tag": "zh", "name": "简体中文" }
 ]

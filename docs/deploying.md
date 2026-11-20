@@ -92,16 +92,16 @@ All of it is asked of one place, the shelf `site.settings` of the unit's catalog
 
 ## The languages
 
-The usher speaks English and German. Every text of its pages comes from one file for each language; `docs/translating.md` says how a language is added.
+The usher speaks eleven languages: English, German, Spanish, French, Italian, Japanese, Dutch, Polish, Portuguese, Russian and Chinese. Every text of its pages comes from one file for each language; `docs/translating.md` says how a language is added.
+
+Whoever stands at a screen chooses the language before anything else: the list of the languages, each under its own name, stands before the fields of the form a unit is set up and signed in to by, and in the bar on every page.
 
 What language a screen speaks is settled as the page is opened, by the first of these that says one:
 
-1. **What the person picked on that browser.** The bar has a list of the languages, each under its own name, and so has the form a unit is set up and signed in to by. What is picked there is kept in that browser, and stays until another is picked.
-2. **The browser's own language**, the first of the ones it names that the usher speaks, so a browser set to German of Austria is spoken to in German. That is so as long as the site follows a browser, which it does until an administrator unticks the box on the page Site.
-3. **The site's language**, as it was saved on the page Site, or given the unit as `USHER_LANGUAGE` where it is started.
-4. **English.**
+1. **The language last picked on that screen.** What is picked is kept in that browser, through signing out, and stays until another is picked.
+2. **The site's language.** It is English, unless an administrator saved another on the page Site, or the unit was given one as `USHER_LANGUAGE` where it is started.
 
-So a site that wants every screen in one language sets that language and unticks the box; a site with guests' desks of several languages leaves it ticked. A text a language has no words for yet is said in English.
+So a screen nobody has picked a language on speaks English. A site whose desks each have a browser in their own language can have the usher go by that instead: with the box **Use each browser's own language where the usher speaks it** ticked on the page Site, a browser's own language goes before the site's, so a browser set to German of Austria is spoken to in German. The box is not ticked unless an administrator ticks it. A text a language has no words for yet is said in English.
 
 Numbers and times are written as the language writes them, in the country the browser says it is in where the browser speaks that language too: a browser set to English of the United Kingdom reads a date the British way.
 

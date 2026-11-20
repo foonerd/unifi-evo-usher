@@ -796,8 +796,8 @@ function lineIs(joined) {
   if (joined) look();
 }
 
-// The languages to choose from, in the bar and under the form a person
-// comes in by.
+// The languages to choose from, in the bar and before the fields of the
+// form a person comes in by.
 offerLanguages(/** @type {HTMLSelectElement} */ (document.getElementById("language")));
 offerLanguages(
   /** @type {HTMLSelectElement} */ (document.getElementById("entry-language")),

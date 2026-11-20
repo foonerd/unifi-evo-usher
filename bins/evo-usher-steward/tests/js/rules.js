@@ -495,10 +495,22 @@ hold("English, where nothing is said", speaks(null, [], true, null), "en");
 // What is said: a text by its key, its places taken by values, the
 // words for a count, and a key no language has as itself.
 hold("the language spoken here", words.language(), "en");
-hold("the languages on offer, each under its own name", words.languages(), [
-  { tag: "en", name: "English" },
-  { tag: "de", name: "Deutsch" },
-]);
+hold("the languages on offer, English the first of them", words.languages()[0], {
+  tag: "en",
+  name: "English",
+});
+hold(
+  "each language on offer once, under a name of its own",
+  [
+    words.languages().length > 1,
+    words.languages().every(
+      (one) => typeof one.tag === "string" && one.tag !== "" && typeof one.name === "string" && one.name !== "",
+    ),
+    new Set(words.languages().map((one) => one.tag)).size === words.languages().length,
+    new Set(words.languages().map((one) => one.name)).size === words.languages().length,
+  ],
+  [true, true, true, true],
+);
 hold("a text", words.say("common.save"), "Save");
 hold("a text with a value", words.say("people.remove_named", { name: "Ben" }), "Remove Ben");
 hold("a value that is not given leaves its place", words.say("people.remove_named"), "Remove {name}");

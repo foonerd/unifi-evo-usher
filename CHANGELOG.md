@@ -2,6 +2,12 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## [0.3.18] - 2026-11-20
+
+- The face speaks eleven languages: English, German, Spanish, French, Italian, Japanese, Dutch, Polish, the Portuguese of Portugal, Russian and Chinese in simplified characters. Every language has every text; Polish and Russian have the forms their counts take
+- Whoever stands at a screen chooses the language before anything else: the list of the languages stands before the fields of the forms a unit is set up and signed in to by, where it stood under them, and in the bar on every page as before
+- A screen speaks the language last picked on it, and English where none was: the site's language, which is English unless an administrator saved another or the unit was given one as `USHER_LANGUAGE`. A browser's own language no longer goes before the site's unless an administrator ticks the box on the page Site: `follows_browser` is `false` where it was not set, where it was `true`. A unit on which the page Site was saved under 0.3.17 keeps the box as it was saved then
+
 ## [0.3.17] - 2026-11-19
 
 - The face speaks more than one language. Every text it shows comes from one file for each language under `lang/` in the shell's directory, found by a key, with the values it speaks of by name and a form for each count a language tells apart; what a language has no text for is said in English. English and German come with it. Numbers, dates and times are written as the language writes them

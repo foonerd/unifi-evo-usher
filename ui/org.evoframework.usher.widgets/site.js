@@ -235,7 +235,7 @@ export function site(element, context) {
         id: followsId,
         name: "follows_browser",
         type: "checkbox",
-        checked: kept?.follows_browser !== false,
+        checked: kept?.follows_browser === true,
       })
     );
     const settingsSaid = el("p", { class: "usher-said", role: "status" });
@@ -272,7 +272,7 @@ export function site(element, context) {
               name: said?.name ?? "",
               time_zone: said?.time_zone ?? null,
               language: said?.language ?? languageField.value,
-              follows_browser: said?.follows_browser !== false,
+              follows_browser: said?.follows_browser === true,
               set_here: true,
               language_set_here: true,
             };

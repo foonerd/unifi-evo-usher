@@ -3071,7 +3071,7 @@ fn a_site_is_given_its_name_its_time_zone_and_its_logo_from_the_screen() {
         json!({
             "name": "St Mary's Hall",
             "logo": { "png_b64": carried, "width": 300, "height": 84 },
-            "language": "en", "follows_browser": true,
+            "language": "en", "follows_browser": false,
         })
     );
     // For the eye: the page of the site, and the bar wearing the logo.
@@ -3360,7 +3360,7 @@ fn a_site_is_given_its_name_its_time_zone_and_its_logo_from_the_screen() {
         state["site"],
         json!({
             "name": "St Mary's Hall", "logo": null,
-            "language": "en", "follows_browser": true,
+            "language": "en", "follows_browser": false,
         })
     );
     assert_eq!(steward.stop(), Some(0));
@@ -3429,10 +3429,33 @@ fn the_face_speaks_the_language_a_person_a_browser_or_the_site_says() {
     let shell = format!("{}/{SHELL}/", steward.address());
     let title = r#"document.getElementById("entry-title")?.textContent"#;
 
-    // A new unit, and a browser that speaks English: the form a unit is
-    // set up by is in English, and offers the languages the face speaks,
-    // each under its own name.
+    // A new unit, and a browser whose own language is German. Nobody
+    // has picked a language on it, so it is spoken to in English, the
+    // language of a site nobody has given another, and not in its own.
     browser.go(&shell);
+    browser.wait(
+        "the form of a new unit",
+        &format!(r#"{title} === "Set up this usher""#),
+    );
+    browser.speaks("de-AT,de,en");
+    browser.reload();
+    browser.wait(
+        "the form in English, in a German browser",
+        &format!(
+            r#"{title} === "Set up this usher" && document.documentElement.lang === "en""#
+        ),
+    );
+    assert_eq!(
+        browser.look(
+            r#"return [navigator.language, localStorage.getItem("usherLanguage")];"#
+        ),
+        json!(["de-AT", null])
+    );
+    browser.speaks("en-GB,en");
+
+    // The form a unit is set up by offers the languages the face speaks,
+    // each under its own name, before anything is typed into it.
+    browser.reload();
     browser.wait(
         "the form in English",
         &format!(r#"{title} === "Set up this usher""#),
@@ -3514,7 +3537,7 @@ fn the_face_speaks_the_language_a_person_a_browser_or_the_site_says() {
     browser.reload();
     browser.wait("the form to sign in", &format!(r#"{title} === "Anmelden""#));
     // For the eye: the form a person signs in by, in German, with the
-    // languages to choose from under it.
+    // languages to choose from before its fields.
     if let Some(to) = picture_of(Some("language-sign-in")) {
         browser.picture(&to);
     }
@@ -3637,10 +3660,10 @@ fn the_face_speaks_the_language_a_person_a_browser_or_the_site_says() {
     );
     assert_eq!(spoken(&mut browser)["lang"], "en");
 
-    // With nothing picked, a browser is spoken to in its own language
-    // where the face speaks it, and in the site's where the site says
-    // so. The site is told to speak the language that has two texts,
-    // to every browser: what it has no text for is said in English.
+    // With nothing picked, a browser is spoken to in the site's
+    // language, and in its own where the site says so. The site is told
+    // to speak the language that has two texts, to every browser: what
+    // it has no text for is said in English.
     browser.act(r#"localStorage.removeItem("usherLanguage");"#);
     steward.ask(
         "site.settings",
@@ -3865,6 +3888,146 @@ impl Stand {
     fn says(&self, selection: Option<Value>) {
         *self.selection.lock().unwrap() = selection;
     }
+}
+
+/// Every language the face lists is spoken on a screen. It is picked
+/// on the form a person signs in by, before anything is typed there,
+/// and the form is in it; picked in the bar, the pages are.
+#[test]
+fn every_language_the_face_lists_is_spoken_on_a_screen() {
+    let Some(mut browser) = Browser::open() else {
+        return;
+    };
+    browser.size(1280, 900);
+    let lang = ui_root().join(SHELL).join("lang");
+    let listed: Vec<Value> = serde_json::from_str(
+        &std::fs::read_to_string(lang.join("languages.json")).unwrap(),
+    )
+    .unwrap();
+    assert!(listed.len() > 2, "{listed:?}");
+    // What each language calls the form to sign in and the first page.
+    let said: Vec<(String, String, String)> = listed
+        .iter()
+        .map(|language| {
+            let tag = language["tag"].as_str().unwrap().to_string();
+            let texts: Value = serde_json::from_str(
+                &std::fs::read_to_string(lang.join(format!("{tag}.json")))
+                    .unwrap(),
+            )
+            .unwrap();
+            let of = |key: &str| texts[key].as_str().unwrap().to_string();
+            (tag, of("entry.sign_in_title"), of("page.counter"))
+        })
+        .collect();
+    let pick = |list: &str, language: &str| {
+        format!(
+            r#"
+            const list = document.getElementById({list});
+            list.value = {language};
+            list.dispatchEvent(new Event("change", {{ bubbles: true }}));
+            "#,
+            list = json!(list),
+            language = json!(language),
+        )
+    };
+
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+    steward.set_up("Anna", PASSWORD);
+    // Two voucher types, for the counter to say what each gives in the
+    // language that is picked.
+    for (name, minutes, guests, down) in [
+        ("Day guest", 1440, 1, Value::Null),
+        ("Family", 4320, 5, json!(7200)),
+    ] {
+        steward.ask(
+            "issue.counter",
+            "put_type",
+            json!({
+                "name": name, "minutes": minutes, "guests": guests,
+                "down_kbps": down,
+            }),
+        );
+    }
+    browser.go(&format!("{}/{SHELL}/", steward.address()));
+    browser.wait(
+        "the form to sign in",
+        r#"document.getElementById("sign-in-form") !== null"#,
+    );
+    // The list of the languages stands before the fields of the form, and
+    // offers every language the face lists, each under its own name.
+    assert_eq!(
+        browser.look(
+            r#"
+            const list = document.getElementById("entry-language");
+            const name = document.getElementById("sign-in-name");
+            return {
+              offered: [...list.options].map((option) => [option.value, option.textContent]),
+              shown: onScreen(list),
+              before: Boolean(list.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING),
+              above: list.getBoundingClientRect().bottom <= name.getBoundingClientRect().top,
+            };
+            "#
+        ),
+        json!({
+            "offered": listed
+                .iter()
+                .map(|language| json!([language["tag"], language["name"]]))
+                .collect::<Vec<_>>(),
+            "shown": true, "before": true, "above": true,
+        })
+    );
+    for (tag, title, _) in &said {
+        browser.act(&pick("entry-language", tag));
+        browser.wait(
+            &format!("the form to sign in, in {tag}"),
+            &format!(
+                r#"document.documentElement.lang === {} && document.getElementById("entry-title")?.textContent === {}"#,
+                json!(tag),
+                json!(title)
+            ),
+        );
+        // For the eye: the form in a language of other letters.
+        if tag == "ja" {
+            if let Some(to) = picture_of(Some("language-form-ja")) {
+                browser.picture(&to);
+            }
+        }
+    }
+
+    // Signed in, and a language picked in the bar: the menu is in it.
+    // Three of them, of other letters and other counts than English.
+    fill(
+        &mut browser,
+        json!({ "sign-in-name": "Anna", "sign-in-password": PASSWORD }),
+    );
+    browser.act(r#"document.getElementById("sign-in-form").requestSubmit();"#);
+    browser.wait(
+        "the menu",
+        r#"menuEntries().length > 0 && document.getElementById("entry").open === false"#,
+    );
+    for (tag, _, counter) in said
+        .iter()
+        .filter(|(tag, _, _)| ["pl", "ru", "ja"].contains(&tag.as_str()))
+    {
+        browser.act(&pick("language", tag));
+        browser.wait(
+            &format!("the menu in {tag}"),
+            &format!(
+                r#"document.documentElement.lang === {} && menuEntries()[0]?.textContent === {} && document.getElementById("language").value === {}"#,
+                json!(tag),
+                json!(counter),
+                json!(tag)
+            ),
+        );
+        // For the eye: the counter in that language.
+        if let Some(to) = picture_of(Some(&format!("language-{tag}"))) {
+            go_to(&mut browser, counter);
+            browser.act("document.activeElement?.blur();");
+            browser.picture(&to);
+        }
+    }
+    assert_eq!(steward.stop(), Some(0));
 }
 
 #[test]

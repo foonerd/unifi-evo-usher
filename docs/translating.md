@@ -6,7 +6,7 @@ Every text a person reads on the usher's pages comes from one file for each lang
 | --- | --- |
 | `languages.json` | The languages the usher speaks: for each its tag, as `en` or `de`, and what the language calls itself, as `English` or `Deutsch`. English stands first. |
 | `en.json` | The texts in English. Every other language says what this file says. |
-| `de.json` | The texts in German. |
+| `de.json`, `es.json`, `fr.json`, `it.json`, `ja.json`, `nl.json`, `pl.json`, `pt.json`, `ru.json`, `zh.json` | The texts in German, Spanish, French, Italian, Japanese, Dutch, Polish, the Portuguese of Portugal, Russian and Chinese in simplified characters. |
 
 No script and no page holds a text of its own: a script asks for a text by its key, and a test fails where one is written into a script instead.
 
@@ -73,4 +73,4 @@ A refusal whose code has no text is said in the usher's own English words, and s
 - every key a script or a page asks for is there, and every key there is asked for;
 - every code the usher refuses under has a text, or is set apart as one no screen meets;
 - no text for a person is written into a script or a page;
-- in a browser: a language picked on a screen stays after the page is loaded again, a browser is spoken to in its own language, a site that follows no browser is spoken to in the site's, a refusal is said in the language, and a text a language lacks is said in English.
+- in a browser: a language picked on a screen stays after the page is loaded again, a screen nobody has picked one on is spoken to in the site's language whatever its browser's own, a browser is spoken to in its own language where the site says so, a refusal is said in the language, and a text a language lacks is said in English.

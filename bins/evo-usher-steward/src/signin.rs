@@ -385,7 +385,7 @@ impl Usher {
     async fn site(&self) -> Value {
         let nothing = json!({
             "name": "", "logo": null,
-            "language": evo_usher_site::OWN_LANGUAGE, "follows_browser": true,
+            "language": evo_usher_site::OWN_LANGUAGE, "follows_browser": false,
         });
         let Ok(operation) = WireOpId::new(ASK_A_SHELF) else {
             return nothing;
@@ -427,7 +427,7 @@ impl Usher {
             "language": site["language"]
                 .as_str()
                 .unwrap_or(evo_usher_site::OWN_LANGUAGE),
-            "follows_browser": site["follows_browser"].as_bool().unwrap_or(true),
+            "follows_browser": site["follows_browser"].as_bool().unwrap_or(false),
         })
     }
 

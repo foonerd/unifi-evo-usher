@@ -83,7 +83,7 @@ fn the_site_is_kept_through_the_steward_and_across_a_restart() {
     let steward = Steward::start(dir.path());
     let new = json!({
         "name": "", "time_zone": null, "language": "en",
-        "follows_browser": true, "logo": null,
+        "follows_browser": false, "logo": null,
         "set_here": false, "language_set_here": false,
         "limits": {
             "name_characters": 64, "logo_bytes": 262144,
@@ -115,7 +115,7 @@ fn the_site_is_kept_through_the_steward_and_across_a_restart() {
         ),
         json!({
             "name": "Parish Hall", "time_zone": "Europe/Warsaw",
-            "language": "en", "follows_browser": true,
+            "language": "en", "follows_browser": false,
         })
     );
     assert_eq!(
@@ -230,7 +230,7 @@ fn a_unit_is_given_its_first_name_time_zone_and_language_where_it_is_started() {
     assert_eq!(site["name"], "Parish Hall", "{site}");
     assert_eq!(site["time_zone"], "Europe/Warsaw");
     assert_eq!(site["language"], "de");
-    assert_eq!(site["follows_browser"], true);
+    assert_eq!(site["follows_browser"], false);
     assert_eq!(site["set_here"], false);
     assert_eq!(site["language_set_here"], false);
     assert_eq!(steward.stop(), Some(0));
@@ -273,19 +273,19 @@ fn a_unit_is_given_its_first_name_time_zone_and_language_where_it_is_started() {
             "set",
             json!({
                 "name": "St Mary's Hall, front desk", "time_zone": "UTC",
-                "language": "en", "follows_browser": false,
+                "language": "en", "follows_browser": true,
             }),
         ),
         json!({
             "name": "St Mary's Hall, front desk", "time_zone": "UTC",
-            "language": "en", "follows_browser": false,
+            "language": "en", "follows_browser": true,
         })
     );
     assert_eq!(steward.stop(), Some(0));
     let steward = Steward::start_given(dir.path(), &given);
     let site = steward.ask("site.settings", "get", json!({}));
     assert_eq!(site["language"], "en", "{site}");
-    assert_eq!(site["follows_browser"], false);
+    assert_eq!(site["follows_browser"], true);
     assert_eq!(site["language_set_here"], true);
     assert_eq!(steward.stop(), Some(0));
 

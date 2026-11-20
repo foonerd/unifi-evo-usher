@@ -1481,11 +1481,11 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-about"
-version = "0.3.17"
+version = "0.3.18"
 
 [[package]]
 name = "evo-usher-controller-unifi"
-version = "0.3.17"
+version = "0.3.18"
 dependencies = [
  "evo-plugin-sdk",
  "evo-plugin-test",
@@ -1510,14 +1510,14 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-core"
-version = "0.3.17"
+version = "0.3.18"
 dependencies = [
  "evo-usher-about",
 ]
 
 [[package]]
 name = "evo-usher-counter"
-version = "0.3.17"
+version = "0.3.18"
 dependencies = [
  "evo-plugin-sdk",
  "evo-plugin-test",
@@ -1535,14 +1535,14 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-printer"
-version = "0.3.17"
+version = "0.3.18"
 dependencies = [
  "rustix 1.1.4",
 ]
 
 [[package]]
 name = "evo-usher-render"
-version = "0.3.17"
+version = "0.3.18"
 dependencies = [
  "ab_glyph",
  "qrcode",
@@ -1551,7 +1551,7 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-site"
-version = "0.3.17"
+version = "0.3.18"
 dependencies = [
  "base64 0.22.1",
  "evo-plugin-sdk",
@@ -1568,7 +1568,7 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-station"
-version = "0.3.17"
+version = "0.3.18"
 dependencies = [
  "evo-usher-about",
  "evo-usher-printer",
@@ -1577,7 +1577,7 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-steward"
-version = "0.3.17"
+version = "0.3.18"
 dependencies = [
  "anyhow",
  "argon2",
@@ -1611,7 +1611,7 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-stock"
-version = "0.3.17"
+version = "0.3.18"
 dependencies = [
  "evo-plugin-sdk",
  "evo-plugin-test",
@@ -1627,7 +1627,7 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-why"
-version = "0.3.17"
+version = "0.3.18"
 dependencies = [
  "evo-plugin-sdk",
  "serde_json",

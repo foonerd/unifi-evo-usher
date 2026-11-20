@@ -423,7 +423,8 @@ input[type="radio"] {
 }
 
 /* The languages to choose from: no wider than their names, in the bar
-   and under the form a person comes in by. */
+   and before the form a person comes in by, so that the language is
+   chosen before anything is typed. */
 select.language {
   width: auto;
   max-width: 100%;
@@ -434,9 +435,9 @@ select.language {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.25rem 0.75rem;
-  margin: 1rem 0 0;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--evo-hairline);
+  margin: 0 0 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--evo-hairline);
   color: var(--evo-text-muted);
 }
 

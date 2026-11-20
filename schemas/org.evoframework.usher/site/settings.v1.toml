@@ -29,7 +29,8 @@ language a screen speaks where nothing else says which. It is held to
 the form of such a tag; whether a screen speaks it is for the screen to
 know, and one that does not speaks English. `follows_browser` says
 whether a browser whose own language a screen speaks is spoken to in
-that language, before the site's; it does unless it was set otherwise.
+that language, before the site's; it is not unless it was set so. What
+a person picked on a screen goes before both, and is not kept here.
 
 The site as answered is `{ name: string, time_zone: string | null,
 language: string, follows_browser: bool, logo: { png_b64: string, width:
@@ -140,8 +141,8 @@ set, with `set_here` true.
 name = "the-language-is-kept"
 detail = """
 With nothing given and nothing set, `get` returns `language: "en"` and
-`follows_browser: true`. After `set` with `language: "de"` and
-`follows_browser: false` and a restart of the plugin, `get` returns
+`follows_browser: false`. After `set` with `language: "de"` and
+`follows_browser: true` and a restart of the plugin, `get` returns
 them. A `set` that names no language leaves both as they were. `set`
 with a language that is no language tag is refused under
 `language_not_one`, and changes nothing.
