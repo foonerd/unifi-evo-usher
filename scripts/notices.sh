@@ -15,7 +15,7 @@
 #
 # Run it whenever the libraries change, which is whenever Cargo.lock
 # does. It needs cargo-about, in the version named here:
-#   cargo install cargo-about --locked --version 0.9.3
+#   cargo install cargo-about --locked --version 0.9.3 --features cli
 set -euo pipefail
 ROOT=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
@@ -24,7 +24,7 @@ ABOUT=0.9.3
 NOTICES=packaging/licences/THIRD-PARTY-NOTICES.txt
 
 have=$(cargo about --version 2> /dev/null | awk '{ print $2 }' || true)
-[ "$have" = "$ABOUT" ] || { echo "notices: cargo-about $ABOUT is not on this machine (found: ${have:-none}); it comes with: cargo install cargo-about --locked --version $ABOUT" >&2; exit 1; }
+[ "$have" = "$ABOUT" ] || { echo "notices: cargo-about $ABOUT is not on this machine (found: ${have:-none}); it comes with: cargo install cargo-about --locked --version $ABOUT --features cli" >&2; exit 1; }
 
 made=$(mktemp)
 trap 'rm -f "$made"' EXIT

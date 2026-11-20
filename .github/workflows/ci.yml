@@ -44,7 +44,7 @@ jobs:
           key: cargo-about-0.9.3-${{ runner.os }}-${{ runner.arch }}
       - name: The tool the notices are made with
         if: steps.about.outputs.cache-hit != 'true'
-        run: cargo install cargo-about --locked --version 0.9.3
+        run: cargo install cargo-about --locked --version 0.9.3 --features cli
       - run: scripts/check.sh
 
   build:
