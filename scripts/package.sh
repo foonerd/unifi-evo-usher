@@ -31,7 +31,10 @@
 # A licence goes wherever what it covers goes. The steward contains the
 # evo framework, so evo's licence is in the archive and in the steward's
 # packages; the station carries the typeface Inter, so the licence Inter
-# comes under is in the archive and in the station's packages.
+# comes under is in the archive and in the station's packages. Every
+# program contains libraries of other authors, so the notices of those
+# libraries, which scripts/notices.sh makes, are in the archive and in
+# every package.
 #
 # Every file is checked against the digest build.json recorded for it, so a
 # build that came through a workflow's artifact store is the build that was
@@ -52,6 +55,8 @@ umask 022
 
 # The licence of the typeface the station carries.
 FONT_LICENCE=crates/render/assets/fonts/OFL.txt
+# The notices of the libraries the programs contain.
+NOTICES=packaging/licences/THIRD-PARTY-NOTICES.txt
 
 from="out"
 arches=""
@@ -194,6 +199,7 @@ for arch in $arches; do
   install -m 644 "$from/$arch/build.json" README.md CHANGELOG.md LICENSE "$stage/$top/"
   install -m 644 packaging/licences/LICENSE-evo.txt "$stage/$top/LICENSE-evo.txt"
   install -m 644 "$FONT_LICENCE" "$stage/$top/OFL-Inter.txt"
+  install -m 644 "$NOTICES" "$stage/$top/THIRD-PARTY-NOTICES.txt"
   tar -C "$stage" --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$epoch" -czf "dist/$top.tar.gz" "$top"
   echo "[OK] dist/$top.tar.gz: $(stat -c %s "dist/$top.tar.gz") bytes"
 
@@ -222,6 +228,7 @@ for arch in $arches; do
     else
       install -D -m 755 "$from/$arch/bin/$program" "$root/opt/evo/bin/$program"
       install -D -m 644 LICENSE "$root/usr/share/doc/$program/copyright"
+      install -D -m 644 "$NOTICES" "$root/usr/share/doc/$program/THIRD-PARTY-NOTICES.txt"
       if [[ "$program" == evo-usher-station ]]; then
         install -D -m 644 "$FONT_LICENCE" "$root/usr/share/doc/$program/OFL-Inter.txt"
       fi

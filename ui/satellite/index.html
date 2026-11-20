@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<title>Usher</title>
+<link id="theme" rel="stylesheet" href="/org.evoframework.usher.theme.frost/theme.css">
+<link rel="stylesheet" href="/org.evoframework.usher.shell/shell.css">
+<link rel="stylesheet" href="/org.evoframework.usher.widgets/widgets.css">
+<link rel="stylesheet" href="satellite.css">
+</head>
+<body class="satellite">
+<header class="bar">
+  <p class="brand" data-brand>Usher</p>
+  <label class="satellite-language" id="language-part" hidden><span data-say="language.label"></span> <select id="language" class="language"></select></label>
+</header>
+
+<main id="screen" aria-live="polite"></main>
+
+<script type="module" src="satellite.js"></script>
+</body>
+</html>

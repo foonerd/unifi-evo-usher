@@ -14,6 +14,7 @@ mod files;
 mod gate;
 mod healthy;
 mod people;
+mod satellites;
 mod signin;
 
 use std::path::PathBuf;

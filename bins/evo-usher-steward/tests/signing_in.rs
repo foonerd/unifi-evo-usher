@@ -627,8 +627,24 @@ fn who_has_not_signed_in_gets_the_face_and_the_way_in_and_no_more() {
         "set_pin",
         "remove_person",
         "change_my_password",
+        "satellite_code",
+        "satellite_sign_in",
+        "satellite",
+        "satellites",
+        "adopt_satellite",
+        "set_satellite",
+        "remove_satellite",
     ];
-    let way_in = ["state", "set_up", "sign_in"];
+    // A screen that nobody is signed in at asks for a code and presents
+    // its secret as one who has not signed in: the two are a way in of
+    // their own, and give nothing until an administrator adopts it.
+    let way_in = [
+        "state",
+        "set_up",
+        "sign_in",
+        "satellite_code",
+        "satellite_sign_in",
+    ];
 
     // A bearer evo would have made for the asking, with every right.
     let mint = json!({
@@ -735,8 +751,14 @@ fn who_has_not_signed_in_gets_the_face_and_the_way_in_and_no_more() {
             let (status, _) = steward.put_to("GET", path, None, &[], &caller);
             assert_eq!(status, 401, "{name}: {path}");
         }
-        // The face is read, and nothing is written to it.
-        for path in ["/", "/org.evoframework.usher.shell/shell.js"] {
+        // The face is read, the page of a satellite with it, and nothing
+        // is written to it.
+        for path in [
+            "/",
+            "/org.evoframework.usher.shell/shell.js",
+            "/satellite/",
+            "/satellite/satellite.js",
+        ] {
             let (status, _) = steward.put_to("GET", path, None, &[], &caller);
             assert_eq!(status, 200, "{name}: {path}");
             let (status, _) =
@@ -745,9 +767,14 @@ fn who_has_not_signed_in_gets_the_face_and_the_way_in_and_no_more() {
         }
     }
 
-    // Nothing was made, and nobody was added.
+    // Nothing was made, and nobody was added: no bearer, no person and
+    // no satellite.
     let (_, told) = steward.op("list_bearer_tokens", json!({}), &keeper);
     assert!(!told.to_string().contains("made for nobody"), "{told}");
+    assert_eq!(
+        steward.usher("GET", "satellites", None, &anna).1["satellites"],
+        json!([])
+    );
     assert_eq!(
         steward.usher("GET", "people", None, &anna).1["people"]
             .as_array()
@@ -1312,9 +1339,21 @@ fn the_front_desk_signs_in_with_a_pin_and_hands_vouchers_out() {
         ""
     );
 
-    // Of the usher's own routes: the people are an administrator's, and
-    // a PIN is not its person's to change.
+    // Of the usher's own routes: the people and the satellites are an
+    // administrator's, a PIN is not its person's to change, and a
+    // person is no satellite.
     for (route, asked) in [
+        ("satellites", None),
+        ("satellite", None),
+        (
+            "adopt_satellite",
+            Some(json!({ "code": "000000", "name": "Lobby" })),
+        ),
+        (
+            "set_satellite",
+            Some(json!({ "id": "any", "enabled": false })),
+        ),
+        ("remove_satellite", Some(json!({ "id": "any" }))),
         ("people", None),
         (
             "add_person",

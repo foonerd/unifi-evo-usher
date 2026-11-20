@@ -34,6 +34,11 @@
 //! administrator's is: the unit's own bearer is evo's making, and
 //! carries no capability a plugin of the usher's declares.
 //!
+//! A satellite is held closer still: to handing out the default voucher,
+//! to what the site is called, and to saying that it is there. The gate
+//! writes which satellite hands a voucher out, and counts its vouchers
+//! against what it may hand out in an hour.
+//!
 //! evo is shown the one bearer the gate judged, and no other a request
 //! carries beside it. Where a session opens the WebSocket, evo is shown
 //! a bearer made for that line alone, good for hearing what happens and
@@ -54,7 +59,7 @@ use base64::Engine as _;
 use evo_auth_bearer::{BearerToken, BearerTokenValidator};
 use serde_json::{Map, Value};
 
-use crate::people::FRONT_DESK;
+use crate::people::ADMINISTRATOR;
 use crate::signin::{self, Asking, Refused, Settings, Usher};
 
 /// The operation of evo's a caller who has not signed in may ask: which
@@ -86,8 +91,17 @@ pub const OF_THE_COUNTER: [(&str, &str); 4] = [
     ("site.settings", "get"),
 ];
 
+/// What a satellite may ask of a shelf: the default voucher handed out,
+/// and what the site is called, how it looks and what language it
+/// speaks, which its page wears.
+pub const OF_A_SATELLITE: [(&str, &str); 2] =
+    [("issue.counter", "hand_default"), ("site.settings", "get")];
+
 /// The shelf and the request a voucher is handed out with.
 const HANDING: (&str, &str) = ("issue.counter", "hand");
+
+/// The shelf and the request the default voucher is handed out with.
+const HANDING_DEFAULT: (&str, &str) = ("issue.counter", "hand_default");
 
 /// The longest that is read of what is asked of a shelf, in bytes: room
 /// for the largest thing a shelf of the usher's takes, a site's logo,
@@ -171,11 +185,17 @@ async fn admit(
         return next.run(request).await;
     };
 
-    // A person at the front desk asks what the counter's page asks.
-    let at_the_desk =
-        matches!(&who, Asking::Person { role, .. } if role == FRONT_DESK);
+    // A person at the front desk asks what the counter's page asks; and
+    // so does a person whose role is none the usher knows, who is given
+    // the least a person is given and not the most.
+    let at_the_desk = held_as_the_desk(&who);
     if at_the_desk && !let_in_front_desk(request.method(), &asked) {
-        return not_for_the_desk();
+        return signin::not_for_the_desk();
+    }
+    // A satellite asks for the default voucher, and that it is there.
+    let at_a_satellite = matches!(&who, Asking::Satellite { .. });
+    if at_a_satellite && !let_in_satellite(request.method(), &asked) {
+        return signin::not_for_a_satellite();
     }
     // Where a shelf is asked, what is asked of which is read here, and
     // evo is given what was read. The operation counts as that one
@@ -183,11 +203,23 @@ async fn admit(
     let asks_a_shelf = matches!(&asked, Asked::Evo(operation)
         if operation == ASK_A_SHELF || unescaped(operation) == ASK_A_SHELF)
         && request.method() == Method::POST;
+    // What a satellite counted against its hour for this request, to
+    // give back where no voucher is handed out.
+    let mut counted: Option<(String, u64)> = None;
     if asks_a_shelf {
-        request = match of_a_shelf(request, &who).await {
+        let (read, of) = match of_a_shelf(request, &who).await {
             Ok(read) => read,
             Err(refused) => return *refused,
         };
+        request = read;
+        if let (Asking::Satellite { id, .. }, Some(of)) = (&who, &of) {
+            if (of.0.as_str(), of.1.as_str()) == HANDING_DEFAULT {
+                match gate.usher.take_of(id) {
+                    Ok(at) => counted = Some((id.clone(), at)),
+                    Err(left_ms) => return signin::hour_is_full(left_ms),
+                }
+            }
+        }
     }
 
     let on_the_line = asked == Asked::Evo(SOCKET.to_string());
@@ -206,6 +238,11 @@ async fn admit(
     show(&mut request, Some((&to_evo, shown.as_subprotocol)));
     request.extensions_mut().insert(who);
     let mut answer = next.run(request).await;
+    if let Some((satellite, at)) = counted {
+        if answer.status() != StatusCode::OK {
+            gate.usher.give_back(&satellite, at);
+        }
+    }
 
     // A line is opened on the subprotocol the caller offered, and a
     // browser drops one that is answered with another: the answer names
@@ -349,6 +386,13 @@ fn let_in_unsigned(method: &Method, asked: &Asked) -> bool {
     }
 }
 
+/// Whether whoever asks is held to what the counter's page asks: a
+/// person at the front desk, and a person whose role is none the usher
+/// knows, who is given the least a person is given and not the most.
+fn held_as_the_desk(who: &Asking) -> bool {
+    matches!(who, Asking::Person { role, .. } if role != ADMINISTRATOR)
+}
+
 /// Whether a person at the front desk is let in: to what anyone is let
 /// in to, to what the shell reads to draw a page, to ask a shelf, which
 /// [`of_a_shelf`] then holds to the counter's page, and to say who they
@@ -369,24 +413,47 @@ fn let_in_front_desk(method: &Method, asked: &Asked) -> bool {
     }
 }
 
+/// Whether a satellite is let in: to what anyone is let in to, to ask a
+/// shelf, which [`of_a_shelf`] then holds to the default voucher and the
+/// site, and to say that it is there. It reads nothing the shell reads:
+/// its page is its own.
+fn let_in_satellite(method: &Method, asked: &Asked) -> bool {
+    if let_in_unsigned(method, asked) {
+        return true;
+    }
+    match asked {
+        Asked::File => false,
+        Asked::Evo(operation) => {
+            operation == ASK_A_SHELF && method == Method::POST
+        }
+        Asked::Usher(route) => {
+            signin::OF_THE_SATELLITES.contains(&route.as_str())
+        }
+    }
+}
+
 /// Read what a request asks of a shelf, and give evo what was read: the
 /// same request, written anew from how it was understood here, so that
-/// evo can understand it no other way.
+/// evo can understand it no other way. With it, what was asked of which
+/// shelf, where that could be read.
 ///
 /// A person at the front desk is refused whatever the counter's page
-/// does not ask. A voucher that is handed out has whoever asks written
-/// on it, over whatever the caller wrote there: the person by their
-/// name, or the unit's keeper.
+/// does not ask, and a satellite whatever is not the default voucher or
+/// the site. A voucher that is handed out has whoever asks written on
+/// it, over whatever the caller wrote there: the person by their name,
+/// the unit's keeper, or the satellite by its name. The default voucher
+/// takes nothing else, and a satellite's request for it is written anew
+/// with nothing else on it.
 ///
 /// What cannot be read as asking a shelf is refused a person at the
-/// front desk, and is left for evo to refuse anyone else, in its own
-/// words: it names no shelf, and so hands nothing out.
+/// front desk and a satellite, and is left for evo to refuse anyone
+/// else, in its own words: it names no shelf, and so hands nothing out.
 async fn of_a_shelf(
     request: Request,
     who: &Asking,
-) -> Result<Request, Refused> {
-    let at_the_desk =
-        matches!(who, Asking::Person { role, .. } if role == FRONT_DESK);
+) -> Result<(Request, Option<(String, String)>), Refused> {
+    let at_the_desk = held_as_the_desk(who);
+    let at_a_satellite = matches!(who, Asking::Satellite { .. });
     let (mut parts, body) = request.into_parts();
     let bytes = axum::body::to_bytes(body, MOST_ASKED).await.map_err(|_| {
         Box::new(signin::refusal(
@@ -413,16 +480,19 @@ async fn of_a_shelf(
             Some((asked, shelf, request_type))
         });
     let Some((mut asked, shelf, request_type)) = read else {
-        if at_the_desk {
+        if at_the_desk || at_a_satellite {
             return Err(unread());
         }
-        return Ok(Request::from_parts(parts, Body::from(bytes)));
+        return Ok((Request::from_parts(parts, Body::from(bytes)), None));
     };
     let asking = (shelf.as_str(), request_type.as_str());
     if at_the_desk && !OF_THE_COUNTER.contains(&asking) {
-        return Err(Box::new(not_for_the_desk()));
+        return Err(Box::new(signin::not_for_the_desk()));
     }
-    if asking == HANDING {
+    if at_a_satellite && !OF_A_SATELLITE.contains(&asking) {
+        return Err(Box::new(signin::not_for_a_satellite()));
+    }
+    if asking == HANDING || asking == HANDING_DEFAULT {
         let handing = asked
             .get("payload_b64")
             .and_then(Value::as_str)
@@ -430,17 +500,27 @@ async fn of_a_shelf(
             .and_then(|payload| {
                 serde_json::from_slice::<Map<String, Value>>(&payload).ok()
             });
-        let Some(mut handing) = handing else {
-            return Err(unread());
+        let mut handing = match (handing, who) {
+            // A satellite's one button sends nothing that counts.
+            (_, Asking::Satellite { .. }) => Map::new(),
+            (Some(handing), _) => handing,
+            (None, _) => return Err(unread()),
         };
         handing.remove("by");
         handing.remove("unit");
+        handing.remove("satellite");
         match who {
             Asking::Person { name, .. } => {
                 handing.insert("by".to_string(), Value::String(name.clone()));
             }
             Asking::Unit => {
                 handing.insert("unit".to_string(), Value::Bool(true));
+            }
+            Asking::Satellite { name, .. } => {
+                handing.insert(
+                    "satellite".to_string(),
+                    Value::String(name.clone()),
+                );
             }
         }
         asked.insert(
@@ -453,7 +533,10 @@ async fn of_a_shelf(
     parts
         .headers
         .insert(header::CONTENT_LENGTH, HeaderValue::from(written.len()));
-    Ok(Request::from_parts(parts, Body::from(written)))
+    Ok((
+        Request::from_parts(parts, Body::from(written)),
+        Some((shelf, request_type)),
+    ))
 }
 
 /// A bearer as a request presents it.
@@ -515,20 +598,10 @@ fn refused() -> Response {
     )
 }
 
-/// The answer to a person at the front desk who asks what is an
-/// administrator's.
-fn not_for_the_desk() -> Response {
-    signin::refusal(
-        StatusCode::FORBIDDEN,
-        "permission_denied",
-        "not_for_front_desk",
-        "That is an administrator's to do. The front desk hands out vouchers.",
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::people::FRONT_DESK;
 
     const API: &str = "/api/v1";
 
@@ -597,6 +670,11 @@ mod tests {
         // What the door asks first, and how one signs in.
         assert!(let_in_unsigned(&get, &evo("describe_active_ui_selection")));
         for route in ["state", "set_up", "sign_in"] {
+            assert!(let_in_unsigned(&post, &usher(route)), "{route}");
+        }
+        // And how a screen comes to be a satellite, and comes back as
+        // one.
+        for route in ["satellite_code", "satellite_sign_in"] {
             assert!(let_in_unsigned(&post, &usher(route)), "{route}");
         }
         // Everything else of the steward's, evo's pairing and the
@@ -747,11 +825,33 @@ mod tests {
     }
 
     fn administrator() -> Asking {
+        administrator_called("Anna")
+    }
+
+    fn administrator_called(name: &str) -> Asking {
         Asking::Person {
-            name: "Anna".to_string(),
-            role: crate::people::ADMINISTRATOR.to_string(),
+            name: name.to_string(),
+            role: ADMINISTRATOR.to_string(),
             session: "s-admin".to_string(),
         }
+    }
+
+    #[test]
+    fn a_role_the_usher_does_not_know_is_held_as_the_front_desk_is() {
+        let of = |role: &str| Asking::Person {
+            name: "Cy".to_string(),
+            role: role.to_string(),
+            session: "s".to_string(),
+        };
+        assert!(!held_as_the_desk(&of(ADMINISTRATOR)));
+        assert!(held_as_the_desk(&of(FRONT_DESK)));
+        // A role from a file changed by hand, or kept by a later
+        // version: the least, not the most.
+        for role in ["auditor", "", "Administrator", "administrator "] {
+            assert!(held_as_the_desk(&of(role)), "{role:?}");
+        }
+        // The unit's keeper is no person, and is not held so.
+        assert!(!held_as_the_desk(&Asking::Unit));
     }
 
     #[test]
@@ -799,8 +899,8 @@ mod tests {
         for route in signin::ROUTES {
             assert_eq!(
                 let_in_front_desk(&post, &usher(route)),
-                ["state", "set_up", "sign_in", "sign_out", "me"]
-                    .contains(&route),
+                signin::OPEN.contains(&route)
+                    || ["sign_out", "me"].contains(&route),
                 "{route}"
             );
         }
@@ -921,7 +1021,7 @@ mod tests {
             )
             .await
             .unwrap();
-            let (_, asked, payload) = given(read).await;
+            let (_, asked, payload) = given(read.0).await;
             assert_eq!(asked["shelf"], "issue.counter");
             assert_eq!(asked["request_type"], "hand");
             assert_eq!(
@@ -941,7 +1041,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(
-            given(read).await.2,
+            given(read.0).await.2,
             serde_json::json!({ "type": "Day", "unit": true })
         );
         // Nothing is written on what hands nothing out.
@@ -951,7 +1051,7 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(given(read).await.2, serde_json::json!({ "by": "x" }));
+        assert_eq!(given(read.0).await.2, serde_json::json!({ "by": "x" }));
         // A hand-out whose payload cannot be read is nobody's to make.
         for who in [desk(), administrator(), Asking::Unit] {
             let mut request = asking_a_shelf("issue.counter", "hand", "{}");
@@ -988,7 +1088,7 @@ mod tests {
             "the shelf the gate reads is the one evo would be given"
         );
         let read = of_a_shelf(request(&twice), &administrator()).await.unwrap();
-        let (_, asked, _) = given(read).await;
+        let (_, asked, _) = given(read.0).await;
         assert_eq!(asked["shelf"], "issue.counter");
         assert_eq!(asked["request_type"], "types");
         assert_eq!(asked.as_object().unwrap().len(), 3);
@@ -1011,7 +1111,7 @@ mod tests {
             );
             let passed =
                 of_a_shelf(request(unread), &administrator()).await.unwrap();
-            let bytes = axum::body::to_bytes(passed.into_body(), MOST_ASKED)
+            let bytes = axum::body::to_bytes(passed.0.into_body(), MOST_ASKED)
                 .await
                 .unwrap();
             assert_eq!(bytes, unread.as_bytes(), "{unread}");
@@ -1027,9 +1127,164 @@ mod tests {
         );
     }
 
+    fn satellite() -> Asking {
+        Asking::Satellite {
+            id: "0011223344556677".to_string(),
+            name: "Lobby".to_string(),
+            session: "s-satellite".to_string(),
+        }
+    }
+
+    #[test]
+    fn a_satellite_is_let_in_to_ask_a_shelf_and_to_say_it_is_there() {
+        let get = Method::GET;
+        let post = Method::POST;
+        // The files of its page are read, as by anyone; and what anyone
+        // may ask.
+        assert!(let_in_satellite(&get, &Asked::File));
+        assert!(!let_in_satellite(&post, &Asked::File));
+        assert!(let_in_satellite(&get, &evo("describe_active_ui_selection")));
+        // Asking a shelf, which is then held to the default voucher.
+        assert!(let_in_satellite(&post, &evo("request")));
+        for method in [&get, &Method::PUT, &Method::DELETE] {
+            assert!(!let_in_satellite(method, &evo("request")), "{method}");
+        }
+        // Nothing else of the steward's, and nothing the shell reads.
+        for operation in [
+            "describe_ui_stockings",
+            "create_bearer_token",
+            "list_bearer_tokens",
+            "revoke_bearer_token",
+            "list_plugins",
+            "list_subjects",
+            "activate_theme",
+            "ws",
+            "",
+            "request/",
+        ] {
+            for method in [&get, &post] {
+                assert!(
+                    !let_in_satellite(method, &evo(operation)),
+                    "{method} {operation}"
+                );
+            }
+        }
+        // Of the usher's own routes: the open ones, and that it is
+        // there. Who signed in, the people and the satellites are not
+        // its to ask.
+        for route in signin::ROUTES {
+            assert_eq!(
+                let_in_satellite(&post, &usher(route)),
+                signin::OPEN.contains(&route) || route == "satellite",
+                "{route}"
+            );
+        }
+        assert!(!let_in_satellite(&get, &usher("")));
+    }
+
+    #[tokio::test]
+    async fn a_satellite_asks_a_shelf_for_the_default_voucher_and_the_site() {
+        for (shelf, request_type) in OF_A_SATELLITE {
+            let read = of_a_shelf(
+                asking_a_shelf(shelf, request_type, "{}"),
+                &satellite(),
+            )
+            .await;
+            assert!(read.is_ok(), "{shelf} {request_type}");
+        }
+        for (shelf, request_type) in [
+            ("issue.counter", "hand"),
+            ("issue.counter", "offered"),
+            ("issue.counter", "types"),
+            ("issue.counter", "handed"),
+            ("stock.reserve", "count"),
+            ("site.settings", "set"),
+            ("access.controller", "list"),
+            ("issue.counter", "Hand_default"),
+            ("", ""),
+        ] {
+            let refused = of_a_shelf(
+                asking_a_shelf(shelf, request_type, "{}"),
+                &satellite(),
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(
+                subclass_of(refused).await,
+                (StatusCode::FORBIDDEN, "not_for_satellite".to_string()),
+                "{shelf} {request_type}"
+            );
+        }
+        // The default voucher is handed out by the satellite, by its
+        // name, and with nothing else on the request, whatever the
+        // screen sent: a type, another's name, or nothing to read.
+        for sent in [
+            r#"{}"#,
+            r#"{"type": "Stay", "days": 30, "by": "Anna", "satellite": "Hall"}"#,
+        ] {
+            let (read, of) = of_a_shelf(
+                asking_a_shelf("issue.counter", "hand_default", sent),
+                &satellite(),
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                of,
+                Some(("issue.counter".to_string(), "hand_default".to_string()))
+            );
+            assert_eq!(
+                given(read).await.2,
+                serde_json::json!({ "satellite": "Lobby" }),
+                "{sent}"
+            );
+        }
+        let mut request = asking_a_shelf("issue.counter", "hand_default", "{}");
+        *request.body_mut() = Body::from(
+            r#"{"shelf":"issue.counter","request_type":"hand_default","payload_b64":"not base64"}"#,
+        );
+        let (read, _) = of_a_shelf(request, &satellite()).await.unwrap();
+        assert_eq!(
+            given(read).await.2,
+            serde_json::json!({ "satellite": "Lobby" })
+        );
+        // A person cannot pass for a satellite on a hand-out, nor on
+        // the default one.
+        for (request_type, sent, written) in [
+            (
+                "hand",
+                r#"{"type": "Day", "satellite": "Lobby"}"#,
+                serde_json::json!({ "type": "Day", "by": "Ben" }),
+            ),
+            (
+                "hand_default",
+                r#"{"satellite": "Lobby"}"#,
+                serde_json::json!({ "by": "Ben" }),
+            ),
+        ] {
+            let (read, _) = of_a_shelf(
+                asking_a_shelf("issue.counter", request_type, sent),
+                &administrator_called("Ben"),
+            )
+            .await
+            .unwrap();
+            assert_eq!(given(read).await.2, written, "{request_type}");
+        }
+        // What asks no shelf at all is refused a satellite here.
+        let unread = Request::builder()
+            .method(Method::POST)
+            .uri("/api/v1/request")
+            .body(Body::from("{}"))
+            .unwrap();
+        let refused = of_a_shelf(unread, &satellite()).await.unwrap_err();
+        assert_eq!(
+            subclass_of(refused).await,
+            (StatusCode::BAD_REQUEST, "not_as_asked".to_string())
+        );
+    }
+
     #[test]
     fn the_refusal_reads_as_one_of_evos() {
-        let of_the_desk = not_for_the_desk();
+        let of_the_desk = signin::not_for_the_desk();
         assert_eq!(of_the_desk.status(), StatusCode::FORBIDDEN);
         assert_eq!(
             of_the_desk.headers()[header::CONTENT_TYPE],

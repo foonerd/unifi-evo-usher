@@ -148,8 +148,8 @@ fn held(browser: &mut Browser) -> Value {
 }
 
 /// The pages of the face: what the menu calls each, its address, and the
-/// widgets that stand on it. The last is the shell's own.
-const PAGES: [(&str, &str, &[&str]); 7] = [
+/// widgets that stand on it. The last two are the shell's own.
+const PAGES: [(&str, &str, &[&str]); 8] = [
     ("Counter", "#/counter", &["usher.counter"]),
     (
         "Vouchers",
@@ -160,6 +160,7 @@ const PAGES: [(&str, &str, &[&str]); 7] = [
     ("Network", "#/network", &["usher.networks"]),
     ("Controller", "#/controller", &["usher.controller"]),
     ("Site", "#/site", &["usher.site"]),
+    ("Satellites", "#/satellites", &[]),
     ("People", "#/people", &[]),
 ];
 
@@ -929,7 +930,8 @@ fn a_new_usher_is_set_up_and_its_controller_set_from_the_screen() {
         browser.picture(&to);
     }
     for (label, fragment, widgets) in &PAGES[1..] {
-        // The page of the people is pictured where there are some.
+        // The pages of the satellites and of the people are pictured
+        // where there are some.
         if widgets.is_empty() {
             continue;
         }
@@ -1780,6 +1782,8 @@ fn the_menu_leads_from_page_to_page() {
     };
     browser.act("history.back();");
     at(&mut browser, "People");
+    browser.act("history.back();");
+    at(&mut browser, "Satellites");
     browser.act("history.back();");
     at(&mut browser, "Site");
     browser.act("history.back();");
@@ -2929,7 +2933,7 @@ fn the_front_desk_is_given_a_pin_and_has_the_counter_alone() {
     browser.act(r#"document.getElementById("sign-in-form").requestSubmit();"#);
     browser.wait(
         "her pages",
-        r#"document.getElementById("entry").open === false && menuEntries().length === 7 && document.getElementById("who-name").textContent === "Anna""#,
+        r#"document.getElementById("entry").open === false && menuEntries().length === 8 && document.getElementById("who-name").textContent === "Anna""#,
     );
     assert_eq!(
         browser.look(
@@ -4072,7 +4076,7 @@ fn the_face_speaks_the_language_a_person_a_browser_or_the_site_says() {
             "lang": "de",
             "menu": [
                 "Empfang", "Voucher", "Voucher-Typen", "Netzwerk",
-                "Controller", "Standort", "Personen",
+                "Controller", "Standort", "Satelliten", "Personen",
             ],
             "chosen": "de",
         })
@@ -4184,7 +4188,7 @@ fn the_face_speaks_the_language_a_person_a_browser_or_the_site_says() {
             "lang": "xx",
             "menu": [
                 "Xcounter", "Vouchers", "Voucher types", "Network",
-                "Controller", "Site", "People",
+                "Controller", "Site", "Satellites", "People",
             ],
             "chosen": "xx",
         })
@@ -4533,6 +4537,371 @@ fn every_language_the_face_lists_is_spoken_on_a_screen() {
             browser.picture(&to);
         }
     }
+    assert_eq!(steward.stop(), Some(0));
+}
+
+/// A screen becomes a satellite: it shows a code, an administrator
+/// adopts it by the code, and its one button hands a guest the default
+/// voucher. The list of languages is the first thing on it throughout.
+#[test]
+fn a_screen_is_adopted_and_hands_a_guest_the_default_voucher() {
+    let Some(mut browser) = Browser::open() else {
+        return;
+    };
+    browser.size(1280, 900);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let simulated = runtime.block_on(Simulated::start());
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+    let anna = signed_in_already(&mut browser, &steward);
+
+    // The unit as its administrator leaves it: a voucher type, which is
+    // the default, the controller set, a network chosen.
+    let ask = |shelf: &str, request: &str, payload: Value| {
+        let (status, said) = steward.ask_status(&anna, shelf, request, payload);
+        assert_eq!(status, 200, "{shelf} {request}: {said}");
+        said
+    };
+    ask(
+        "issue.counter",
+        "put_type",
+        json!({ "name": "Day guest", "minutes": 1440, "guests": 1 }),
+    );
+    let presented = ask(
+        "access.controller",
+        "probe",
+        json!({ "base": simulated.base() }),
+    );
+    ask(
+        "access.controller",
+        "set",
+        json!({
+            "base": simulated.base(), "key": simulated.key(),
+            "fingerprint": presented["fingerprint"],
+        }),
+    );
+    let networks = ask("networks.directory", "networks", json!({}));
+    let guests = networks["sites"][0]["networks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|network| network["name"] == "Guests")
+        .expect("the simulated controller has a Guests network")["id"]
+        .clone();
+    ask(
+        "networks.directory",
+        "choose",
+        json!({ "site": simulated.site(), "network": guests }),
+    );
+    let languages = serde_json::from_str::<Vec<Value>>(
+        &std::fs::read_to_string(
+            ui_root().join(SHELL).join("lang").join("languages.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap()
+    .len();
+
+    // A screen that is no satellite: it shows a code, six digits, and
+    // says what to do with it. The list of languages is the first thing
+    // on it that can be pressed.
+    let screen = format!("{}/satellite/", steward.address());
+    let what_stands = r##"
+        const list = document.getElementById("language");
+        const bar = document.querySelector(".bar").getBoundingClientRect();
+        const under = document.getElementById("screen").getBoundingClientRect();
+        return {
+          // The bar lies across the top, and what is shown stands
+          // under it, as wide as the screen.
+          laid: bar.top === 0 && Math.round(bar.width) === document.documentElement.clientWidth
+            && under.top >= bar.bottom && Math.round(under.width) === document.documentElement.clientWidth,
+          code: document.getElementById("satellite-code")?.textContent ?? null,
+          says: document.querySelector("#screen h1, #satellite-said")?.textContent ?? null,
+          languages: list.options.length,
+          first: document.querySelector("select, button, input, a[href]") === list,
+          list: onScreen(list),
+          chosen: list.value,
+          button: document.getElementById("satellite-press")?.textContent ?? null,
+          title: document.title,
+        };
+    "##;
+    browser.go(&screen);
+    browser.wait(
+        "the code",
+        r#"/^\d{6}$/.test(document.getElementById("satellite-code")?.textContent ?? "")"#,
+    );
+    let stands = browser.look(what_stands);
+    let code = stands["code"].as_str().unwrap().to_string();
+    assert_eq!(
+        stands,
+        json!({
+            "code": code,
+            "says": "This screen has not been adopted yet.",
+            "laid": true,
+            "languages": languages, "first": true, "list": true,
+            "chosen": "en", "button": null, "title": "Usher",
+        })
+    );
+    // For the eye: a screen that asks to be adopted.
+    if let Some(to) = picture_of(Some("satellite-code")) {
+        browser.picture(&to);
+    }
+    // The language is picked before anything else, and the screen is
+    // the same screen after: it shows the same code.
+    let pick = |language: &str| {
+        format!(
+            r#"
+            const list = document.getElementById("language");
+            list.value = {language};
+            list.dispatchEvent(new Event("change", {{ bubbles: true }}));
+            "#,
+            language = json!(language),
+        )
+    };
+    browser.act(&pick("de"));
+    browser.wait(
+        "the screen in German",
+        r##"document.documentElement.lang === "de" && document.querySelector("#screen h1")?.textContent === "Dieser Bildschirm ist noch nicht \u00fcbernommen.""##,
+    );
+    assert_eq!(browser.look(what_stands)["code"], code.as_str());
+    browser.act(&pick("en"));
+    browser.wait(
+        "the screen in English again",
+        r#"document.documentElement.lang === "en" && document.getElementById("satellite-code") !== null"#,
+    );
+
+    // The administrator adopts it, on the page of the satellites, which
+    // stands before the people in the menu.
+    let shell = format!("{}/", steward.address());
+    browser.go(&shell);
+    go_to(&mut browser, "Satellites");
+    browser.wait(
+        "no satellite yet",
+        r#"onScreen(document.getElementById("satellites-none"))"#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"return menuEntries().slice(-2).map((entry) => entry.textContent);"#
+        ),
+        json!(["Satellites", "People"])
+    );
+    browser.act(r#"document.getElementById("adopt-satellite").click();"#);
+    browser.wait(
+        "the form to adopt a screen",
+        r#"document.getElementById("adopt-satellite-form") !== null"#,
+    );
+    // A code that no screen shows is said so, on the form.
+    fill(
+        &mut browser,
+        json!({
+            "adopt-satellite-code": "000 000",
+            "adopt-satellite-name": "Lobby",
+        }),
+    );
+    browser.act(
+        r#"document.getElementById("adopt-satellite-form").requestSubmit();"#,
+    );
+    said_in(
+        &mut browser,
+        "adopt-satellite-form",
+        "No screen shows that code.",
+    );
+    fill(
+        &mut browser,
+        json!({
+            "adopt-satellite-code": code,
+            "adopt-satellite-name": "Lobby",
+            "adopt-satellite-place": "By the door",
+        }),
+    );
+    // For the eye: the form a screen is adopted by.
+    if let Some(to) = picture_of(Some("satellites-adopt")) {
+        browser.picture(&to);
+    }
+    browser.act(
+        r#"document.getElementById("adopt-satellite-form").requestSubmit();"#,
+    );
+    browser.wait(
+        "the satellite in the list",
+        r#"document.querySelector(".satellites-said")?.textContent === "Lobby is a satellite now." && document.querySelectorAll(".satellites-list li").length === 1"#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"
+            const row = document.querySelector(".satellites-list li");
+            return [
+              row.querySelector(".satellites-name").textContent,
+              row.querySelector(".satellites-told").textContent,
+              [...row.querySelectorAll("button")].map((button) => button.textContent),
+              onScreen(document.getElementById("satellites-none")),
+            ];
+            "#
+        ),
+        json!([
+            "Lobby",
+            "By the door. Not seen since the usher was started. This hour: 0 of 20 vouchers",
+            ["Change", "Switch off", "Remove"],
+            false,
+        ])
+    );
+
+    // The screen is a satellite now: one button, and the list of
+    // languages before it.
+    browser.go(&screen);
+    browser.wait(
+        "the one button",
+        r#"document.getElementById("satellite-press") !== null"#,
+    );
+    let stands = browser.look(what_stands);
+    assert_eq!(
+        stands,
+        json!({
+            "code": null, "says": null, "laid": true,
+            "languages": languages, "first": true, "list": true,
+            "chosen": "en", "button": "Get a Wi-Fi voucher",
+            "title": "Usher",
+        })
+    );
+    if let Some(to) = picture_of(Some("satellite-button")) {
+        browser.picture(&to);
+    }
+
+    // Pressed, it hands out the default voucher and shows it as the
+    // counter shows one to a guest: the symbol, the code, the network,
+    // what it gives.
+    browser.act(r#"document.getElementById("satellite-press").click();"#);
+    browser.wait(
+        "the voucher",
+        r#"document.getElementById("satellite-voucher") !== null"#,
+    );
+    let voucher = browser.look(
+        r#"
+        const shown = document.getElementById("satellite-voucher");
+        return {
+          network: shown.querySelector("h1").textContent,
+          symbol: shown.querySelector("svg.usher-qr") !== null,
+          code: /^\d{5}-\d{5}$/.test(shown.querySelector(".usher-voucher").textContent),
+          gives: shown.querySelector(".usher-hint").textContent,
+          at: document.activeElement.id,
+          button: document.getElementById("satellite-press"),
+        };
+        "#,
+    );
+    assert_eq!(
+        voucher,
+        json!({
+            "network": "Wi-Fi: Guests", "symbol": true, "code": true,
+            "gives": "1 day; one device", "at": "satellite-done",
+            "button": null,
+        })
+    );
+    if let Some(to) = picture_of(Some("satellite-voucher")) {
+        browser.picture(&to);
+    }
+    // Done, and the button stands there again.
+    browser.act(r#"document.getElementById("satellite-done").click();"#);
+    browser.wait(
+        "the button again",
+        r#"document.getElementById("satellite-press") !== null && document.getElementById("satellite-voucher") === null"#,
+    );
+    // Left alone, a voucher goes off the screen by itself after a
+    // minute: the minute is made short here, and nothing is pressed.
+    browser.act(
+        r#"
+        const real = window.setTimeout;
+        window.setTimeout = (run, after, ...given) =>
+          real(run, after === 60000 ? 400 : after, ...given);
+        document.getElementById("satellite-press").click();
+        "#,
+    );
+    browser.wait(
+        "the second voucher",
+        r#"document.getElementById("satellite-voucher") !== null"#,
+    );
+    browser.wait(
+        "the button, by itself",
+        r#"document.getElementById("satellite-press") !== null && document.getElementById("satellite-voucher") === null"#,
+    );
+
+    // The administrator sees it: seen just now, two of its twenty this
+    // hour; and the list of vouchers says at which screen each was
+    // handed out.
+    browser.go(&shell);
+    go_to(&mut browser, "Satellites");
+    browser.wait(
+        "what the satellite did",
+        r#"document.querySelector(".satellites-told")?.textContent === "By the door. Seen just now. This hour: 2 of 20 vouchers""#,
+    );
+    // For the eye: the page of the satellites.
+    if let Some(to) = picture_of(Some("satellites")) {
+        browser.act("document.activeElement?.blur();");
+        browser.picture(&to);
+    }
+    go_to(&mut browser, "Vouchers");
+    browser.wait(
+        "who handed them out",
+        r#"(widget("usher.vouchers").innerText.match(/at the screen Lobby/g) ?? []).length === 2"#,
+    );
+    // For the eye: the list of vouchers, naming the screen.
+    if let Some(to) = picture_of(Some("vouchers-handed-at")) {
+        browser.picture(&to);
+    }
+
+    // Switched off, it hands out nothing, and says so to whoever stands
+    // before it.
+    go_to(&mut browser, "Satellites");
+    browser.wait(
+        "the satellite's row",
+        r#"document.querySelectorAll(".satellites-list li button").length === 3"#,
+    );
+    browser.act(
+        r#"[...document.querySelectorAll(".satellites-list li button")].find((button) => button.textContent === "Switch off").click();"#,
+    );
+    browser.wait(
+        "switched off",
+        r#"document.querySelector(".satellites-said")?.textContent === "Lobby is switched off, and hands out nothing." && document.querySelector(".satellites-off")?.textContent === "switched off""#,
+    );
+    browser.go(&screen);
+    browser.wait(
+        "the screen says it is off",
+        r#"document.getElementById("satellite-said")?.textContent === "This screen is switched off. Please ask at the front desk.""#,
+    );
+    assert_eq!(browser.look(what_stands)["button"], Value::Null);
+    assert_eq!(browser.look(what_stands)["first"], true);
+
+    // Taken away, the screen is a screen again: it asks to be adopted,
+    // by another code.
+    browser.go(&shell);
+    go_to(&mut browser, "Satellites");
+    browser.wait(
+        "the satellite's row",
+        r#"document.querySelectorAll(".satellites-list li button").length === 3"#,
+    );
+    browser.act(
+        r#"document.querySelector(".satellites-list li button.danger").click();"#,
+    );
+    browser.wait(
+        "asked once more",
+        r#"document.querySelector(".satellites-sure")?.textContent === "Remove Lobby? The screen stops handing out vouchers at once, and asks to be adopted again.""#,
+    );
+    browser.act(
+        r#"document.querySelector(".satellites-list li button.danger").click();"#,
+    );
+    browser.wait(
+        "removed",
+        r#"document.querySelector(".satellites-said")?.textContent === "Lobby is removed." && onScreen(document.getElementById("satellites-none"))"#,
+    );
+    browser.go(&screen);
+    browser.wait(
+        "another code",
+        &format!(
+            r#"/^\d{{6}}$/.test(document.getElementById("satellite-code")?.textContent ?? "") && document.getElementById("satellite-code").textContent !== {}"#,
+            json!(code)
+        ),
+    );
     assert_eq!(steward.stop(), Some(0));
 }
 

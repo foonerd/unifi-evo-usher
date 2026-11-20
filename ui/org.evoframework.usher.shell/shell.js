@@ -20,6 +20,7 @@ import * as steward from "./steward.js";
 import { name as brandName, wearBrand } from "./brand.js";
 import { ADMINISTRATOR, FRONT_DESK, fragmentOf, pageOf, paginate } from "./pages.js";
 import { advice, amiss, people } from "./people.js";
+import { satellites } from "./satellites.js";
 import * as site from "./site.js";
 import { themeAddress } from "./theme.js";
 import { offer as offerLanguages, ready, refusal, say, sayOf } from "./words.js";
@@ -365,6 +366,7 @@ async function whoIsIn() {
   if (signedIn === null) return;
   if (signedIn.role === ADMINISTRATOR) {
     await peoplePage.look();
+    await satellitesPage.look();
   } else {
     // No line is joined for them: that the usher answered is all there
     // is to say of it.
@@ -420,6 +422,7 @@ function clearScreen() {
   fold();
   shelves.replaceChildren();
   peoplePage.clear();
+  satellitesPage.clear();
   document.title = brandName();
 }
 
@@ -615,6 +618,8 @@ function show(arrived) {
     if (heading instanceof HTMLElement) heading.focus({ preventScroll: true });
     // Who there is may have changed since the page was last looked at.
     if (id === PEOPLE.id) peoplePage.look();
+    // And which satellites are there, and what they have handed out.
+    if (id === SATELLITES.id) satellitesPage.look();
   }
 }
 
@@ -632,6 +637,9 @@ let drawnAs = "";
 
 /** The page of the people who can sign in. */
 const PEOPLE = { id: "people", label: "People" };
+
+/** The page of the satellites, which stands before it. */
+const SATELLITES = { id: "satellites", label: "Satellites" };
 
 /**
  * What a page is called on the screen: what the words call the page of
@@ -666,6 +674,11 @@ const peoplePane = document.createElement("div");
 peoplePane.className = "shelf";
 const peoplePage = people(peoplePane, { usher: askUsher, me: () => signedIn });
 
+/** And the satellites' page, kept the same way. */
+const satellitesPane = document.createElement("div");
+satellitesPane.className = "shelf";
+const satellitesPage = satellites(satellitesPane, { usher: askUsher, me: () => signedIn });
+
 /**
  * Draw what the steward says is stocked, page by page. What is already on
  * the screen and still stocked is left as it is, so nothing typed is
@@ -681,6 +694,10 @@ function draw(snapshot) {
   // Who may come in is the shell's own business, and an administrator's:
   // its page stands last. A page named the same in `pages.json` is that
   // page.
+  // The satellites are the usher's own too, and stand before the people.
+  if (role === ADMINISTRATOR && !pages.some((page) => page.id === SATELLITES.id)) {
+    pages.push({ id: SATELLITES.id, label: SATELLITES.label, shelves: [] });
+  }
   if (role === ADMINISTRATOR && !pages.some((page) => page.id === PEOPLE.id)) {
     pages.push({ id: PEOPLE.id, label: PEOPLE.label, shelves: [] });
   }
@@ -708,6 +725,7 @@ function draw(snapshot) {
       section.append(heading);
     }
     if (page.id === PEOPLE.id) section.append(peoplePane);
+    if (page.id === SATELLITES.id) section.append(satellitesPane);
 
     page.shelves.forEach((shelf, at) => {
       const part = document.createElement("div");
@@ -911,7 +929,10 @@ wearBrand();
 site.watch(() => {
   wearBrand();
   retitle();
-  if (signedIn?.role === ADMINISTRATOR) peoplePage.look();
+  if (signedIn?.role === ADMINISTRATOR) {
+    peoplePage.look();
+    satellitesPage.look();
+  }
 });
 await loadTheme();
 await loadPacks();

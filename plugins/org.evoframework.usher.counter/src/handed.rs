@@ -1,6 +1,6 @@
 //! The record of what the counter handed out: which voucher, of which
 //! type, when, whether it was held or minted for the asking, and who
-//! handed it out.
+//! handed it out: a person, the unit's keeper, or a satellite.
 //!
 //! The record is a file of lines, one hand-out a line, that only grows:
 //! a hand-out is added at its end and synced before it is answered. A
@@ -36,6 +36,9 @@ pub struct HandOut {
     /// Whether the unit's keeper handed it out, who is no person.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unit: bool,
+    /// The name of the satellite it was handed out at, where one was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub satellite: Option<String>,
 }
 
 /// What the counter handed out, the oldest first.
@@ -137,6 +140,7 @@ mod tests {
             held: false,
             by: None,
             unit: false,
+            satellite: None,
         }
     }
 
@@ -167,10 +171,18 @@ mod tests {
                 ..hand_out("u", 20)
             })
             .unwrap();
+        handed
+            .record(HandOut {
+                satellite: Some("Lobby".to_string()),
+                ..hand_out("s", 30)
+            })
+            .unwrap();
         let again = Handed::open(dir.path()).unwrap();
         assert_eq!(again.of("b").unwrap().by.as_deref(), Some("Ben"));
         assert!(again.of("u").unwrap().unit);
         assert_eq!(again.of("u").unwrap().by, None);
+        assert_eq!(again.of("s").unwrap().satellite.as_deref(), Some("Lobby"));
+        assert_eq!(again.of("b").unwrap().satellite, None);
         // A line says who only where there is somebody to say.
         let lines: Vec<String> = fs::read_to_string(&path)
             .unwrap()
@@ -188,6 +200,10 @@ mod tests {
         assert_eq!(
             lines[2],
             "{\"id\":\"u\",\"type\":\"Day\",\"at\":20,\"held\":false,\"unit\":true}"
+        );
+        assert_eq!(
+            lines[3],
+            "{\"id\":\"s\",\"type\":\"Day\",\"at\":30,\"held\":false,\"satellite\":\"Lobby\"}"
         );
     }
 

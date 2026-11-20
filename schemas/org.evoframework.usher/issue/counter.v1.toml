@@ -22,10 +22,11 @@ none held, one is minted for the asking on the shelf
 Every voucher handed out is written down: which, of which type, when,
 whether it was held or minted, and who handed it out. A hand-out is
 `{ id: string, type: string, at: integer, held: bool, by?: string,
-unit?: true }`, `at` in seconds since 1970-01-01T00:00:00Z, `by` the
-name of the person who handed it out, and `unit` where the unit's keeper
-did, who is no person; a hand-out written down before the record named
-anyone has neither. The record is kept through a restart, and keeps the
+unit?: true, satellite?: string }`, `at` in seconds since
+1970-01-01T00:00:00Z, `by` the name of the person who handed it out,
+`unit` where the unit's keeper did, who is no person, and `satellite`
+the name of the satellite it was handed out at; a hand-out written down
+before the record named anyone has none of them. The record is kept through a restart, and keeps the
 newest ten thousand.
 
 A plugin is told nothing of who asks it. Who hands a voucher out comes
@@ -206,6 +207,21 @@ payload_in = "json"
 payload_out = "json"
 
 [[requests]]
+request_type = "hand_default"
+description = """
+Hand out one voucher of the default type: what the one button of a
+satellite asks. Payload `{ by?: string, unit?: bool, satellite?: string
+}`: nothing to choose, and who hands it out, a person or a satellite by
+a name of 64 characters at most, or the unit's keeper, and not two of
+them. Returns what `hand` returns.
+
+Refused as permanent, under the code `no_default_type`, while no type is
+the default; otherwise as `hand` of that type is.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
 request_type = "assign"
 description = """
 Assign a voucher the controller has for handing out. Payload `{ site:
@@ -231,7 +247,10 @@ What was handed out here. Payload `{ ids: [string] }`, the vouchers
 asked about by the controller's identifiers of them; optional. Returns
 `{ handed: [hand-out] }`: with `ids`, the hand-out of each of those
 vouchers that was handed out here, in the order asked; with none, the
-newest hundred hand-outs, the newest first.
+newest hundred hand-outs, the newest first. A hand-out says who handed
+the voucher out where it was written down with one: `by`, a person's
+name; `unit: true`, the unit's keeper; or `satellite`, a satellite's
+name.
 """
 payload_in = "json"
 payload_out = "json"

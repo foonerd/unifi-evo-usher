@@ -209,7 +209,8 @@ export function vouchers(element, context) {
 
   /**
    * When a voucher was handed out, and by whom where the record names
-   * them: a person by their name, or the unit's keeper.
+   * them: a person by their name, the unit's keeper, or a satellite by
+   * its name.
    *
    * @param {any} out the hand-out, as the counter tells it
    * @param {boolean} said whether it is said already that it was handed
@@ -230,6 +231,15 @@ export function vouchers(element, context) {
         said
           ? say("vouchers.handed_by_unit", { when: MARK })
           : say("vouchers.handed_at_by_unit", { when: MARK }),
+        when,
+      );
+    }
+    if (typeof out?.satellite === "string" && out.satellite !== "") {
+      const values = { when: MARK, name: out.satellite };
+      return around(
+        said
+          ? say("vouchers.handed_at_satellite", values)
+          : say("vouchers.handed_at_at_satellite", values),
         when,
       );
     }

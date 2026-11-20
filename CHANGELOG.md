@@ -2,6 +2,19 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## [0.3.20] - 2026-11-20
+
+- A satellite: a screen with nobody signed in at it, which gives a guest a voucher of the default type at the press of one button, the code, the QR symbol and the network, shown for a minute. Its face is a page of its own, `satellite/` in the UI root, opened in any browser, the unit's own among them; the language is chosen first on it
+- A screen is adopted by a code. One that is not adopted shows a code of six digits, good for twenty minutes; an administrator types it on a new page, Satellites, and gives the screen a name and where it stands. The screen keeps a secret of its own, which the usher keeps as a SHA-256 hash, and exchanges it for a session of twelve hours, which it renews by itself
+- What a satellite may ask is held twice: its session is made with one capability, `voucher_default`, which the counter declares on a new request, `hand_default`; and the usher's gate lets it ask only that, the site's settings and its own routes, and refuses the rest with 403 `not_for_satellite`, the WebSocket among it. It asks the usher again every thirty seconds, which tells the usher when it was last seen
+- A satellite hands out twenty vouchers in an hour and no more, unless the administrator sets another number for it; over it, it is refused with 429 `satellite_hour_full` and says so on the screen
+- The page Satellites, before People: adopt a screen; the list with each screen's name, where it stands, when it was last seen and what it handed out this hour; switch one off and on, change it, remove it. Removed, its session ends at once
+- The record of hand-outs and the list of vouchers name the screen a voucher was handed out at
+- The routes that look after the people and the satellites refuse whoever is not an administrator by themselves, as well as the gate does
+- A person whose role is none the usher knows, from a file changed by hand, is given the least a person is given, at the gate and in their session, where they were given an administrator's
+- The archive, every package and the image carry the notices of the libraries of other authors the programs contain, as `THIRD-PARTY-NOTICES.txt`: every library with its version, and each licence once. `scripts/notices.sh` makes the file with cargo-about, `scripts/check.sh` holds it to what `Cargo.lock` names, and `about.toml` lists the licences that are taken. The proofs find it on an installed unit and in the image
+- All of it in the eleven languages. The proofs adopt a screen, behind every proxy and on an installed unit, and hold it to what a satellite may ask
+
 ## [0.3.19] - 2026-11-20
 
 - A person is an administrator or works the front desk. The front desk hands out vouchers and does nothing else: the Counter is its one page. People from before are administrators

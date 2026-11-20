@@ -548,18 +548,22 @@ dialog .hint {
 }
 
 /* The page of the people who can sign in: each in a row, with what can
-   be done about them at its end. */
-.people > .hint {
+   be done about them at its end. The page of the satellites is laid out
+   as it is, under names of its own. */
+.people > .hint,
+.satellites > .hint {
   margin: 0 0 var(--evo-gap);
 }
 
-.people-list {
+.people-list,
+.satellites-list {
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.people-list li {
+.people-list li,
+.satellites-list li {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -569,11 +573,13 @@ dialog .hint {
   border-top: 1px solid var(--evo-hairline);
 }
 
-.people-list li:last-child {
+.people-list li:last-child,
+.satellites-list li:last-child {
   border-bottom: 1px solid var(--evo-hairline);
 }
 
-.person {
+.person,
+.satellites-entry {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -581,13 +587,16 @@ dialog .hint {
   min-width: 0;
 }
 
-.person-name {
+.person-name,
+.satellites-name {
   font-weight: 600;
   overflow-wrap: anywhere;
 }
 
-/* Which of them the reader is, said in a word and ringed. */
-.person-you {
+/* Which of them the reader is, said in a word and ringed; and that a
+   satellite is switched off. */
+.person-you,
+.satellites-off {
   padding: 0 0.5rem;
   border: 1px solid var(--evo-border-strong);
   border-radius: 999px;
@@ -595,18 +604,21 @@ dialog .hint {
   font-weight: 600;
 }
 
-.person-role {
+.person-role,
+.satellites-told {
   flex-basis: 100%;
   color: var(--evo-text-muted);
   font-size: 0.875rem;
 }
 
-.people-list .row {
+.people-list .row,
+.satellites-list .row {
   align-items: center;
   margin-top: 0;
 }
 
-.people-sure {
+.people-sure,
+.satellites-sure {
   flex-basis: 100%;
   margin: 0;
   font-weight: 600;
@@ -614,25 +626,30 @@ dialog .hint {
 
 /* What was last done. With nothing to say it takes no room; a person is
    stood at it when something was done, and it is nothing to press. */
-.people-said {
+.people-said,
+.satellites-said {
   margin: 0 0 0.75rem;
   font-weight: 600;
 }
 
-.people-said:empty {
+.people-said:empty,
+.satellites-said:empty {
   display: none;
 }
 
-.people-said:focus {
+.people-said:focus,
+.satellites-said:focus {
   outline: none;
 }
 
-.people-form form {
+.people-form form,
+.satellites-form form {
   max-width: 32rem;
   margin-top: var(--evo-gap);
 }
 
-.people-form h3 {
+.people-form h3,
+.satellites-form h3 {
   margin: 0 0 0.5rem;
   font-size: 1.125rem;
 }

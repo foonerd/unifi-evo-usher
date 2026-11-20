@@ -59,15 +59,20 @@
 //!   handed out, in seconds since 1970. `join` is `{"text", "side",
 //!   "rows"}`, the text and the QR symbol that carries it, for an open
 //!   network, and null for any other.
+//! - `hand_default`: takes nothing to choose, hands out a voucher of the
+//!   default type and answers as `hand` does. It is what a satellite's
+//!   one button asks. Who hands it out is written on it as on `hand`,
+//!   with `"satellite": "..."` for a satellite, by its name.
 //! - `assign`: `{"site": "...", "id": "..."}` assigns a voucher the
 //!   controller has, and that no guest has used, for handing out: it is
 //!   held for the type its note names, which is kept on the voucher's
 //!   terms where no type of that name is. Answers `{"type": type}`.
 //! - `handed`: `{"ids": ["..."]}` answers `{"handed": [{"id", "type",
-//!   "at", "held", "by", "unit"}]}`: the hand-out of each of those
-//!   vouchers that was handed out here, with `"by"` where a person
-//!   handed it out and `"unit": true` where the unit's keeper did; with
-//!   no `ids`, the newest hundred, the newest first.
+//!   "at", "held", "by", "unit", "satellite"}]}`: the hand-out of each
+//!   of those vouchers that was handed out here, with `"by"` where a
+//!   person handed it out, `"unit": true` where the unit's keeper did
+//!   and `"satellite"` where it was handed out at a satellite; with no
+//!   `ids`, the newest hundred, the newest first.
 //!
 //! A refusal is given under a code, as its subclass, beside its words:
 //! the code is what a screen finds words of its own language by. What
@@ -103,7 +108,7 @@ pub use types::{Types, Unkept, VoucherType, DAY, LONGEST_NAME, MOST};
 pub const NAME: &str = "org.evoframework.usher.counter";
 
 /// The requests the plugin takes.
-pub const REQUESTS: [&str; 10] = [
+pub const REQUESTS: [&str; 11] = [
     "types",
     "offered",
     "put_type",
@@ -112,6 +117,7 @@ pub const REQUESTS: [&str; 10] = [
     "set_default",
     "order_types",
     "hand",
+    "hand_default",
     "assign",
     "handed",
 ];

@@ -1,7 +1,8 @@
 #!/bin/bash
 # The workshop pass CI runs: formatting, lints with warnings denied, the
 # tests, the documentation with warnings denied, the version and the
-# changelog in step, the scripts through shellcheck, the workflows through
+# changelog in step, the notices of the libraries in step with what the
+# programs contain, the scripts through shellcheck, the workflows through
 # actionlint. Run it before a commit.
 set -euo pipefail
 ROOT=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
@@ -24,6 +25,9 @@ echo "check: version and changelog"
 version=$(workspace_version)
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "check: the workspace's version '$version' is not major.minor.patch" >&2; exit 1; }
 scripts/release-notes.sh "$version" | grep -q . || { echo "check: CHANGELOG.md has no section for $version" >&2; exit 1; }
+
+echo "check: notices"
+scripts/notices.sh --check
 
 echo "check: shellcheck"
 shellcheck -x -S warning scripts/*.sh

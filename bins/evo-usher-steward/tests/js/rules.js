@@ -224,6 +224,55 @@ hold("two that are", amiss("three small owls sing", "three small owls sing"), nu
 hold("no day told", [day(null), day(0), day("yesterday")], ["", "", ""]);
 hold("a day", day(Date.UTC(2026, 0, 19, 12)) !== "", true);
 
+// What the page of the satellites says and checks before the usher is asked.
+const satellitesPage = await import("/org.evoframework.usher.shell/satellites.js");
+hold("where a screen opens", satellitesPage.SCREEN, "/satellite/");
+hold(
+  "a satellite not seen",
+  [satellitesPage.seen(null, 1000), satellitesPage.seen(0, 1000), satellitesPage.seen("then", 1000)],
+  Array(3).fill("Not seen since the usher was started"),
+);
+hold("one seen within its minute and a half", satellitesPage.seen(1000, 90999), "Seen just now");
+hold(
+  "one seen longer ago than that",
+  satellitesPage.seen(1000, 91000).startsWith("Last seen "),
+  true,
+);
+hold(
+  "how many an hour, as typed",
+  ["20", " 7 ", "1", "1000"].map((typed) => satellitesPage.limitOf(typed, 1000)),
+  [20, 7, 1, 1000],
+);
+hold(
+  "what is no number a satellite can be held to",
+  ["", "0", "1001", "-3", "2.5", "ten", "1e2", "0x10", "1234567"].map((typed) =>
+    satellitesPage.limitOf(typed, 1000),
+  ),
+  Array(9).fill(null),
+);
+
+// When a satellite asks again, and what it shows. Its page starts
+// nothing where there is no screen of its own to draw on.
+const screen = await import("/satellite/satellite.js");
+hold("a voucher is shown for a minute", screen.SHOWN_MS, 60000);
+hold(
+  "a satellite says it is there in half a minute, give or take",
+  [screen.nextIn(0), screen.nextIn(0.5), screen.nextIn(0.999999)],
+  [30000, 35000, 39999],
+);
+hold(
+  "a session is exchanged from half an hour to an hour before it ends",
+  [screen.renewsBefore(0), screen.renewsBefore(0.5), screen.renewsBefore(0.999999)],
+  [1800000, 2700000, 3599998],
+);
+hold(
+  "no two of a thousand screens are bound to come at once",
+  new Set(Array.from({ length: 1000 }, () => screen.nextIn())).size > 100,
+  true,
+);
+hold("a code as it is shown", [screen.shown("123 456"), screen.shown("123456")], ["123456", "123456"]);
+hold("what is no code", [screen.shown(null), screen.shown(123456)], ["", ""]);
+
 // Which shell the door opens.
 hold("no shell active", shellAddress({ active_ui_selection: true }), `/${OWN_SHELL}/`);
 hold("none, said so", shellAddress({ ui_shell: null }), `/${OWN_SHELL}/`);

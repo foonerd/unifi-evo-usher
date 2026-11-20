@@ -85,6 +85,7 @@ fi
 %dir /usr/share/licenses/%{name}
 %license /usr/share/licenses/%{name}/LICENSE
 %license /usr/share/licenses/%{name}/LICENSE-evo.txt
+%license /usr/share/licenses/%{name}/THIRD-PARTY-NOTICES.txt
 %dir /opt/evo
 %dir /opt/evo/bin
 /opt/evo/bin/evo-usher-steward

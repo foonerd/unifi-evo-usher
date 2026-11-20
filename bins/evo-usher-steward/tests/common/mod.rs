@@ -285,6 +285,54 @@ impl Steward {
         said["pin"].as_str().expect("a PIN").to_string()
     }
 
+    /// A screen that is no satellite yet asks for a code: the code it
+    /// shows, and the secret it keeps.
+    pub fn screen(&self) -> (String, String) {
+        let (status, said) =
+            self.usher("POST", "satellite_code", None, &Caller::on_the_lan());
+        assert_eq!(status, 200, "{said}");
+        (
+            said["code"].as_str().expect("a code").to_string(),
+            said["secret"].as_str().expect("a secret").to_string(),
+        )
+    }
+
+    /// A screen asks for a code and an administrator adopts it under a
+    /// name: the screen's secret, and what the usher knows the
+    /// satellite by.
+    pub fn adopt(
+        &self,
+        administrator: &Caller,
+        name: &str,
+    ) -> (String, String) {
+        let (code, secret) = self.screen();
+        let (status, said) = self.usher(
+            "POST",
+            "adopt_satellite",
+            Some(json!({ "code": code, "name": name })),
+            administrator,
+        );
+        assert_eq!(status, 200, "{said}");
+        (
+            secret,
+            said["adopted"]["id"].as_str().expect("an id").to_string(),
+        )
+    }
+
+    /// A satellite exchanges its secret for a session, and is the
+    /// caller who holds it.
+    pub fn as_satellite(&self, secret: &str) -> Caller {
+        let (status, said) = self.usher(
+            "POST",
+            "satellite_sign_in",
+            Some(json!({ "secret": secret })),
+            &Caller::on_the_lan(),
+        );
+        assert_eq!(status, 200, "{said}");
+        assert_eq!(said["adopted"], true, "{said}");
+        Caller::on_the_lan().with(said["token"].as_str().expect("a session"))
+    }
+
     /// Ask a shelf over HTTPS as `who`: the status, and the answer's
     /// payload or the steward's refusal.
     pub fn ask_status(

@@ -33,6 +33,7 @@ fn the_steward_serves_the_door_the_shell_and_the_widget_pack() {
         format!("/{SHELL}/pages.js"),
         format!("/{SHELL}/brand.js"),
         format!("/{SHELL}/people.js"),
+        format!("/{SHELL}/satellites.js"),
         format!("/{SHELL}/theme.js"),
         format!("/{SHELL}/site.js"),
         format!("/{SHELL}/words.js"),
@@ -48,6 +49,7 @@ fn the_steward_serves_the_door_the_shell_and_the_widget_pack() {
         format!("/{WIDGETS}/shelves.js"),
         format!("/{WIDGETS}/site.js"),
         format!("/{WIDGETS}/words.js"),
+        "/satellite/satellite.js".to_string(),
     ] {
         let (status, kind, _) = steward.file(&module);
         assert_eq!(status, 200, "{module}");
@@ -98,6 +100,18 @@ fn the_steward_serves_the_door_the_shell_and_the_widget_pack() {
     assert!(sheet.contains("--primary:"), "{sheet}");
     assert!(shell.contains(&theme), "{shell}");
     assert!(door.contains(&theme), "{door}");
+
+    // The page of a satellite stands beside the shell, at an address of
+    // its own, and is served to anyone: a screen that nobody is signed
+    // in at opens it. It wears the same theme.
+    let (status, kind, screen) = steward.file("/satellite/");
+    assert_eq!(status, 200, "a satellite is entered at its directory");
+    assert!(kind.starts_with("text/html"), "{kind}");
+    assert!(screen.contains("satellite.js"), "{screen}");
+    assert!(screen.contains(&theme), "{screen}");
+    let (status, kind, _) = steward.file("/satellite/satellite.css");
+    assert_eq!(status, 200);
+    assert!(kind.starts_with("text/css"), "{kind}");
 
     // The pages of the face, and what stands on each: every UI shelf the
     // steward declares, with every widget it is drawn with, on a page.

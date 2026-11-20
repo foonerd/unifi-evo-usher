@@ -34,9 +34,12 @@
 # password and signed in to, and with the session that gave is answered
 # and hears a happening over the WebSocket; a person is added for the
 # front desk, signs in with the PIN the usher made, is told the types on
-# offer and is refused what is an administrator's. Last, the proxy is given
-# another authority than the unit's and must then pass nothing on: it
-# believes the unit by the unit's authority and by nothing else.
+# offer and is refused what is an administrator's; a screen is adopted
+# as a satellite by the code it is given, is let ask for the default
+# voucher and refused everything else, and is disabled and refused.
+# Last, the proxy is given another authority than the unit's and must
+# then pass nothing on: it believes the unit by the unit's authority and
+# by nothing else.
 #
 # In every case the unit is given a name and a time zone for its site
 # where it is started, as the Compose files pass them on: anyone is told
@@ -362,6 +365,14 @@ prove() {
   compose cp usher:/var/lib/evo/state/https/ca.crt "$dir/unit-ca.crt" > /dev/null 2>&1 || fail "the unit that is up made no authority"
   chmod 644 "$dir/unit-ca.crt"
   if [ "$proxy" = alone ]; then
+    # The image carries the licences of what is in it: the usher's own,
+    # evo's, and the notices of the libraries the program contains.
+    for file in copyright LICENSE-evo.txt THIRD-PARTY-NOTICES.txt; do
+      compose cp "usher:/usr/share/doc/evo-usher-steward/$file" "$dir/$file" > /dev/null 2>&1 || fail "the image carries no $file"
+      [ -s "$dir/$file" ] || fail "the image's $file is empty"
+    done
+    grep -q '^Apache License 2.0 (Apache-2.0)$' "$dir/THIRD-PARTY-NOTICES.txt" || fail "the image's notices of the libraries name no licence"
+    echo "  ok    the image carries the licences: the usher's, evo's, and the notices of the libraries the program contains"
     # The program's word is worth something: asked of a listener that is
     # not there, it says the unit is not up, and which part of it.
     compose exec -T usher /opt/evo/bin/evo-usher-steward --healthy > "$dir/healthy" 2>&1 || fail "asked in the container, the program says the unit is not up: $(cat "$dir/healthy")"
@@ -560,6 +571,73 @@ prove() {
     -H "Sec-WebSocket-Key: dGhlIHVzaGVyJ3MgcHJvb2Y=" -H "Sec-WebSocket-Protocol: evo.bearer.$desk")
   [ "$status" = 403 ] || fail "the line of what happens is opened to a person at the front desk: $status $(cat "$dir/answer")"
   echo "  ok    a person at the front desk signs in with a PIN the usher made, is told the types on offer, and is refused what is an administrator's and the line of what happens"
+
+  # A satellite: a screen that nobody is signed in at opens a page of
+  # its own, is given a code, and is adopted by it. It is let ask for
+  # the default voucher, for the site, and whether it is still a
+  # satellite; everything else is refused it by name, and no line of
+  # what happens is opened to it. Disabled, it is signed out and refused.
+  local shown secret presenting satellite screen
+  [ "$(ask /satellite/)" = 200 ] || fail "the page of a satellite does not come"
+  grep -q 'satellite.js' "$dir/answer" || fail "what came for a satellite is not its page"
+  [ "$(ask /satellite/satellite.js)" = 200 ] || fail "the script of a satellite's page does not come"
+  status=$(post /usher/v1/satellite_code '{}')
+  [ "$status" = 200 ] || fail "a screen is not given a code: $status $(cat "$dir/answer")"
+  shown=$(jq -r '.code' "$dir/answer")
+  secret=$(jq -r '.secret' "$dir/answer")
+  { [[ "$shown" =~ ^[0-9]{6}$ ]] && [[ "$secret" =~ ^[0-9a-f]{64}$ ]]; } || fail "a screen is given no code of six digits and secret of 256 bits"
+  presenting=$(jq -cn --arg secret "$secret" '{secret: $secret}')
+  status=$(post /usher/v1/satellite_sign_in "$presenting")
+  [ "$status" = 200 ] || fail "a screen that waits is not told so: $status $(cat "$dir/answer")"
+  jq -e '.adopted == false and (has("token") | not)' "$dir/answer" > /dev/null || fail "a screen nobody adopted is answered: $(cat "$dir/answer")"
+  said=$(jq -cn --arg code "$shown" '{code: $code, name: "Lobby"}')
+  status=$(post /usher/v1/adopt_satellite "$said")
+  [ "$status" = 401 ] || fail "a caller who has not signed in adopts a screen: $status $(cat "$dir/answer")"
+  status=$(post /usher/v1/adopt_satellite "$said" -H "Authorization: Bearer $desk")
+  [ "$status" = 403 ] || fail "a person at the front desk adopts a screen: $status $(cat "$dir/answer")"
+  status=$(post /usher/v1/adopt_satellite "$said" -H "Authorization: Bearer $bearer")
+  [ "$status" = 200 ] || fail "a screen is not adopted by its code: $status $(cat "$dir/answer")"
+  satellite=$(jq -r '.adopted.id' "$dir/answer")
+  status=$(post /usher/v1/satellite_sign_in "$presenting")
+  [ "$status" = 200 ] || fail "a satellite's secret is not exchanged for a session: $status $(cat "$dir/answer")"
+  jq -e '.adopted == true and .name == "Lobby"' "$dir/answer" > /dev/null || fail "a satellite that presents its secret is answered: $(cat "$dir/answer")"
+  screen=$(jq -r '.token' "$dir/answer")
+  status=$(ask /usher/v1/satellite -H "Authorization: Bearer $screen")
+  [ "$status" = 200 ] || fail "a satellite is not told that it is one: $status $(cat "$dir/answer")"
+  jq -e --arg name "$SET_NAME" '.name == "Lobby" and .limit == 20 and .site.name == $name' "$dir/answer" > /dev/null || fail "a satellite that says it is there is answered: $(cat "$dir/answer")"
+  status=$(post /api/v1/request "$(request site.settings get '{}')" -H "Authorization: Bearer $screen")
+  [ "$status" = 200 ] || fail "a satellite is not told of the site: $status $(cat "$dir/answer")"
+  # The default voucher is its to ask for: the counter is asked, and
+  # says that no voucher type is the default yet, which is the
+  # administrator's to set.
+  status=$(post /api/v1/request "$(request issue.counter hand_default '{}')" -H "Authorization: Bearer $screen")
+  [ "$status" != 403 ] || fail "a satellite is kept from the default voucher: $(cat "$dir/answer")"
+  jq -e '.error.details.subclass == "no_default_type"' "$dir/answer" > /dev/null || fail "the counter answered a satellite: $status $(cat "$dir/answer")"
+  for said in "issue.counter hand" "issue.counter offered" "issue.counter types" "stock.reserve count" "site.settings set" "access.controller info"; do
+    status=$(post /api/v1/request "$(request "${said% *}" "${said#* }" '{}')" -H "Authorization: Bearer $screen")
+    [ "$status" = 403 ] || fail "a satellite is answered $said: $status $(cat "$dir/answer")"
+    jq -e '.error.details.subclass == "not_for_satellite"' "$dir/answer" > /dev/null || fail "$said is refused a satellite as: $(cat "$dir/answer")"
+  done
+  for said in /usher/v1/me /usher/v1/people /usher/v1/satellites /api/v1/list_bearer_tokens /api/v1/describe_ui_stockings; do
+    status=$(ask "$said" -H "Authorization: Bearer $screen")
+    [ "$status" = 403 ] || fail "a satellite is answered $said: $status $(cat "$dir/answer")"
+  done
+  status=$(ask /api/v1/ws --http1.1 -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" \
+    -H "Sec-WebSocket-Key: dGhlIHVzaGVyJ3MgcHJvb2Y=" -H "Sec-WebSocket-Protocol: evo.bearer.$screen")
+  [ "$status" = 403 ] || fail "the line of what happens is opened to a satellite: $status $(cat "$dir/answer")"
+  status=$(ask /usher/v1/satellites -H "Authorization: Bearer $bearer")
+  [ "$status" = 200 ] || fail "the satellites are not listed: $status $(cat "$dir/answer")"
+  jq -e --arg id "$satellite" '(.satellites | length) == 1 and .satellites[0].id == $id and (.satellites[0].last_seen_ms | type == "number")' "$dir/answer" > /dev/null || fail "of its satellites the unit says: $(cat "$dir/answer")"
+  status=$(post /usher/v1/set_satellite "$(jq -cn --arg id "$satellite" '{id: $id, enabled: false}')" -H "Authorization: Bearer $bearer")
+  [ "$status" = 200 ] || fail "a satellite is not disabled: $status $(cat "$dir/answer")"
+  status=$(ask /usher/v1/satellite -H "Authorization: Bearer $screen")
+  [ "$status" = 401 ] || fail "a satellite that was disabled is answered: $status $(cat "$dir/answer")"
+  status=$(post /api/v1/request "$(request issue.counter hand_default '{}')" -H "Authorization: Bearer $screen")
+  [ "$status" = 401 ] || fail "a satellite that was disabled is let ask for a voucher: $status $(cat "$dir/answer")"
+  status=$(post /usher/v1/satellite_sign_in "$presenting")
+  [ "$status" = 403 ] || fail "the secret of a satellite that was disabled is exchanged: $status $(cat "$dir/answer")"
+  jq -e '.error.details.subclass == "satellite_disabled"' "$dir/answer" > /dev/null || fail "a satellite that was disabled is refused as: $(cat "$dir/answer")"
+  echo "  ok    a screen is adopted as a satellite by the code it is given, is let ask for the default voucher and refused the rest and the line of what happens; disabled, it is signed out and refused"
 
   if [ "$behind" = no ]; then
     # What the unit kept is there when it is started again, who is

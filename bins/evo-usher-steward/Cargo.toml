@@ -32,6 +32,9 @@ clap = { version = "4", features = ["derive"] }
 nix = { version = "0.30", default-features = false, features = ["resource"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# A satellite's secret is kept as its SHA-256; evo builds on the same
+# crate.
+sha2 = "0.10"
 # The unit's code is compared in constant time.
 subtle = "2"
 tokio = { version = "1", features = ["full"] }
@@ -39,6 +42,9 @@ toml = "0.8"
 tracing = "0.1"
 
 [dev-dependencies]
+# The shelves a unit test stands in for are evo's trait, which is
+# written with it; evo builds on the same crate.
+async-trait = "0.1"
 evo-usher-controller-unifi = { path = "../../plugins/org.evoframework.usher.controller.unifi", features = ["simulated"] }
 evo-usher-site = { path = "../../plugins/org.evoframework.usher.site", features = ["samples"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls-manual-roots"] }

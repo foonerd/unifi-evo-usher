@@ -41,6 +41,16 @@ jobs:
           shared-key: check
           cache-bin: false
           save-if: false
+      # The tool the notices of the libraries are made with, kept from
+      # run to run: scripts/check.sh holds the notices to what it makes.
+      - uses: actions/cache@v6
+        id: about
+        with:
+          path: ~/.cargo/bin/cargo-about
+          key: cargo-about-0.9.3-${{ runner.os }}-${{ runner.arch }}
+      - name: The tool the notices are made with
+        if: steps.about.outputs.cache-hit != 'true'
+        run: cargo install cargo-about --locked --version 0.9.3
       - run: scripts/check.sh
 
   build:

@@ -60,6 +60,12 @@ face-people-pin.png:people-pin.png
 face-people-set-pin.png:people-set-pin.png
 face-front-desk.png:front-desk.png
 face-vouchers-handed-by.png:vouchers-handed-by.png
+face-satellite-code.png:satellite-code.png
+face-satellites-adopt.png:satellites-adopt.png
+face-satellites.png:satellites.png
+face-satellite-button.png:satellite-button.png
+face-satellite-voucher.png:satellite-voucher.png
+face-vouchers-handed-at.png:vouchers-handed-at.png
 "
 for pair in $pictures; do
   from=${pair%%:*}

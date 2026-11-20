@@ -163,11 +163,27 @@ struct Handing {
     unit: bool,
 }
 
+/// What is asked where the default voucher is handed out: nothing but
+/// who hands it out, which whoever stands between the counter and a
+/// caller writes.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HandingDefault {
+    #[serde(default)]
+    by: Option<String>,
+    #[serde(default)]
+    unit: bool,
+    /// The name of the satellite the voucher is handed out at.
+    #[serde(default)]
+    satellite: Option<String>,
+}
+
 /// Who hands a voucher out, as the record names them.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct Issuer {
     by: Option<String>,
     unit: bool,
+    satellite: Option<String>,
 }
 
 /// The longest name the record keeps of who handed a voucher out, in
@@ -177,9 +193,14 @@ const LONGEST_ISSUER: usize = 64;
 impl Issuer {
     /// Who a request says hands the voucher out; or why that is nobody a
     /// record can name.
-    fn of(by: Option<String>, unit: bool) -> Result<Self, Refusal> {
+    fn of(
+        by: Option<String>,
+        unit: bool,
+        satellite: Option<String>,
+    ) -> Result<Self, Refusal> {
         let by = by.map(|name| name.trim().to_string());
-        let named = match &by {
+        let satellite = satellite.map(|name| name.trim().to_string());
+        let named = |name: &Option<String>| match name {
             None => true,
             Some(name) => {
                 !name.is_empty()
@@ -187,14 +208,23 @@ impl Issuer {
                     && !name.chars().any(char::is_control)
             }
         };
-        if !named || (by.is_some() && unit) {
+        // One hands a voucher out, or nobody is named: not two.
+        let said = usize::from(by.is_some())
+            + usize::from(unit)
+            + usize::from(satellite.is_some());
+        if !named(&by) || !named(&satellite) || said > 1 {
             return Err(Refusal::AsAsked(why(
                 "not_as_asked",
                 "who hands the voucher out is not named as a record names \
-                 one: a name of 64 characters at most, or the unit",
+                 one: a person's or a satellite's name of 64 characters at \
+                 most, or the unit",
             )));
         }
-        Ok(Self { by, unit })
+        Ok(Self {
+            by,
+            unit,
+            satellite,
+        })
     }
 }
 
@@ -316,6 +346,7 @@ impl Counter {
             held,
             by: issuer.by.clone(),
             unit: issuer.unit,
+            satellite: issuer.satellite.clone(),
         };
         if let Err(e) = self
             .handed
@@ -396,9 +427,30 @@ impl Counter {
             }
             "hand" => {
                 let handing: Handing = asked(payload)?;
-                let issuer = Issuer::of(handing.by, handing.unit)?;
+                let issuer = Issuer::of(handing.by, handing.unit, None)?;
                 self.hand(&handing.kind, handing.days, handing.guests, &issuer)
                     .await
+            }
+            "hand_default" => {
+                let handing: HandingDefault = asked(payload)?;
+                let issuer =
+                    Issuer::of(handing.by, handing.unit, handing.satellite)?;
+                // The default is a type with nothing to choose, so there
+                // is nothing to ask of whoever presses the one button.
+                let name = self
+                    .types
+                    .lock()
+                    .expect("the types' lock")
+                    .default()
+                    .map(str::to_string)
+                    .ok_or_else(|| {
+                        Refusal::AsAsked(why(
+                            "no_default_type",
+                            "No voucher type is the default. An \
+                             administrator sets one under Voucher types.",
+                        ))
+                    })?;
+                self.hand(&name, None, None, &issuer).await
             }
             "assign" => {
                 let assigning: Assigning = asked(payload)?;

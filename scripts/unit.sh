@@ -33,12 +33,14 @@ unit_tree() {
 
 # The licences that go wherever the steward goes, into a directory:
 # `copyright`, which says what is whose and carries the MIT licence the
-# usher's own is under, and `LICENSE-evo.txt`, the licence of the evo
-# framework the program contains.
+# usher's own is under, `LICENSE-evo.txt`, the licence of the evo
+# framework the program contains, and `THIRD-PARTY-NOTICES.txt`, the
+# notices of the libraries of others it contains.
 unit_licences() {
   local dir="$1"
   mkdir -p "$dir"
   cat packaging/licences/copyright LICENSE > "$dir/copyright"
   chmod 644 "$dir/copyright"
   install -m 644 packaging/licences/LICENSE-evo.txt "$dir/LICENSE-evo.txt"
+  install -m 644 packaging/licences/THIRD-PARTY-NOTICES.txt "$dir/THIRD-PARTY-NOTICES.txt"
 }

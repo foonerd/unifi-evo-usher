@@ -21,7 +21,7 @@ const COUNTS: [&str; 6] = ["zero", "one", "two", "few", "many", "other"];
 /// its own: what a caller sent was not what a request takes, which the
 /// face never sends, and what went wrong inside the usher, which is said
 /// in the usher's own words for whoever looks into it.
-const NOT_FOR_A_SCREEN: [&str; 13] = [
+const NOT_FOR_A_SCREEN: [&str; 17] = [
     "not_as_asked",
     "role_not_one",
     "pin_not_chosen",
@@ -35,12 +35,20 @@ const NOT_FOR_A_SCREEN: [&str; 13] = [
     "note_needed",
     "id_not_one",
     "default_stays",
+    // What a satellite's own page goes by without saying it: a secret
+    // that is nobody's sends it for a code, one of a satellite that is
+    // switched off is said in the page's own words; and what a
+    // satellite's page and a person's page never ask of each other.
+    "satellite_unknown",
+    "satellite_disabled",
+    "not_for_satellite",
+    "satellites_alone",
 ];
 
 /// What stands in a script as written and is no text for a person: a
 /// name the web has for a thing, the usher's own name, and the names
 /// that stand where the words cannot be read.
-const NOT_WORDS: [&str; 10] = [
+const NOT_WORDS: [&str; 11] = [
     // What a request is sent under.
     "Accept",
     "Authorization",
@@ -55,6 +63,7 @@ const NOT_WORDS: [&str; 10] = [
     "English",
     // What a page is called where no language's file can be read.
     "People",
+    "Satellites",
     "More",
 ];
 
@@ -572,8 +581,10 @@ fn every_key_asked_for_is_there_and_every_text_is_asked_for() {
     let pages: Value =
         serde_json::from_str(&read(&ui_root().join(SHELL).join("pages.json")))
             .unwrap();
-    let mut page_ids: BTreeSet<String> =
-        ["people", "more"].iter().map(|id| id.to_string()).collect();
+    let mut page_ids: BTreeSet<String> = ["people", "satellites", "more"]
+        .iter()
+        .map(|id| id.to_string())
+        .collect();
     let mut part_ids = BTreeSet::new();
     for page in pages.as_array().unwrap() {
         page_ids.insert(page["id"].as_str().unwrap().to_string());

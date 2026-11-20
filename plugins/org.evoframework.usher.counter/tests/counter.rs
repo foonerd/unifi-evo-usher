@@ -950,6 +950,71 @@ async fn a_hand_out_names_who_the_request_says_handed_it_out() {
 }
 
 #[tokio::test]
+async fn the_default_voucher_is_handed_out_with_nothing_to_choose() {
+    let dir = tempfile::tempdir().unwrap();
+    let stand = Arc::new(Stand::working());
+    let counter = Counter::open(dir.path(), Some(stand.clone())).unwrap();
+
+    // With no type kept there is no default, and nothing is minted.
+    let refused = ask(&counter, "hand_default", json!({})).await;
+    assert!(
+        matches!(&refused, Err(Refusal::AsAsked(why)) if why.code == "no_default_type"),
+        "{refused:?}"
+    );
+    assert!(stand.asked().is_empty());
+
+    // The first type with nothing to choose is the default: a satellite
+    // hands it out, and is named in the record.
+    ask(&counter, "put_type", house_guests()).await.unwrap();
+    let handed = ask(
+        &counter,
+        "hand_default",
+        json!({ "satellite": " Lobby, by the door " }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(handed["type"]["name"], "House guests", "{handed}");
+    assert!(handed["voucher"]["code"].is_string(), "{handed}");
+    assert!(handed.get("satellite").is_none());
+    let told = ask(&counter, "handed", json!({})).await.unwrap();
+    assert_eq!(
+        told["handed"][0]["satellite"], "Lobby, by the door",
+        "{told}"
+    );
+    assert!(told["handed"][0].get("by").is_none(), "{told}");
+
+    // It takes nothing to choose, and names one who hands it out at
+    // most.
+    let minted = stand.asked().len();
+    for payload in [
+        json!({ "type": "House guests" }),
+        json!({ "days": 2 }),
+        json!({ "satellite": "" }),
+        json!({ "satellite": "s".repeat(65) }),
+        json!({ "satellite": "Lobby", "unit": true }),
+        json!({ "satellite": "Lobby", "by": "Ben" }),
+    ] {
+        let refused = ask(&counter, "hand_default", payload.clone()).await;
+        assert!(
+            matches!(&refused, Err(Refusal::AsAsked(why)) if why.code == "not_as_asked"),
+            "{payload}: {refused:?}"
+        );
+    }
+    assert_eq!(stand.asked().len(), minted);
+
+    // A person or the unit's keeper may be named on it as on any other.
+    ask(&counter, "hand_default", json!({ "by": "Ben" }))
+        .await
+        .unwrap();
+    ask(&counter, "hand_default", json!({ "unit": true }))
+        .await
+        .unwrap();
+    let told = ask(&counter, "handed", json!({})).await.unwrap();
+    assert_eq!(told["handed"][0]["unit"], true, "{told}");
+    assert_eq!(told["handed"][1]["by"], "Ben", "{told}");
+}
+
+#[tokio::test]
 async fn an_open_network_is_joined_from_the_voucher() {
     let dir = tempfile::tempdir().unwrap();
     for (security, joined) in [

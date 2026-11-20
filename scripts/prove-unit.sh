@@ -3,10 +3,10 @@
 # this machine, started by systemd under every protection of its service,
 # set up and signed in to as a browser does it, asked as a browser asks,
 # by its administrator and by a person at its front desk, who is refused
-# what is the administrator's; given its site's name and time zone where
-# it is started, started
-# again, run at the extended level, removed, and, where the package is
-# Debian's, purged.
+# what is the administrator's; a screen adopted as a satellite, refused
+# everything but its own, disabled and refused; given its site's name
+# and time zone where it is started, started again, run at the extended
+# level, removed, and, where the package is Debian's, purged.
 #
 #   sudo scripts/prove-unit.sh <evo-usher-steward_<version>_<arch>.deb>
 #   sudo scripts/prove-unit.sh <evo-usher-steward-<version>-1.<machine>.rpm>
@@ -48,6 +48,7 @@ FACE=https://127.0.0.1:8443
 AUTHORITY=/var/lib/evo/state/https/ca.crt
 CODE=/run/evo/unit-code
 PEOPLE=/var/lib/evo/state/usher/people.json
+SATELLITES=/var/lib/evo/state/usher/satellites.json
 SITE=/var/lib/evo/plugins/org.evoframework.usher.site/state/site.json
 LEVEL=/etc/systemd/system/evo.service.d/level.conf
 GIVEN=/etc/systemd/system/evo.service.d/site.conf
@@ -153,6 +154,17 @@ grep -q '^NoNewPrivs:[[:space:]]*1$' "/proc/$pid/status" || fail "the steward ma
 grep -q '^CapBnd:[[:space:]]*0000000000000000$' "/proc/$pid/status" || fail "the steward has capabilities within reach"
 grep -q '^Seccomp:[[:space:]]*2$' "/proc/$pid/status" || fail "the steward's system calls are not filtered"
 echo "  ok    no privilege to gain, no capability, its system calls filtered"
+# The licences go wherever the program goes: the usher's own, evo's, and
+# the notices of the libraries of others the program contains.
+case "$format" in
+  deb) licences=/usr/share/doc/evo-usher-steward; own=copyright ;;
+  rpm) licences=/usr/share/licenses/evo-usher-steward; own=LICENSE ;;
+esac
+for file in "$own" LICENSE-evo.txt THIRD-PARTY-NOTICES.txt; do
+  [ -s "$licences/$file" ] || fail "$licences/$file is not on the machine"
+done
+grep -q '^Apache License 2.0 (Apache-2.0)$' "$licences/THIRD-PARTY-NOTICES.txt" || fail "the notices of the libraries name no licence"
+echo "  ok    the licences are on the machine: the usher's, evo's, and the notices of $(grep -c -E '^  [A-Za-z0-9_-]+ [0-9]' "$licences/THIRD-PARTY-NOTICES.txt") libraries the program contains"
 # Every screen joined to the unit holds a connection, and a connection is
 # an open file: the service is given as many as a large venue takes.
 files=$(awk '/^Max open files/ { print $4 }' "/proc/$pid/limits")
@@ -329,6 +341,113 @@ pin=$chosen
 desk=$(jq -r '.token' "$work/answer")
 echo "  ok    a person at the front desk signs in with a PIN the usher made, is answered what the counter's page asks, and is refused the rest by name; a new PIN, made by the usher or set by the administrator, ends their session"
 
+echo "prove-unit: a satellite"
+# The page of a satellite is served to anyone, beside the shell: a
+# screen that nobody is signed in at opens it.
+for part in satellite/ satellite/satellite.js satellite/satellite.css; do
+  [ "$(curl --silent --cacert "$AUTHORITY" --max-time 10 --output /dev/null --write-out '%{http_code}' "$FACE/$part")" = 200 ] || fail "$part is not served"
+done
+# Such a screen asks for a code, and is given a secret beside it, which
+# is all it keeps. Until it is adopted the secret is good for nothing
+# but being told that the screen still waits.
+[ "$(usher satellite_code '{}')" = 200 ] || fail "a screen is not given a code: $(cat "$work/answer")"
+code=$(jq -r '.code' "$work/answer")
+secret=$(jq -r '.secret' "$work/answer")
+[[ "$code" =~ ^[0-9]{6}$ ]] || fail "the code of a screen is not six digits: $code"
+[[ "$secret" =~ ^[0-9a-f]{64}$ ]] || fail "the secret of a screen is not 256 bits, written in hex"
+presenting=$(jq -cn --arg secret "$secret" '{secret: $secret}')
+[ "$(usher satellite_sign_in "$presenting")" = 200 ] || fail "a screen that waits is not told so: $(cat "$work/answer")"
+jq -e --arg code "$code" '.adopted == false and .code == $code and (has("token") | not)' "$work/answer" > /dev/null || fail "a screen nobody adopted is answered: $(cat "$work/answer")"
+# It is an administrator who adopts it, by the code it shows, and
+# nobody else.
+adopting=$(jq -cn --arg code "$code" '{code: $code, name: "Lobby", place: "By the door"}')
+[ "$(usher adopt_satellite "$adopting")" = 401 ] || fail "a caller who presents nothing adopts a screen: $(cat "$work/answer")"
+[ "$(usher adopt_satellite "$adopting" "$desk")" = 403 ] || fail "a person at the front desk adopts a screen: $(cat "$work/answer")"
+[ "$(usher satellites '' "$desk")" = 403 ] || fail "a person at the front desk is told of the satellites: $(cat "$work/answer")"
+other=$(printf '%06d' $(((10#$code + 1) % 1000000)))
+[ "$(usher adopt_satellite "$(jq -cn --arg code "$other" '{code: $code, name: "Lobby"}')" "$bearer")" = 400 ] || fail "a screen is adopted by a code no screen shows: $(cat "$work/answer")"
+jq -e '.error.details.subclass == "satellite_no_such_code"' "$work/answer" > /dev/null || fail "a code no screen shows is refused as: $(cat "$work/answer")"
+[ "$(usher adopt_satellite "$adopting" "$bearer")" = 200 ] || fail "a screen is not adopted by its code: $(cat "$work/answer")"
+jq -e '.adopted.name == "Lobby" and .adopted.place == "By the door" and .adopted.enabled == true and .adopted.limit == 20' "$work/answer" > /dev/null || fail "of the screen it adopted the unit says: $(cat "$work/answer")"
+satellite=$(jq -r '.adopted.id' "$work/answer")
+[ "$(usher adopt_satellite "$adopting" "$bearer")" = 400 ] || fail "a code adopts a second time: $(cat "$work/answer")"
+# What the unit keeps of it is the SHA-256 of its secret, for itself
+# alone, and never the secret.
+[ "$(stat -c '%U %a' "$SATELLITES")" = "evo 600" ] || fail "the satellites are kept as $(stat -c '%U %a' "$SATELLITES"), not for the steward alone"
+! grep -q -F "$secret" "$SATELLITES" || fail "the secret of a satellite stands in the file of the satellites"
+grep -q -F "$(printf '%s' "$secret" | sha256sum | cut -d ' ' -f 1)" "$SATELLITES" || fail "the file of the satellites does not hold the SHA-256 of the secret"
+# Adopted, the screen exchanges its secret for a session: an ordinary
+# one of the usher's, good for twelve hours.
+[ "$(usher satellite_sign_in "$presenting")" = 200 ] || fail "a satellite's secret is not exchanged for a session: $(cat "$work/answer")"
+jq -e '.adopted == true and .name == "Lobby"' "$work/answer" > /dev/null || fail "a satellite that presents its secret is answered: $(cat "$work/answer")"
+screen=$(jq -r '.token' "$work/answer")
+# Ask a shelf as a satellite's screen does.
+at_the_screen() { ask request "$(request "$1" "$2" "${3:-{\}}")" "$screen"; }
+# What its page asks is answered: that it is still a satellite, and
+# what the site is called; the site's settings; and the default
+# voucher, of which the counter says that no network is chosen yet,
+# which is the administrator's to do.
+[ "$(usher satellite '' "$screen")" = 200 ] || fail "a satellite is not told that it is one: $(cat "$work/answer")"
+jq -e '.name == "Lobby" and .place == "By the door" and .limit == 20 and .handed == 0 and (.site.name | type == "string")' "$work/answer" > /dev/null || fail "a satellite that says it is there is answered: $(cat "$work/answer")"
+[ "$(at_the_screen site.settings get)" = 200 ] || fail "a satellite is not told of the site: $(cat "$work/answer")"
+[ "$(at_the_screen issue.counter hand_default)" != 403 ] || fail "a satellite is kept from handing out the default voucher: $(cat "$work/answer")"
+jq -e '.error.details.subclass == "no_network_chosen"' "$work/answer" > /dev/null || fail "the counter answered a satellite: $(cat "$work/answer")"
+# A voucher that was not handed out is not counted against its hour.
+[ "$(usher satellite '' "$screen")" = 200 ] || fail "a satellite is not told that it is one: $(cat "$work/answer")"
+jq -e '.handed == 0' "$work/answer" > /dev/null || fail "a voucher that was refused is counted against a satellite's hour: $(cat "$work/answer")"
+# Everything else is refused it by name: of the shelves, the front
+# desk's own verbs among them, of the usher's routes, and of the
+# steward's operations.
+while read -r shelf verb; do
+  [ "$(at_the_screen "$shelf" "$verb")" = 403 ] || fail "a satellite is answered $shelf $verb: $(cat "$work/answer")"
+  jq -e '.error.details.subclass == "not_for_satellite"' "$work/answer" > /dev/null || fail "$shelf $verb is refused a satellite as: $(cat "$work/answer")"
+done << 'ASKED'
+issue.counter hand
+issue.counter offered
+issue.counter types
+issue.counter put_type
+issue.counter handed
+access.controller info
+access.controller set
+networks.directory networks
+stock.reserve count
+stock.reserve held
+stock.reserve take
+site.settings set
+ASKED
+for route in me people satellites; do
+  [ "$(usher "$route" '' "$screen")" = 403 ] || fail "a satellite is answered $route: $(cat "$work/answer")"
+done
+[ "$(usher add_person "$(named "Mallory" "three small owls sing")" "$screen")" = 403 ] || fail "a satellite adds a person: $(cat "$work/answer")"
+[ "$(usher adopt_satellite "$adopting" "$screen")" = 403 ] || fail "a satellite adopts a screen: $(cat "$work/answer")"
+[ "$(usher set_satellite "$(jq -cn --arg id "$satellite" '{id: $id, limit: 1000}')" "$screen")" = 403 ] || fail "a satellite sets its own limit: $(cat "$work/answer")"
+[ "$(ask describe_ui_stockings '' "$screen")" = 403 ] || fail "a satellite is told what is stocked: $(cat "$work/answer")"
+[ "$(ask list_bearer_tokens '' "$screen")" = 403 ] || fail "a satellite is told of the unit's bearers: $(cat "$work/answer")"
+[ "$(ask create_bearer_token "$mint" "$screen")" = 403 ] || fail "a satellite has a bearer made: $(cat "$work/answer")"
+# Nobody but a satellite says that it is one.
+[ "$(usher satellite '' "$bearer")" = 403 ] || fail "an administrator is answered as a satellite: $(cat "$work/answer")"
+[ "$(usher satellite '')" = 401 ] || fail "a caller who presents nothing is answered as a satellite: $(cat "$work/answer")"
+# The administrator sees it among the satellites, seen a moment ago,
+# and holds it to fewer vouchers an hour.
+[ "$(usher satellites '' "$bearer")" = 200 ] || fail "the satellites are not listed: $(cat "$work/answer")"
+jq -e --arg id "$satellite" '(.satellites | length) == 1 and .satellites[0].id == $id and .satellites[0].name == "Lobby" and .satellites[0].enabled == true and (.satellites[0].last_seen_ms | type == "number")' "$work/answer" > /dev/null || fail "of its satellites the unit says: $(cat "$work/answer")"
+! grep -q -F "$secret" "$work/answer" || fail "the secret of a satellite is told to an administrator"
+[ "$(usher set_satellite "$(jq -cn --arg id "$satellite" '{id: $id, limit: 5}')" "$bearer")" = 200 ] || fail "a satellite's limit is not set: $(cat "$work/answer")"
+jq -e '.set.limit == 5' "$work/answer" > /dev/null || fail "a satellite's limit set, the unit says: $(cat "$work/answer")"
+[ "$(usher set_satellite "$(jq -cn --arg id "$satellite" '{id: $id, limit: 0}')" "$bearer")" = 400 ] || fail "a satellite is held to no voucher an hour: $(cat "$work/answer")"
+# Disabled, it is signed out at once, and its secret is refused until
+# it is enabled again.
+[ "$(usher set_satellite "$(jq -cn --arg id "$satellite" '{id: $id, enabled: false}')" "$bearer")" = 200 ] || fail "a satellite is not disabled: $(cat "$work/answer")"
+[ "$(usher satellite '' "$screen")" = 401 ] || fail "a satellite that was disabled is answered: $(cat "$work/answer")"
+[ "$(at_the_screen issue.counter hand_default)" = 401 ] || fail "a satellite that was disabled hands out a voucher: $(cat "$work/answer")"
+[ "$(usher satellite_sign_in "$presenting")" = 403 ] || fail "the secret of a satellite that was disabled is exchanged: $(cat "$work/answer")"
+jq -e '.error.details.subclass == "satellite_disabled"' "$work/answer" > /dev/null || fail "a satellite that was disabled is refused as: $(cat "$work/answer")"
+[ "$(usher set_satellite "$(jq -cn --arg id "$satellite" '{id: $id, enabled: true}')" "$bearer")" = 200 ] || fail "a satellite is not enabled again: $(cat "$work/answer")"
+[ "$(usher satellite_sign_in "$presenting")" = 200 ] || fail "a satellite that was enabled again is not given a session: $(cat "$work/answer")"
+screen=$(jq -r '.token' "$work/answer")
+[ "$(usher satellite '' "$screen")" = 200 ] || fail "a satellite that was enabled again is not answered: $(cat "$work/answer")"
+echo "  ok    a screen is adopted by the code it shows, hands out the default voucher and nothing else, and is refused the rest by name; disabled, it is signed out and refused until it is enabled again"
+
 echo "prove-unit: the site"
 # Ask the site's shelf as a browser someone is signed in at does.
 site() { ask request "$(request site.settings "$1" "$2")" "$bearer"; }
@@ -374,6 +493,18 @@ answered | jq -e '(.types | map(.name)) == ["Stay", "Day"] and .default == "Day"
 jq -e '.name == "Ben" and .role == "front_desk"' "$work/answer" > /dev/null || fail "started again, the unit says of a person at the front desk: $(cat "$work/answer")"
 [ "$(at_the_desk issue.counter offered)" = 200 ] || fail "a person at the front desk is refused the types on offer after a restart: $(cat "$work/answer")"
 [ "$(at_the_desk issue.counter types)" = 403 ] || fail "a person at the front desk is answered the voucher types after a restart: $(cat "$work/answer")"
+# A satellite is one still, under the name and the limit it was given,
+# and is held to its own as before.
+[ "$(usher satellite '' "$screen")" = 200 ] || fail "a satellite is signed out by a restart: $(cat "$work/answer")"
+jq -e '.name == "Lobby" and .limit == 5' "$work/answer" > /dev/null || fail "started again, the unit says of a satellite: $(cat "$work/answer")"
+[ "$(at_the_screen issue.counter hand_default)" != 403 ] || fail "a satellite is kept from the default voucher after a restart: $(cat "$work/answer")"
+[ "$(at_the_screen issue.counter offered)" = 403 ] || fail "a satellite is answered the types on offer after a restart: $(cat "$work/answer")"
+# Taken away, its session ends at once and its secret is nobody's.
+[ "$(usher remove_satellite "$(jq -cn --arg id "$satellite" '{id: $id}')" "$bearer")" = 200 ] || fail "a satellite is not removed: $(cat "$work/answer")"
+[ "$(usher satellite '' "$screen")" = 401 ] || fail "a satellite that was removed is answered: $(cat "$work/answer")"
+[ "$(usher satellite_sign_in "$presenting")" = 401 ] || fail "the secret of a satellite that was removed is exchanged: $(cat "$work/answer")"
+jq -e '.error.details.subclass == "satellite_unknown"' "$work/answer" > /dev/null || fail "a satellite that was removed is refused as: $(cat "$work/answer")"
+[ "$(jq -c . "$SATELLITES")" = "[]" ] || fail "a satellite that was removed is kept: $(cat "$SATELLITES")"
 [ "$(site get '{}')" = 200 ] || fail "the site is not told after a restart: $(cat "$work/answer")"
 # What was set of the site stands, though the unit is started with the
 # first name, time zone and language as before.
@@ -383,7 +514,7 @@ jq -e '.site.name == "Hall of St Mary" and .site.language == "en"' "$work/answer
 rm "$GIVEN"
 rmdir "$(dirname "$GIVEN")"
 systemctl daemon-reload
-echo "  ok    started again, who was signed in still is, each as what they are, who signed out is not, and the voucher types and the site are kept as they were set"
+echo "  ok    started again, who was signed in still is, each as what they are, a satellite among them until it is removed, who signed out is not, and the voucher types and the site are kept as they were set"
 
 echo "prove-unit: the extended level"
 # Whoever has the unit's files takes the people away, and the unit asks

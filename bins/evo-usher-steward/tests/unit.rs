@@ -213,6 +213,54 @@ fn the_env_example_names_every_variable_the_compose_files_read() {
 }
 
 #[test]
+fn the_notices_of_the_libraries_go_wherever_a_program_goes() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let notices = fs::read_to_string(
+        packaging().join("licences/THIRD-PARTY-NOTICES.txt"),
+    )
+    .unwrap();
+    // They name libraries the steward stands on, under licences that
+    // ask for their notices to be passed on, with the licences' words.
+    for named in ["  tokio ", "  serde ", "  axum ", "  rustls "] {
+        assert!(notices.contains(named), "the notices name no{named}");
+    }
+    for licence in [
+        "MIT License (MIT)",
+        "Apache License 2.0 (Apache-2.0)",
+        "ISC License (ISC)",
+    ] {
+        assert!(notices.contains(licence), "no {licence}");
+    }
+    assert!(notices.contains("Permission is hereby granted, free of charge"));
+    // None of the usher's own programs is a library of another.
+    assert!(!notices.contains("  evo-usher-"), "the usher names itself");
+    // The steward's tree, which its packages and the image are made of,
+    // the archive and the other programs' packages each carry them; the
+    // steward's RPM lists them among its licences; and the file that
+    // says what is whose points at them.
+    let unit = fs::read_to_string(root.join("scripts/unit.sh")).unwrap();
+    assert!(unit.contains(
+        r#"install -m 644 packaging/licences/THIRD-PARTY-NOTICES.txt "$dir/THIRD-PARTY-NOTICES.txt""#
+    ));
+    let pack = fs::read_to_string(root.join("scripts/package.sh")).unwrap();
+    assert!(pack.contains(
+        r#"install -m 644 "$NOTICES" "$stage/$top/THIRD-PARTY-NOTICES.txt""#
+    ));
+    assert!(pack.contains(
+        r#"install -D -m 644 "$NOTICES" "$root/usr/share/doc/$program/THIRD-PARTY-NOTICES.txt""#
+    ));
+    let spec =
+        fs::read_to_string(packaging().join("rpm/evo-usher-steward.spec"))
+            .unwrap();
+    assert!(spec.contains(
+        "%license /usr/share/licenses/%{name}/THIRD-PARTY-NOTICES.txt"
+    ));
+    let whose =
+        fs::read_to_string(packaging().join("licences/copyright")).unwrap();
+    assert!(whose.contains("THIRD-PARTY-NOTICES.txt"));
+}
+
+#[test]
 fn a_unit_may_have_as_many_files_open_however_it_is_started() {
     // What the steward asks for itself when it starts.
     let source = fs::read_to_string(

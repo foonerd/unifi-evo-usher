@@ -1,0 +1,17 @@
+Notices of the libraries of others
+
+The programs of unifi-evo-usher contain the libraries named below. Each
+is used under its own licence. A licence is given once, with the
+libraries it covers before it.
+
+{{#each licenses}}
+------------------------------------------------------------------------
+{{{name}}} ({{id}})
+
+{{#each used_by}}
+  {{crate.name}} {{crate.version}}{{#if crate.repository}}, {{crate.repository}}{{/if}}
+{{/each}}
+
+{{{text}}}
+
+{{/each}}

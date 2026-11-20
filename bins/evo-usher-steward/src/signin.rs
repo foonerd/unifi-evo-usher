@@ -53,17 +53,26 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::UnixStream;
 
 use crate::people::{self, Level, People, ADMINISTRATOR, FRONT_DESK};
+use crate::satellites::{self, Known, Satellites, SATELLITE};
 
 /// Where the usher's own routes begin, beside evo's.
 pub const PREFIX: &str = "/usher/v1";
 
 /// The routes a caller who has not signed in may ask: what state the
-/// unit is in, setting it up while it has nobody, and signing in.
-pub const OPEN: [&str; 3] = ["state", "set_up", "sign_in"];
+/// unit is in, setting it up while it has nobody, and signing in; and,
+/// for a screen that is or is to be a satellite, a code to be adopted by
+/// and the exchange of its secret for a session.
+pub const OPEN: [&str; 5] = [
+    "state",
+    "set_up",
+    "sign_in",
+    "satellite_code",
+    "satellite_sign_in",
+];
 
 /// Every route the usher has of its own.
 #[cfg(test)]
-pub const ROUTES: [&str; 12] = [
+pub const ROUTES: [&str; 19] = [
     "state",
     "set_up",
     "sign_in",
@@ -76,11 +85,22 @@ pub const ROUTES: [&str; 12] = [
     "set_pin",
     "remove_person",
     "change_my_password",
+    "satellite_code",
+    "satellite_sign_in",
+    "satellite",
+    "satellites",
+    "adopt_satellite",
+    "set_satellite",
+    "remove_satellite",
 ];
 
 /// The routes a person at the front desk may ask beside the open ones:
 /// who they are, and signing out.
 pub const OF_THE_FRONT_DESKS: [&str; 2] = ["sign_out", "me"];
+
+/// The route a satellite may ask beside the open ones: that it is
+/// there, which also tells it what it is.
+pub const OF_THE_SATELLITES: [&str; 1] = ["satellite"];
 
 /// The capability issuing a voucher asks for: the usher's own, which the
 /// counter's manifest declares on the two requests a front desk makes.
@@ -97,6 +117,38 @@ pub const OF_AN_ADMINISTRATOR: [&str; 4] =
 /// issuing a voucher. Whatever sets a unit up, or reads what it keeps,
 /// asks for more, and evo refuses it.
 pub const OF_A_FRONT_DESK: [&str; 2] = ["plugins", ISSUING];
+
+/// What a session of a person of this role is good for. An
+/// administrator's is good for an administrator's work. Any other
+/// role, one the usher does not know among them, is given the front
+/// desk's: the least a person is given, and not the most.
+pub fn good_for(role: &str) -> &'static [&'static str] {
+    if role == ADMINISTRATOR {
+        &OF_AN_ADMINISTRATOR
+    } else {
+        &OF_A_FRONT_DESK
+    }
+}
+
+/// The capability handing out the default voucher asks for: the usher's
+/// own, which the counter's manifest declares on the one request a
+/// satellite makes.
+pub const DEFAULT_ISSUING: &str = "voucher_default";
+
+/// What a session of a satellite's is good for: asking the plugins, and
+/// handing out the default voucher. evo refuses it every other request
+/// of the counter's, and everything that sets a unit up or reads what it
+/// keeps.
+pub const OF_A_SATELLITE: [&str; 2] = ["plugins", DEFAULT_ISSUING];
+
+/// For how long a satellite's session is good, in seconds. The screen
+/// exchanges its secret for another before the time is up.
+const SATELLITE_SECONDS: u64 = 12 * 60 * 60;
+
+/// For how long what the usher last read of the site is told to the
+/// satellites, in milliseconds: a thousand of them ask every half
+/// minute, and the site's shelf is asked once a minute for all.
+const SITE_TOLD_MS: u64 = 60_000;
 
 /// What the unit's keeper asks a shelf with: what an administrator's
 /// session is good for there. The unit's own bearer is evo's making, and
@@ -161,6 +213,15 @@ pub enum Asking {
     /// Whoever holds the unit's own bearer, which is kept in the unit's
     /// files: the unit's keeper.
     Unit,
+    /// A satellite, by the session its secret was exchanged for.
+    Satellite {
+        /// What the usher knows the satellite by.
+        id: String,
+        /// What an administrator calls it, as it is now.
+        name: String,
+        /// The bearer's own identifier, which the session is known by.
+        session: String,
+    },
 }
 
 /// A session, as kept.
@@ -282,8 +343,20 @@ impl Sessions {
     fn end_of(&mut self, person: &str, but: Option<&str>) {
         let before = self.live.len();
         self.live.retain(|id, session| {
-            !people::same_name(&session.person, person)
+            session.of == SATELLITE
+                || !people::same_name(&session.person, person)
                 || but == Some(id.as_str())
+        });
+        if self.live.len() != before {
+            self.keep();
+        }
+    }
+
+    /// End every session of a satellite, by what the usher knows it by.
+    fn end_of_satellite(&mut self, satellite: &str) {
+        let before = self.live.len();
+        self.live.retain(|_, session| {
+            session.of != SATELLITE || session.person != satellite
         });
         if self.live.len() != before {
             self.keep();
@@ -373,6 +446,10 @@ pub struct Usher {
     /// The unit's own bearer, as evo keeps it in the unit's files.
     units_bearer: PathBuf,
     people: Mutex<People>,
+    satellites: Mutex<Satellites>,
+    /// What was last read of the site for the satellites, and when, in
+    /// milliseconds since 1970.
+    site_told: tokio::sync::Mutex<Option<(u64, Value)>>,
     sessions: Mutex<Sessions>,
     tries: Mutex<Tries>,
     /// A hash no password matches, to hold a password against where the
@@ -409,6 +486,12 @@ impl Usher {
                 dir.display()
             )
         })?;
+        let satellites = Satellites::open(&dir).map_err(|e| {
+            anyhow::anyhow!(
+                "the satellites of this usher, in {}: {e}",
+                dir.display()
+            )
+        })?;
         let nobodys = people::hash(&format!("nobody's, made at {}", now_ms()))
             .map_err(|e| {
                 anyhow::anyhow!("no password can be hashed here: {e}")
@@ -419,6 +502,8 @@ impl Usher {
             code: settings.code,
             units_bearer: state.join("https").join("bootstrap.token"),
             people: Mutex::new(people),
+            satellites: Mutex::new(satellites),
+            site_told: tokio::sync::Mutex::new(None),
             sessions: Mutex::new(sessions),
             tries: Mutex::new(Tries::default()),
             nobodys,
@@ -497,6 +582,31 @@ impl Usher {
             .expect("the sessions' lock")
             .of(id, now_ms())
             .cloned();
+        if let Some(session) =
+            session.clone().filter(|session| session.of == SATELLITE)
+        {
+            // A satellite's session is the satellite's for as long as
+            // it is kept, enabled, and of the secret it was made for.
+            let name = self
+                .satellites()
+                .find(&session.person)
+                .filter(|satellite| {
+                    satellite.enabled && satellite.stamp() == session.under
+                })
+                .map(|satellite| satellite.name.clone());
+            if let Some(name) = name {
+                return Some(Asking::Satellite {
+                    id: session.person,
+                    name,
+                    session: session.id,
+                });
+            }
+            self.sessions
+                .lock()
+                .expect("the sessions' lock")
+                .end(&session.id);
+            return None;
+        }
         if let Some(session) = session {
             // And for as long as the person's role is the one the
             // session's bearer was made for.
@@ -526,6 +636,57 @@ impl Usher {
         let same: bool =
             units.trim().as_bytes().ct_eq(bearer.as_bytes()).into();
         same.then_some(Asking::Unit)
+    }
+
+    /// The satellites.
+    fn satellites(&self) -> std::sync::MutexGuard<'_, Satellites> {
+        self.satellites.lock().expect("the satellites' lock")
+    }
+
+    /// Count one voucher against a satellite's hour, before it is handed
+    /// out: when it was counted, to give it back by where nothing was
+    /// handed out; or in how many milliseconds the hour has room again.
+    pub fn take_of(&self, satellite: &str) -> Result<u64, u64> {
+        let now = now_ms();
+        self.satellites().take(satellite, now).map(|()| now)
+    }
+
+    /// Give back what [`Usher::take_of`] counted: the voucher was not
+    /// handed out.
+    pub fn give_back(&self, satellite: &str, at: u64) {
+        self.satellites().give_back(satellite, at);
+    }
+
+    /// What the satellites are told of the site: its name, the language
+    /// it speaks, and whether it has a logo and of what size, by which a
+    /// screen sees that it wears what is no longer so and reads the
+    /// state again. Read from the site's shelf once a minute at most.
+    async fn site_for_satellites(&self) -> Value {
+        let mut told = self.site_told.lock().await;
+        let now = now_ms();
+        if let Some((at, site)) = told.as_ref() {
+            if now < at + SITE_TOLD_MS {
+                return site.clone();
+            }
+        }
+        let site = self.site().await;
+        let logo = &site["logo"];
+        let brief = json!({
+            "name": site["name"],
+            "language": site["language"],
+            "follows_browser": site["follows_browser"],
+            "logo": if logo.is_null() {
+                Value::Null
+            } else {
+                json!([
+                    logo["width"],
+                    logo["height"],
+                    logo["png_b64"].as_str().map_or(0, str::len),
+                ])
+            },
+        });
+        *told = Some((now, brief.clone()));
+        brief
     }
 
     /// The people, as their file has them now: whoever has the unit's
@@ -617,11 +778,7 @@ impl Usher {
         let Some(role) = role else {
             return Err(Box::new(wrong()));
         };
-        let good_for: &[&str] = if role == FRONT_DESK {
-            &OF_A_FRONT_DESK
-        } else {
-            &OF_AN_ADMINISTRATOR
-        };
+        let good_for = good_for(&role);
         let minted = mint(
             &self.socket,
             good_for,
@@ -864,6 +1021,52 @@ fn asking(request: &Request) -> Result<Asking, Refused> {
                 "Sign in first.",
             ))
         })
+}
+
+/// Who asks one of the routes that are an administrator's: an
+/// administrator, or the unit's keeper. The gate refuses everyone else
+/// these routes before they are reached, and they refuse them
+/// themselves, as the gate does and under the same code: a satellite,
+/// a person at the front desk, and a person of a role this version
+/// does not know, who is no administrator to it.
+fn an_administrator_asking(request: &Request) -> Result<Asking, Refused> {
+    match asking(request)? {
+        Asking::Satellite { .. } => Err(Box::new(not_for_a_satellite())),
+        Asking::Person { role, .. } if role != ADMINISTRATOR => {
+            Err(Box::new(not_for_the_desk()))
+        }
+        who => Ok(who),
+    }
+}
+
+/// The answer to a person at the front desk who asks what is an
+/// administrator's.
+pub fn not_for_the_desk() -> Response {
+    refusal(
+        StatusCode::FORBIDDEN,
+        "permission_denied",
+        "not_for_front_desk",
+        "That is an administrator's to do. The front desk hands out vouchers.",
+    )
+}
+
+/// The answer to a satellite whose hour is full: in how many minutes it
+/// has room for a voucher again.
+pub fn hour_is_full(left_ms: u64) -> Response {
+    let minutes = left_ms.div_ceil(60_000).max(1);
+    refusal_with(
+        StatusCode::TOO_MANY_REQUESTS,
+        "permission_denied",
+        &why(
+            "satellite_hour_full",
+            format!(
+                "This screen has handed out as many vouchers as it may in \
+                 an hour. Try again in {minutes} minute{}.",
+                if minutes == 1 { "" } else { "s" }
+            ),
+        )
+        .with("minutes", minutes),
+    )
 }
 
 fn held(left_ms: u64) -> Response {
@@ -1144,7 +1347,8 @@ async fn sign_out(
     request: Request,
 ) -> Response {
     match asking(&request) {
-        Ok(Asking::Person { session, .. }) => {
+        Ok(Asking::Person { session, .. })
+        | Ok(Asking::Satellite { session, .. }) => {
             usher
                 .sessions
                 .lock()
@@ -1193,18 +1397,16 @@ async fn me(State(usher): State<Arc<Usher>>, request: Request) -> Response {
                 "most_pin": people::LONGEST_PIN,
             }),
         ),
+        Ok(Asking::Satellite { .. }) => not_for_a_satellite(),
         Err(refused) => *refused,
     }
 }
 
 async fn list(State(usher): State<Arc<Usher>>, request: Request) -> Response {
-    let who = match asking(&request) {
-        Ok(who) => who,
+    let me = match an_administrator_asking(&request) {
+        Ok(Asking::Person { name, .. }) => Some(name),
+        Ok(_) => None,
         Err(refused) => return *refused,
-    };
-    let me = match &who {
-        Asking::Person { name, .. } => Some(name.clone()),
-        Asking::Unit => None,
     };
     let people = usher.people();
     let listed: Vec<Value> = people
@@ -1240,7 +1442,7 @@ async fn add_person(
     State(usher): State<Arc<Usher>>,
     request: Request,
 ) -> Response {
-    if let Err(refused) = asking(&request) {
+    if let Err(refused) = an_administrator_asking(&request) {
         return *refused;
     }
     let asked: Adding = match carried(request).await {
@@ -1315,7 +1517,7 @@ async fn make_pin(
     State(usher): State<Arc<Usher>>,
     request: Request,
 ) -> Response {
-    if let Err(refused) = asking(&request) {
+    if let Err(refused) = an_administrator_asking(&request) {
         return *refused;
     }
     let asked: Naming = match carried(request).await {
@@ -1358,7 +1560,7 @@ async fn set_pin(
     State(usher): State<Arc<Usher>>,
     request: Request,
 ) -> Response {
-    if let Err(refused) = asking(&request) {
+    if let Err(refused) = an_administrator_asking(&request) {
         return *refused;
     }
     let asked: NameAndPin = match carried(request).await {
@@ -1405,7 +1607,7 @@ async fn set_password(
     State(usher): State<Arc<Usher>>,
     request: Request,
 ) -> Response {
-    if let Err(refused) = asking(&request) {
+    if let Err(refused) = an_administrator_asking(&request) {
         return *refused;
     }
     let asked: NameAndPassword = match carried(request).await {
@@ -1457,7 +1659,7 @@ async fn remove_person(
     State(usher): State<Arc<Usher>>,
     request: Request,
 ) -> Response {
-    if let Err(refused) = asking(&request) {
+    if let Err(refused) = an_administrator_asking(&request) {
         return *refused;
     }
     let asked: Naming = match carried(request).await {
@@ -1489,6 +1691,7 @@ async fn change_my_password(
             return not_as_asked(&signs_in_with_pin(&name))
         }
         Ok(Asking::Person { name, session, .. }) => (name, session),
+        Ok(Asking::Satellite { .. }) => return not_for_a_satellite(),
         Ok(Asking::Unit) => {
             return not_as_asked(&why(
                 "unit_has_no_password",
@@ -1561,6 +1764,393 @@ async fn change_my_password(
 }
 
 /// The usher's own routes, to stand beside evo's behind the gate.
+/// The answer to a satellite that asks what is a person's.
+pub fn not_for_a_satellite() -> Response {
+    refusal(
+        StatusCode::FORBIDDEN,
+        "permission_denied",
+        "not_for_satellite",
+        "That is not a satellite's to ask. A satellite hands out the \
+         default voucher.",
+    )
+}
+
+fn unkept_satellite(e: satellites::Unkept) -> Response {
+    match e {
+        satellites::Unkept::Rule(why) => not_as_asked(&why),
+        satellites::Unkept::Disk(e) => {
+            tracing::error!("the satellites were not kept: {e}");
+            refusal(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "unavailable",
+                "not_kept",
+                "The change could not be written down, and was not made.",
+            )
+        }
+    }
+}
+
+/// A satellite as an administrator is told of it: never its secret, nor
+/// the hash of it.
+fn told_of(
+    satellite: &satellites::Satellite,
+    handed: u32,
+    last_seen_ms: Option<u64>,
+) -> Value {
+    json!({
+        "id": satellite.id,
+        "name": satellite.name,
+        "place": satellite.place,
+        "enabled": satellite.enabled,
+        "limit": satellite.limit,
+        "handed": handed,
+        "last_seen_ms": last_seen_ms,
+        "made_ms": satellite.made_ms,
+    })
+}
+
+/// A screen that is no satellite yet is given a code to show and a
+/// secret to keep. Anyone may ask: a code adopts nothing until an
+/// administrator types it.
+async fn satellite_code(State(usher): State<Arc<Usher>>) -> Response {
+    let begun = usher.satellites().begin(now_ms());
+    answer(
+        StatusCode::OK,
+        &json!({
+            "code": begun.code,
+            "secret": begun.secret,
+            "until_ms": begun.until_ms,
+        }),
+    )
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Presenting {
+    secret: String,
+}
+
+/// A screen presents its secret. A satellite's is exchanged for a
+/// session, good for handing out the default voucher; a waiting screen
+/// is told that it still waits, and under which code; a secret that is
+/// nobody's, and one of a satellite that is disabled, is refused.
+async fn satellite_sign_in(
+    State(usher): State<Arc<Usher>>,
+    request: Request,
+) -> Response {
+    let presenting: Presenting = match carried(request).await {
+        Ok(presenting) => presenting,
+        Err(refused) => return *refused,
+    };
+    let known = usher.satellites().of_secret(&presenting.secret, now_ms());
+    let satellite =
+        match known {
+            Known::Unknown => {
+                return refusal(
+                    StatusCode::UNAUTHORIZED,
+                    "permission_denied",
+                    "satellite_unknown",
+                    "This screen is no satellite of this usher's.",
+                )
+            }
+            Known::Waiting { code, until_ms } => {
+                return answer(
+                    StatusCode::OK,
+                    &json!({
+                        "adopted": false, "code": code, "until_ms": until_ms,
+                    }),
+                )
+            }
+            Known::Adopted(satellite) if !satellite.enabled => return refusal(
+                StatusCode::FORBIDDEN,
+                "permission_denied",
+                "satellite_disabled",
+                "This screen is switched off. An administrator switches it \
+                 on again under Satellites.",
+            ),
+            Known::Adopted(satellite) => satellite,
+        };
+    let minted = match mint(
+        &usher.socket,
+        &OF_A_SATELLITE,
+        SATELLITE_SECONDS,
+        "a session of the usher's, for a satellite",
+    )
+    .await
+    {
+        Ok(minted) => minted,
+        Err(why) => {
+            tracing::error!("no session could be made for a satellite: {why}");
+            return refusal(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "unavailable",
+                "no_session",
+                "The usher cannot let anyone in just now. Try again in a \
+                 moment.",
+            );
+        }
+    };
+    // The session is the satellite's under the secret it has now, and
+    // the one it had before is done with.
+    let still = usher
+        .satellites()
+        .find(&satellite.id)
+        .filter(|kept| kept.enabled && kept.stamp() == satellite.stamp())
+        .cloned();
+    let Some(satellite) = still else {
+        return refusal(
+            StatusCode::UNAUTHORIZED,
+            "permission_denied",
+            "satellite_unknown",
+            "This screen is no satellite of this usher's.",
+        );
+    };
+    {
+        let mut sessions = usher.sessions.lock().expect("the sessions' lock");
+        sessions.end_of_satellite(&satellite.id);
+        sessions.add(
+            minted.id,
+            &satellite.id,
+            minted.until_ms,
+            satellite.stamp(),
+            SATELLITE,
+        );
+    }
+    usher.satellites().saw(&satellite.id, now_ms());
+    answer(
+        StatusCode::OK,
+        &json!({
+            "adopted": true,
+            "token": minted.token,
+            "name": satellite.name,
+            "place": satellite.place,
+            "until_ms": minted.until_ms,
+        }),
+    )
+}
+
+/// A satellite says it is there, and is told what it is: its name and
+/// its place, how many vouchers it may hand out in an hour and how many
+/// of them it has, until when its session is good, and what the site is
+/// called. Nothing is written down for it.
+async fn satellite(
+    State(usher): State<Arc<Usher>>,
+    request: Request,
+) -> Response {
+    let (id, session) = match asking(&request) {
+        Ok(Asking::Satellite { id, session, .. }) => (id, session),
+        Ok(_) => {
+            return refusal(
+                StatusCode::FORBIDDEN,
+                "permission_denied",
+                "satellites_alone",
+                "That is a satellite's to ask.",
+            )
+        }
+        Err(refused) => return *refused,
+    };
+    let now = now_ms();
+    let until_ms = usher
+        .sessions
+        .lock()
+        .expect("the sessions' lock")
+        .of(&session, now)
+        .map(|session| session.until_ms);
+    let told = {
+        let mut satellites = usher.satellites();
+        satellites.saw(&id, now);
+        let handed = satellites.in_the_hour(&id, now);
+        satellites
+            .find(&id)
+            .map(|satellite| (satellite.clone(), handed))
+    };
+    let Some((satellite, handed)) = told else {
+        return refusal(
+            StatusCode::UNAUTHORIZED,
+            "permission_denied",
+            "satellite_unknown",
+            "This screen is no satellite of this usher's.",
+        );
+    };
+    let site = usher.site_for_satellites().await;
+    answer(
+        StatusCode::OK,
+        &json!({
+            "name": satellite.name,
+            "place": satellite.place,
+            "limit": satellite.limit,
+            "handed": handed,
+            "until_ms": until_ms,
+            "site": site,
+        }),
+    )
+}
+
+/// The satellites, for an administrator: who they are, when each was
+/// last seen, and what each handed out within the hour.
+async fn satellites_listed(
+    State(usher): State<Arc<Usher>>,
+    request: Request,
+) -> Response {
+    if let Err(refused) = an_administrator_asking(&request) {
+        return *refused;
+    }
+    let now = now_ms();
+    let mut satellites = usher.satellites();
+    let all = satellites.all().to_vec();
+    let listed: Vec<Value> = all
+        .iter()
+        .map(|satellite| {
+            told_of(
+                satellite,
+                satellites.in_the_hour(&satellite.id, now),
+                satellites.last_seen(&satellite.id),
+            )
+        })
+        .collect();
+    answer(
+        StatusCode::OK,
+        &json!({
+            "satellites": listed,
+            "now_ms": now,
+            "limit": satellites::LIMIT,
+            "most_limit": satellites::MOST_LIMIT,
+            "longest": satellites::LONGEST,
+            "code_digits": satellites::CODE_DIGITS,
+        }),
+    )
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Adopting {
+    code: String,
+    name: String,
+    #[serde(default)]
+    place: String,
+}
+
+/// An administrator adopts the screen that shows a code.
+async fn adopt_satellite(
+    State(usher): State<Arc<Usher>>,
+    request: Request,
+) -> Response {
+    if let Err(refused) = an_administrator_asking(&request) {
+        return *refused;
+    }
+    let adopting: Adopting = match carried(request).await {
+        Ok(adopting) => adopting,
+        Err(refused) => return *refused,
+    };
+    let adopted = usher.satellites().adopt(
+        &adopting.code,
+        &adopting.name,
+        &adopting.place,
+        now_ms(),
+    );
+    match adopted {
+        Ok(satellite) => answer(
+            StatusCode::OK,
+            &json!({ "adopted": told_of(&satellite, 0, None) }),
+        ),
+        Err(e) => unkept_satellite(e),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SettingSatellite {
+    id: String,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    place: Option<String>,
+    #[serde(default)]
+    limit: Option<u32>,
+    #[serde(default)]
+    enabled: Option<bool>,
+}
+
+/// An administrator changes a satellite: its name, its place, how many
+/// vouchers it hands out in an hour, and whether it hands out any. One
+/// that is disabled is signed out at once.
+async fn set_satellite(
+    State(usher): State<Arc<Usher>>,
+    request: Request,
+) -> Response {
+    if let Err(refused) = an_administrator_asking(&request) {
+        return *refused;
+    }
+    let setting: SettingSatellite = match carried(request).await {
+        Ok(setting) => setting,
+        Err(refused) => return *refused,
+    };
+    let change = satellites::Change {
+        name: setting.name,
+        place: setting.place,
+        limit: setting.limit,
+        enabled: setting.enabled,
+    };
+    let now = now_ms();
+    let set = {
+        let mut satellites = usher.satellites();
+        satellites.set(&setting.id, &change).map(|satellite| {
+            let handed = satellites.in_the_hour(&satellite.id, now);
+            let seen = satellites.last_seen(&satellite.id);
+            (satellite, handed, seen)
+        })
+    };
+    match set {
+        Ok((satellite, handed, seen)) => {
+            if !satellite.enabled {
+                usher
+                    .sessions
+                    .lock()
+                    .expect("the sessions' lock")
+                    .end_of_satellite(&satellite.id);
+            }
+            answer(
+                StatusCode::OK,
+                &json!({ "set": told_of(&satellite, handed, seen) }),
+            )
+        }
+        Err(e) => unkept_satellite(e),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RemovingSatellite {
+    id: String,
+}
+
+/// An administrator takes a satellite away: its session ends at once,
+/// and its secret is nobody's.
+async fn remove_satellite(
+    State(usher): State<Arc<Usher>>,
+    request: Request,
+) -> Response {
+    if let Err(refused) = an_administrator_asking(&request) {
+        return *refused;
+    }
+    let removing: RemovingSatellite = match carried(request).await {
+        Ok(removing) => removing,
+        Err(refused) => return *refused,
+    };
+    let removed = usher.satellites().remove(&removing.id);
+    match removed {
+        Ok(satellite) => {
+            usher
+                .sessions
+                .lock()
+                .expect("the sessions' lock")
+                .end_of_satellite(&satellite.id);
+            answer(StatusCode::OK, &json!({ "removed": satellite.name }))
+        }
+        Err(e) => unkept_satellite(e),
+    }
+}
+
 pub fn routes(usher: Arc<Usher>) -> Router {
     let at = |route: &str| format!("{PREFIX}/{route}");
     Router::new()
@@ -1576,6 +2166,13 @@ pub fn routes(usher: Arc<Usher>) -> Router {
         .route(&at("set_pin"), post(set_pin))
         .route(&at("remove_person"), post(remove_person))
         .route(&at("change_my_password"), post(change_my_password))
+        .route(&at("satellite_code"), post(satellite_code))
+        .route(&at("satellite_sign_in"), post(satellite_sign_in))
+        .route(&at("satellite"), get(satellite))
+        .route(&at("satellites"), get(satellites_listed))
+        .route(&at("adopt_satellite"), post(adopt_satellite))
+        .route(&at("set_satellite"), post(set_satellite))
+        .route(&at("remove_satellite"), post(remove_satellite))
         .with_state(usher)
 }
 
@@ -1694,6 +2291,15 @@ mod tests {
     }
 
     #[test]
+    fn a_role_the_usher_does_not_know_is_given_the_least() {
+        assert_eq!(good_for(ADMINISTRATOR), OF_AN_ADMINISTRATOR);
+        assert_eq!(good_for(FRONT_DESK), OF_A_FRONT_DESK);
+        for role in ["auditor", "", "Administrator", "administrator "] {
+            assert_eq!(good_for(role), OF_A_FRONT_DESK, "{role:?}");
+        }
+    }
+
+    #[test]
     fn a_front_desks_session_is_good_for_less_than_an_administrators() {
         for of_the_desk in OF_A_FRONT_DESK {
             assert!(
@@ -1710,5 +2316,247 @@ mod tests {
         for of_the_keeper in OF_THE_KEEPER {
             assert!(OF_AN_ADMINISTRATOR.contains(&of_the_keeper));
         }
+    }
+
+    #[test]
+    fn a_satellites_session_is_good_for_the_default_voucher_and_no_other() {
+        assert_eq!(OF_A_SATELLITE, ["plugins", DEFAULT_ISSUING]);
+        // Not for what the front desk hands out, which takes a choice;
+        // and the default voucher is in nobody else's session.
+        assert!(!OF_A_SATELLITE.contains(&ISSUING));
+        for others in [
+            &OF_AN_ADMINISTRATOR[..],
+            &OF_A_FRONT_DESK[..],
+            &OF_THE_KEEPER[..],
+        ] {
+            assert!(!others.contains(&DEFAULT_ISSUING), "{others:?}");
+        }
+    }
+
+    /// Shelves nobody asks: the routes that are tried here ask none.
+    struct NoShelves;
+
+    #[async_trait::async_trait]
+    impl Dispatcher for NoShelves {
+        async fn dispatch(
+            &self,
+            operation: &WireOpId,
+            _payload: Value,
+            _principal: &Principal,
+        ) -> Result<Value, evo_runtime_http::DispatchError> {
+            Err(evo_runtime_http::DispatchError::UnknownOp(
+                operation.as_str().to_string(),
+            ))
+        }
+    }
+
+    /// One of the routes that are an administrator's, asked past the
+    /// gate: as the gate hands a request on, with who asks written on
+    /// it, or with nobody. The status, and the code of a refusal.
+    async fn past_the_gate(
+        usher: &Arc<Usher>,
+        route: &str,
+        who: Option<Asking>,
+        carried: &Value,
+    ) -> (StatusCode, String) {
+        let mut request = Request::new(Body::from(carried.to_string()));
+        if let Some(who) = who {
+            request.extensions_mut().insert(who);
+        }
+        let usher = State(usher.clone());
+        let answer = match route {
+            "people" => list(usher, request).await,
+            "add_person" => add_person(usher, request).await,
+            "set_password" => set_password(usher, request).await,
+            "make_pin" => make_pin(usher, request).await,
+            "set_pin" => set_pin(usher, request).await,
+            "remove_person" => remove_person(usher, request).await,
+            "satellites" => satellites_listed(usher, request).await,
+            "adopt_satellite" => adopt_satellite(usher, request).await,
+            "set_satellite" => set_satellite(usher, request).await,
+            "remove_satellite" => remove_satellite(usher, request).await,
+            other => panic!("{other} is no route that is tried here"),
+        };
+        let status = answer.status();
+        let said = axum::body::to_bytes(answer.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let said: Value = serde_json::from_slice(&said).unwrap_or(Value::Null);
+        let code = said["error"]["details"]["subclass"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        (status, code)
+    }
+
+    #[tokio::test]
+    async fn the_routes_that_are_an_administrators_refuse_everyone_else_themselves(
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let usher = Usher::open(
+            Settings {
+                level: Level::Standard,
+                socket: dir.path().join("evo.sock"),
+                code: None,
+            },
+            dir.path(),
+            Arc::new(NoShelves),
+        )
+        .unwrap();
+        // Somebody for each route to do something to: an administrator,
+        // a person at the front desk, a satellite, and a screen that
+        // waits to be adopted.
+        for (name, role) in [("Anna", ADMINISTRATOR), ("Ben", FRONT_DESK)] {
+            let added =
+                usher.people().add(name, role, format!("hash of {name}"), 1);
+            assert!(added.is_ok(), "{name}");
+        }
+        let now = now_ms();
+        let lobby = {
+            let mut satellites = usher.satellites();
+            let begun = satellites.begin(now);
+            let Ok(lobby) = satellites.adopt(&begun.code, "Lobby", "", now)
+            else {
+                panic!("the screen is not adopted");
+            };
+            lobby
+        };
+        let waits = usher.satellites().begin(now);
+        // What each route is asked, and would do were it let through.
+        let asked = [
+            ("people", json!(null)),
+            (
+                "add_person",
+                json!({ "name": "Mallory", "password": "three small owls sing" }),
+            ),
+            (
+                "set_password",
+                json!({ "name": "Anna", "password": "four small owls sing" }),
+            ),
+            ("make_pin", json!({ "name": "Ben" })),
+            ("set_pin", json!({ "name": "Ben", "pin": "480273" })),
+            ("remove_person", json!({ "name": "Ben" })),
+            ("satellites", json!(null)),
+            (
+                "adopt_satellite",
+                json!({ "code": waits.code, "name": "Hall" }),
+            ),
+            ("set_satellite", json!({ "id": lobby.id, "limit": 1000 })),
+            ("remove_satellite", json!({ "id": lobby.id })),
+        ];
+        let person = |name: &str, role: &str| Asking::Person {
+            name: name.to_string(),
+            role: role.to_string(),
+            session: format!("session of {name}"),
+        };
+        let kept = |usher: &Usher| {
+            let people: Vec<(String, String, String)> = usher
+                .people()
+                .all()
+                .iter()
+                .map(|person| {
+                    (
+                        person.name.clone(),
+                        person.role.clone(),
+                        person.stamp().to_string(),
+                    )
+                })
+                .collect();
+            let satellites: Vec<(String, String, u32, bool)> = usher
+                .satellites()
+                .all()
+                .iter()
+                .map(|satellite| {
+                    (
+                        satellite.id.clone(),
+                        satellite.name.clone(),
+                        satellite.limit,
+                        satellite.enabled,
+                    )
+                })
+                .collect();
+            (people, satellites, usher.satellites().waiting())
+        };
+        let before = kept(&usher);
+        assert_eq!((before.0.len(), before.1.len(), before.2), (2, 1, 1));
+
+        // Whoever is no administrator is refused by the route itself,
+        // as the gate refuses them and under the same code: a person at
+        // the front desk, a satellite, a person of a role this version
+        // does not know, and whoever the gate found to be nobody.
+        let refused = [
+            (
+                "a person at the front desk",
+                Some(person("Ben", FRONT_DESK)),
+                (StatusCode::FORBIDDEN, "not_for_front_desk"),
+            ),
+            (
+                "a satellite",
+                Some(Asking::Satellite {
+                    id: lobby.id.clone(),
+                    name: lobby.name.clone(),
+                    session: "session of Lobby".to_string(),
+                }),
+                (StatusCode::FORBIDDEN, "not_for_satellite"),
+            ),
+            (
+                "a person of a role nobody knows",
+                Some(person("Cara", "night_porter")),
+                (StatusCode::FORBIDDEN, "not_for_front_desk"),
+            ),
+            (
+                "nobody",
+                None,
+                (StatusCode::UNAUTHORIZED, "bearer_required"),
+            ),
+        ];
+        for (called, who, (status, code)) in &refused {
+            for (route, carried) in &asked {
+                let said =
+                    past_the_gate(&usher, route, who.clone(), carried).await;
+                assert_eq!(
+                    said,
+                    (*status, (*code).to_string()),
+                    "{called} asks {route}"
+                );
+            }
+        }
+        // And nothing was done: nobody added, changed or removed, no
+        // screen adopted, no satellite changed or taken away.
+        assert_eq!(kept(&usher), before);
+
+        // An administrator and the unit's keeper are let past, each to
+        // what they had: asked with nothing a route takes, so that
+        // nothing is done, they are answered by the route's own work
+        // and not refused for who they are.
+        for (called, who) in [
+            ("an administrator", person("Anna", ADMINISTRATOR)),
+            ("the unit's keeper", Asking::Unit),
+        ] {
+            for (route, carried) in &asked {
+                let (status, code) = past_the_gate(
+                    &usher,
+                    route,
+                    Some(who.clone()),
+                    &if carried.is_null() {
+                        json!(null)
+                    } else {
+                        json!({})
+                    },
+                )
+                .await;
+                let wanted = if carried.is_null() {
+                    (StatusCode::OK, "")
+                } else {
+                    (StatusCode::BAD_REQUEST, "not_as_asked")
+                };
+                assert_eq!(
+                    (status, code.as_str()),
+                    wanted,
+                    "{called} asks {route}"
+                );
+            }
+        }
+        assert_eq!(kept(&usher), before);
     }
 }
