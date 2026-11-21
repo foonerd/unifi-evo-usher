@@ -352,13 +352,22 @@ impl Browser {
     }
 
     /// Press a key, as a person at a keyboard does: `Tab`, `Enter`,
-    /// `Escape` or `Space`, with Shift held where `shift` says so.
+    /// `Escape`, `Space`, `Backspace`, an arrow key by its name, or a
+    /// digit, with Shift held where `shift` says so.
     pub fn press(&mut self, key: &str, shift: bool) {
         let (code, text) = match key {
             "Tab" => (9, None),
             "Enter" => (13, Some("\r")),
             "Escape" => (27, None),
             "Space" => (32, Some(" ")),
+            "Backspace" => (8, None),
+            "ArrowLeft" => (37, None),
+            "ArrowUp" => (38, None),
+            "ArrowRight" => (39, None),
+            "ArrowDown" => (40, None),
+            "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" => {
+                (48 + key.as_bytes()[0] as u32 - u32::from(b'0'), Some(key))
+            }
             other => panic!("no such key here: {other}"),
         };
         // The space bar is the one key here whose name is not what it
@@ -378,6 +387,31 @@ impl Browser {
         }
         down["type"] = json!("keyUp");
         self.tell("Input.dispatchKeyEvent", down);
+    }
+
+    /// Drag with the mouse, as a person does: the button pressed at one
+    /// place of the window, the pointer moved to another in a few steps,
+    /// and the button let go there.
+    pub fn drag(&mut self, from: (f64, f64), to: (f64, f64)) {
+        let mouse = |kind: &str, at: (f64, f64), held: u32| {
+            json!({
+                "type": kind, "x": at.0, "y": at.1,
+                "button": if kind == "mouseMoved" && held == 0 { "none" } else { "left" },
+                "buttons": held, "clickCount": u32::from(kind != "mouseMoved"),
+                "pointerType": "mouse",
+            })
+        };
+        self.tell("Input.dispatchMouseEvent", mouse("mouseMoved", from, 0));
+        self.tell("Input.dispatchMouseEvent", mouse("mousePressed", from, 1));
+        for step in 1..=4 {
+            let part = f64::from(step) / 4.0;
+            let at = (
+                from.0 + (to.0 - from.0) * part,
+                from.1 + (to.1 - from.1) * part,
+            );
+            self.tell("Input.dispatchMouseEvent", mouse("mouseMoved", at, 1));
+        }
+        self.tell("Input.dispatchMouseEvent", mouse("mouseReleased", to, 0));
     }
 
     /// Have the page's reader ask something of it, as a setting of their

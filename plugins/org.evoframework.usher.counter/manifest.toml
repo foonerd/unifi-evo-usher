@@ -3,7 +3,7 @@ name = "org.evoframework.usher.counter"
 # The crate's version, which is the workspace's. The steward refuses a
 # plugin that says another version than its manifest; a test holds the two
 # together.
-version = "0.3.20"
+version = "0.3.21"
 contract = 1
 
 [target]
@@ -42,7 +42,7 @@ restart_budget = 5
 # Handing out and assigning wait on the controller, through its shelf:
 # the budget is that shelf's, and a little over.
 [capabilities.respondent]
-request_types = ["types", "offered", "put_type", "drop_type", "enable_type", "set_default", "order_types", "hand", "hand_default", "assign", "handed"]
+request_types = ["types", "offered", "put_type", "drop_type", "enable_type", "set_default", "order_types", "hand", "hand_default", "hand_type", "assign", "handed"]
 response_budget_ms = 35000
 
 # Who may ask. A voucher is what lets a guest on to the network, and its
@@ -56,7 +56,11 @@ response_budget_ms = 35000
 # one request a satellite makes, the default voucher handed out, asks
 # for a capability of its own, voucher_default, which a satellite's
 # session is given and nothing else: a satellite hands out no other
-# type, and is told nothing of the types.
+# type, and is told nothing of the types. A satellite an administrator
+# gave types of its own asks for one of them by name, under a third
+# capability, voucher_named, which only the session of such a satellite
+# is given: no other satellite's session is good for a type that is
+# named.
 [capabilities.respondent.verb_capabilities]
 types = { kind = "read", scope = "network_admin" }
 offered = { kind = "read", scope = "voucher_issue" }
@@ -67,6 +71,7 @@ set_default = { kind = "write", scope = "network_admin" }
 order_types = { kind = "write", scope = "network_admin" }
 hand = { kind = "step_up", scope = "voucher_issue" }
 hand_default = { kind = "step_up", scope = "voucher_default" }
+hand_type = { kind = "step_up", scope = "voucher_named" }
 assign = { kind = "write", scope = "network_admin" }
 handed = { kind = "read", scope = "network_admin" }
 

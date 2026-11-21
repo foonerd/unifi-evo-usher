@@ -10,8 +10,12 @@
 //! and nothing else of it is kept. The people are in one
 //! file under the steward's state, written whole and synced, for the
 //! steward's own account alone to read. A file that is taken away leaves
-//! an usher with nobody, which asks to be set up again: that is how
-//! whoever has the unit's files gets back in when a password is lost.
+//! an usher with nobody, which asks to be set up again: that is the
+//! last resort of whoever has the unit's files when a password is lost.
+//! A file that is there and cannot be read, or is not a file of people,
+//! is another thing: nobody is let in on it, nobody sets the unit up
+//! over it, and it is not written over, until it reads again or is
+//! taken away.
 //!
 //! How strict the usher is, is its administrator's choice when it is
 //! started: the level, ordinary or extended.
@@ -19,7 +23,7 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write as _};
 use std::os::unix::fs::{
-    DirBuilderExt as _, MetadataExt as _, OpenOptionsExt as _,
+    fchown, DirBuilderExt as _, MetadataExt as _, OpenOptionsExt as _,
 };
 use std::path::{Path, PathBuf};
 
@@ -176,8 +180,15 @@ impl Person {
     /// password. A session is a person's for as long as the person
     /// stands among the people under the password they signed in with.
     pub fn stamp(&self) -> &str {
-        self.password.rsplit('$').nth(1).unwrap_or_default()
+        stamp_of(&self.password)
     }
+}
+
+/// What tells one hash of a password or a PIN from any other: its salt,
+/// which is made anew with every hash. Empty where what is given is no
+/// hash in PHC form.
+pub fn stamp_of(hash: &str) -> &str {
+    hash.rsplit('$').nth(1).unwrap_or_default()
 }
 
 /// A name as it is kept, without the spaces around it; or why it is no
@@ -349,6 +360,20 @@ pub enum Unkept {
     Rule(Why),
     /// It could not be written down.
     Disk(io::Error),
+    /// The file of the people is there and was not read: what it holds
+    /// is not known, and it is not written over.
+    Unread,
+}
+
+/// The refusal of whoever asks to be let in, or to set the unit up,
+/// while the file of the people is there and cannot be read.
+pub fn unread() -> Why {
+    why(
+        "people_unread",
+        "This usher cannot read the list of its people, so nobody can sign \
+         in or set it up. Whoever keeps the unit can put that right on the \
+         unit itself.",
+    )
 }
 
 impl From<io::Error> for Unkept {
@@ -365,6 +390,22 @@ pub struct People {
     /// The file as it was when it was last read or written. `None`
     /// while there is no file.
     seen: Option<Stamp>,
+    /// Why the file that is there gives no people: it cannot be read,
+    /// or it is not a file of people. `None` where it reads, and where
+    /// there is none.
+    unread: Option<String>,
+}
+
+/// What the log is told when the file of the people is read.
+#[derive(Debug, PartialEq, Eq)]
+enum Told {
+    /// Nothing: the file is as it was said to be.
+    Nothing,
+    /// That the people are unread, and why: the first time, and when
+    /// the reason is another.
+    Unread(String),
+    /// That people who were unread are read again, or are nobody again.
+    ReadAgain,
 }
 
 /// What tells a file from another in its place, or from itself once it
@@ -374,7 +415,9 @@ type Stamp = (u64, u64, i64, i64, i64, i64);
 
 impl People {
     /// Open the people kept in `dir`, nobody where nobody was kept yet.
-    /// The directory is made for the steward's account alone.
+    /// The directory is made for the steward's account alone. A file
+    /// that is there and cannot be read is no reason not to open: the
+    /// people are unread until it reads.
     pub fn open(dir: &Path) -> io::Result<Self> {
         if !dir.exists() {
             fs::DirBuilder::new()
@@ -386,8 +429,9 @@ impl People {
             path: dir.join("people.json"),
             kept: Vec::new(),
             seen: None,
+            unread: None,
         };
-        people.read()?;
+        people.read();
         Ok(people)
     }
 
@@ -403,39 +447,92 @@ impl People {
         ))
     }
 
-    fn read(&mut self) -> io::Result<()> {
-        self.kept = match fs::read(&self.path) {
-            Ok(bytes) => serde_json::from_slice(&bytes)
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Vec::new(),
-            Err(e) => return Err(e),
+    /// Read the file, and tell three things apart. No file, and a file
+    /// with nothing in it, is nobody: a unit that is not set up. A file
+    /// that reads is the people. A file that is there and cannot be
+    /// read, or is not a file of people, is neither: the people are
+    /// unread, nobody is let in on it and nobody sets the unit up over
+    /// it. The log is told which file and why, once for as long as the
+    /// reason stays, and nothing of what the file holds.
+    fn read(&mut self) {
+        match self.take_in() {
+            Told::Nothing => {}
+            Told::Unread(why) => tracing::error!(
+                file = %self.path.display(),
+                "the people of this usher cannot be read, and nobody is \
+                 let in or sets the unit up until they can: {why}"
+            ),
+            Told::ReadAgain => tracing::info!(
+                file = %self.path.display(),
+                "the people of this usher are read again"
+            ),
+        }
+    }
+
+    /// Read the file and go by it. What the log is to be told of it is
+    /// answered, and said by whoever asked.
+    fn take_in(&mut self) -> Told {
+        let read = match fs::read(&self.path) {
+            Ok(bytes) if bytes.iter().all(u8::is_ascii_whitespace) => {
+                Ok(Vec::new())
+            }
+            // Where in the file it stops being one of people is said;
+            // what stands there is not.
+            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| {
+                format!(
+                    "it is not a file of people, at line {} and column {}",
+                    e.line(),
+                    e.column()
+                )
+            }),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
+            Err(e) => Err(e.to_string()),
         };
         self.seen = self.stamp();
-        Ok(())
+        let was = self.unread.take();
+        match read {
+            Ok(kept) => {
+                self.kept = kept;
+                match was {
+                    Some(_) => Told::ReadAgain,
+                    None => Told::Nothing,
+                }
+            }
+            Err(why) => {
+                self.kept = Vec::new();
+                let anew = was.as_deref() != Some(why.as_str());
+                self.unread = Some(why.clone());
+                if anew {
+                    Told::Unread(why)
+                } else {
+                    Told::Nothing
+                }
+            }
+        }
     }
 
     /// Look at the file again. Says whether it is another than it was:
-    /// taken away, or put back, by whoever has the unit's files. A file
-    /// that cannot be read leaves nobody, and nobody is let in on it.
-    /// Nothing is read where the file is as it was.
+    /// taken away, put back or put right by whoever has the unit's
+    /// files. Nothing is read where the file is as it was.
     pub fn look_again(&mut self) -> bool {
         if self.stamp() == self.seen {
             return false;
         }
-        if let Err(e) = self.read() {
-            tracing::error!(
-                file = %self.path.display(),
-                "the people of this usher cannot be read: {e}"
-            );
-            self.kept = Vec::new();
-            self.seen = self.stamp();
-        }
+        self.read();
         true
     }
 
-    /// Whether there is nobody: an usher that is not set up yet.
+    /// Why the people are unread, where they are: the file is there,
+    /// and cannot be read or is not a file of people. In words that
+    /// hold nothing of what is in it.
+    pub fn unread(&self) -> Option<&str> {
+        self.unread.as_deref()
+    }
+
+    /// Whether there is nobody: an usher that is not set up yet. People
+    /// who are unread are not nobody.
     pub fn is_empty(&self) -> bool {
-        self.kept.is_empty()
+        self.kept.is_empty() && self.unread.is_none()
     }
 
     /// Everybody, in the order they were added.
@@ -458,6 +555,7 @@ impl People {
         password_hash: String,
         now_ms: u64,
     ) -> Result<(), Unkept> {
+        self.read_or_unkept()?;
         if self.find(name).is_some() {
             return Err(Unkept::Rule(
                 why(
@@ -484,6 +582,7 @@ impl People {
         name: &str,
         password_hash: String,
     ) -> Result<(), Unkept> {
+        self.read_or_unkept()?;
         let mut next = self.kept.clone();
         let Some(person) =
             next.iter_mut().find(|person| same_name(&person.name, name))
@@ -497,6 +596,7 @@ impl People {
     /// Remove a person. The last administrator stays: an usher with
     /// people has one who can add the others.
     pub fn remove(&mut self, name: &str) -> Result<(), Unkept> {
+        self.read_or_unkept()?;
         let Some(leaving) = self.find(name) else {
             return Err(Unkept::Rule(nobody_called(name)));
         };
@@ -525,9 +625,19 @@ impl People {
         self.keep(next)
     }
 
+    /// A file that is there and was not read is not written over: no
+    /// change is made to people who are unread.
+    fn read_or_unkept(&self) -> Result<(), Unkept> {
+        match self.unread {
+            Some(_) => Err(Unkept::Unread),
+            None => Ok(()),
+        }
+    }
+
     /// Write the people down whole, for the steward's account alone, and
     /// only then go by them: a change that is not kept is not made.
     fn keep(&mut self, next: Vec<Person>) -> Result<(), Unkept> {
+        self.read_or_unkept()?;
         let beside = self.path.with_extension("json.new");
         let _ = fs::remove_file(&beside);
         let mut file = OpenOptions::new()
@@ -536,6 +646,17 @@ impl People {
             .mode(0o600)
             .open(&beside)?;
         file.write_all(&serde_json::to_vec(&next).map_err(io::Error::from)?)?;
+        // The file is whose the directory is. Written by root for the
+        // account the steward runs as, which is how a password is set
+        // anew on the unit itself, it is given to that account before
+        // it takes the old file's place: there is no moment at which
+        // the steward cannot read its people.
+        if let Some(dir) = self.path.parent() {
+            let (written, kept_for) = (file.metadata()?, fs::metadata(dir)?);
+            if written.uid() == 0 && kept_for.uid() != 0 {
+                fchown(&file, Some(kept_for.uid()), Some(kept_for.gid()))?;
+            }
+        }
         file.sync_all()?;
         fs::rename(&beside, &self.path)?;
         if let Some(dir) = self.path.parent() {
@@ -756,8 +877,8 @@ mod tests {
         .words
         .contains("at most"));
         assert!(password_held(
-            "the verger of st mary",
-            "The Verger of St Mary",
+            "the keeper of the hall",
+            "The Keeper of the Hall",
             level
         )
         .unwrap_err()
@@ -880,7 +1001,7 @@ mod tests {
             .add(
                 "Ben",
                 ADMINISTRATOR,
-                hash("a lantern in the nave").unwrap(),
+                hash("a lantern in the yard").unwrap(),
                 2,
             )
             .unwrap();
@@ -908,5 +1029,228 @@ mod tests {
             .add("Ben", ADMINISTRATOR, "hash-b".to_string(), 2)
             .unwrap();
         assert_eq!(people.all().len(), 1);
+    }
+
+    /// What became of a change, in a word.
+    fn became(change: Result<(), Unkept>) -> &'static str {
+        match change {
+            Ok(()) => "made",
+            Err(Unkept::Rule(_)) => "against a rule",
+            Err(Unkept::Disk(_)) => "not written",
+            Err(Unkept::Unread) => "unread",
+        }
+    }
+
+    #[test]
+    fn no_file_and_a_file_with_nothing_in_it_are_nobody() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("people.json");
+        // No file: a new unit.
+        let mut people = People::open(dir.path()).unwrap();
+        assert!(people.is_empty());
+        assert_eq!(people.unread(), None);
+        // A file with nothing in it, and one that holds nobody, as
+        // whoever has the unit's files puts one in the place of the
+        // people.
+        for nothing in ["", "\n", "  \r\n\t", "[]", " [ ] \n"] {
+            fs::write(&file, nothing).unwrap();
+            // Written within the same moment, a file of the same length
+            // is the same file to look at: it is opened anew.
+            let mut people = People::open(dir.path()).unwrap();
+            assert!(people.is_empty(), "{nothing:?}");
+            assert_eq!(people.unread(), None, "{nothing:?}");
+            // And such a unit is set up, over what was there.
+            assert_eq!(
+                became(people.add("Anna", ADMINISTRATOR, "h".into(), 1)),
+                "made",
+                "{nothing:?}"
+            );
+        }
+        // Taken away again, there is nobody as at the first.
+        fs::remove_file(&file).unwrap();
+        assert!(!people.look_again(), "no file, as when it was opened");
+        assert!(people.is_empty());
+        assert_eq!(people.unread(), None);
+    }
+
+    #[test]
+    fn a_file_that_reads_is_the_people() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut people = People::open(dir.path()).unwrap();
+        people
+            .add(
+                "Anna",
+                ADMINISTRATOR,
+                hash("three small owls sing").unwrap(),
+                1,
+            )
+            .unwrap();
+        let people = People::open(dir.path()).unwrap();
+        assert!(!people.is_empty());
+        assert_eq!(people.unread(), None);
+        assert_eq!(people.find("anna").unwrap().role, ADMINISTRATOR);
+    }
+
+    #[test]
+    fn a_file_that_is_there_and_does_not_read_is_neither() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("people.json");
+        let mut people = People::open(dir.path()).unwrap();
+        people
+            .add("Anna", ADMINISTRATOR, "hash-a".to_string(), 1)
+            .unwrap();
+        let whole = fs::read(&file).unwrap();
+
+        // What is not a file of people: cut short, of another make, a
+        // person with no name, and no JSON at all.
+        let secret = "s3cret-that-stands-in-the-file";
+        let not_people = [
+            String::from_utf8_lossy(&whole[..whole.len() - 7]).into_owned(),
+            "null".to_string(),
+            "{}".to_string(),
+            format!("{{\"people\": \"{secret}\"}}"),
+            format!(
+                "[{{\"role\": \"administrator\", \"password\": \"{secret}\"}}]"
+            ),
+            format!("[\"{secret}\"]"),
+            secret.to_string(),
+        ];
+        for written in &not_people {
+            fs::write(&file, written).unwrap();
+            let mut people = People::open(dir.path()).unwrap();
+            // Not nobody: the unit is not one to set up.
+            assert!(!people.is_empty(), "{written}");
+            // And not the people: nobody is found among them.
+            assert!(people.all().is_empty(), "{written}");
+            assert!(people.find("Anna").is_none(), "{written}");
+            let why = people.unread().expect("unread").to_string();
+            assert!(
+                why.starts_with(
+                    "it is not a file of people, at line 1 and column "
+                ),
+                "{written}: {why}"
+            );
+            // Why says nothing of what the file holds.
+            assert!(!why.contains(secret), "{why}");
+            // No change is made, and the file is not written over.
+            assert_eq!(
+                became(people.add("Ben", ADMINISTRATOR, "h".into(), 2)),
+                "unread"
+            );
+            assert_eq!(
+                became(people.set_password("Anna", "h".into())),
+                "unread"
+            );
+            assert_eq!(became(people.remove("Anna")), "unread");
+            assert_eq!(fs::read_to_string(&file).unwrap(), *written);
+            assert!(!dir.path().join("people.json.new").exists());
+        }
+
+        // What is there and cannot be read at all: here, a directory in
+        // the file's place.
+        fs::remove_file(&file).unwrap();
+        fs::create_dir(&file).unwrap();
+        let mut people = People::open(dir.path()).unwrap();
+        assert!(!people.is_empty());
+        assert!(people.unread().is_some());
+        assert_eq!(
+            became(people.add("Ben", ADMINISTRATOR, "h".into(), 2)),
+            "unread"
+        );
+        assert!(file.is_dir());
+    }
+
+    #[test]
+    fn the_log_is_told_once_which_reason_and_nothing_of_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("people.json");
+        let mut people = People::open(dir.path()).unwrap();
+        people
+            .add("Anna", ADMINISTRATOR, "hash-a".to_string(), 1)
+            .unwrap();
+        let whole = fs::read(&file).unwrap();
+        // A file that reads, read again: nothing to say.
+        assert_eq!(people.take_in(), Told::Nothing);
+
+        // Cut short: said, with where the file stops being one of
+        // people and nothing of what it holds.
+        fs::write(&file, &whole[..whole.len() - 7]).unwrap();
+        let Told::Unread(why) = people.take_in() else {
+            panic!("the log is not told that the people are unread");
+        };
+        assert_eq!(
+            why,
+            format!(
+                "it is not a file of people, at line 1 and column {}",
+                whole.len() - 7
+            )
+        );
+        assert!(!why.contains("Anna") && !why.contains("hash-a"), "{why}");
+        // However often it is read while the reason stays, it is said
+        // no more.
+        for _ in 0..5 {
+            assert_eq!(people.take_in(), Told::Nothing);
+            assert!(people.unread().is_some());
+        }
+        // Another reason is said anew.
+        fs::write(&file, "{}").unwrap();
+        assert!(matches!(people.take_in(), Told::Unread(_)));
+        assert_eq!(people.take_in(), Told::Nothing);
+        // That it reads again is said once.
+        fs::write(&file, &whole).unwrap();
+        assert_eq!(people.take_in(), Told::ReadAgain);
+        assert_eq!(people.take_in(), Told::Nothing);
+        // And so is that it was taken away, after it did not read.
+        fs::write(&file, "{}").unwrap();
+        assert!(matches!(people.take_in(), Told::Unread(_)));
+        fs::remove_file(&file).unwrap();
+        assert_eq!(people.take_in(), Told::ReadAgain);
+        assert_eq!(people.take_in(), Told::Nothing);
+    }
+
+    #[test]
+    fn people_who_are_unread_are_read_again_when_the_file_reads() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("people.json");
+        let mut people = People::open(dir.path()).unwrap();
+        people
+            .add("Anna", ADMINISTRATOR, "hash-a".to_string(), 1)
+            .unwrap();
+        let whole = fs::read(&file).unwrap();
+
+        // The file is cut short under the unit that runs.
+        fs::write(&file, &whole[..whole.len() - 7]).unwrap();
+        assert!(people.look_again());
+        assert!(people.unread().is_some());
+        assert!(!people.is_empty());
+        assert!(people.find("Anna").is_none());
+        // Looked at again and found as it was, it is not read again.
+        assert!(!people.look_again());
+        assert!(people.unread().is_some());
+
+        // Put right, it is the people again, with nothing done to the
+        // unit.
+        fs::write(&file, &whole).unwrap();
+        assert!(people.look_again());
+        assert_eq!(people.unread(), None);
+        assert_eq!(people.find("Anna").unwrap().role, ADMINISTRATOR);
+        assert_eq!(
+            became(people.set_password("Anna", "hash-b".into())),
+            "made"
+        );
+
+        // Cut short once more, and taken away: nobody, a unit to set
+        // up, which is the last resort as it was.
+        fs::write(&file, &whole[..whole.len() - 7]).unwrap();
+        assert!(people.look_again());
+        assert!(people.unread().is_some());
+        fs::remove_file(&file).unwrap();
+        assert!(people.look_again());
+        assert_eq!(people.unread(), None);
+        assert!(people.is_empty());
+        assert_eq!(
+            became(people.add("Ben", ADMINISTRATOR, "hash-c".into(), 3)),
+            "made"
+        );
     }
 }

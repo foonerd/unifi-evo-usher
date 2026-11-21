@@ -4,9 +4,11 @@
 # set up and signed in to as a browser does it, asked as a browser asks,
 # by its administrator and by a person at its front desk, who is refused
 # what is the administrator's; a screen adopted as a satellite, refused
-# everything but its own, disabled and refused; given its site's name
-# and time zone where it is started, started again, run at the extended
-# level, removed, and, where the package is Debian's, purged.
+# everything but its own, disabled and refused, then protected by a PIN
+# and given voucher types and a logo of its own; given its site's name
+# and time zone where it is started, started again, its administrator
+# given a new password on the unit itself, run at the extended level,
+# removed, and, where the package is Debian's, purged.
 #
 #   sudo scripts/prove-unit.sh <evo-usher-steward_<version>_<arch>.deb>
 #   sudo scripts/prove-unit.sh <evo-usher-steward-<version>-1.<machine>.rpm>
@@ -35,7 +37,7 @@ esac
 for path in /opt/evo /etc/evo /var/lib/evo; do
   [ ! -e "$path" ] || { echo "prove-unit: this machine has $path already; the proof is for a machine without evo" >&2; exit 1; }
 done
-for tool in curl jq base64 $manager; do
+for tool in curl jq base64 runuser $manager; do
   command -v "$tool" > /dev/null || { echo "prove-unit: $tool is not on this machine" >&2; exit 1; }
 done
 package=$(readlink -f "$package")
@@ -448,6 +450,73 @@ screen=$(jq -r '.token' "$work/answer")
 [ "$(usher satellite '' "$screen")" = 200 ] || fail "a satellite that was enabled again is not answered: $(cat "$work/answer")"
 echo "  ok    a screen is adopted by the code it shows, hands out the default voucher and nothing else, and is refused the rest by name; disabled, it is signed out and refused until it is enabled again"
 
+echo "prove-unit: a protected satellite"
+# What the administrator changes of a satellite, by what the usher knows
+# it by.
+change() { usher set_satellite "$(jq -cn --arg id "$satellite" --argjson change "$1" '{id: $id} + $change')" "$bearer"; }
+# Protected, a satellite gives a voucher for its PIN, typed on the
+# screen for each one. The PIN is held to what a typed PIN is held to,
+# and is kept as a hash and never as itself. The screen learns that it
+# is protected on the session it has.
+[ "$(change '{"mode": "protected"}')" = 400 ] || fail "a satellite is protected with no PIN: $(cat "$work/answer")"
+jq -e '.error.details.subclass == "satellite_pin_needed"' "$work/answer" > /dev/null || fail "a satellite protected with no PIN is refused as: $(cat "$work/answer")"
+[ "$(change '{"mode": "protected", "pin": "123456"}')" = 400 ] || fail "a PIN that counts up is a satellite's: $(cat "$work/answer")"
+jq -e '.error.details.subclass == "pin_runs"' "$work/answer" > /dev/null || fail "a PIN that counts up is refused a satellite as: $(cat "$work/answer")"
+[ "$(change '{"mode": "protected", "pin": "480273"}')" = 200 ] || fail "a satellite is not protected: $(cat "$work/answer")"
+jq -e '.set.mode == "protected"' "$work/answer" > /dev/null || fail "of a satellite it protected the unit says: $(cat "$work/answer")"
+! grep -q -F 480273 "$work/answer" || fail "the PIN of a satellite is answered back"
+! grep -q -F 480273 "$SATELLITES" || fail "the PIN of a satellite stands in the file of the satellites as it was typed"
+grep -q -F '$argon2id$' "$SATELLITES" || fail "the PIN of a satellite is not kept as an Argon2id hash"
+[ "$(usher satellite '' "$screen")" = 200 ] || fail "a satellite that was protected is signed out: $(cat "$work/answer")"
+jq -e '.protected == true and .pin == {least: 6, most: 12}' "$work/answer" > /dev/null || fail "a satellite that was protected is told: $(cat "$work/answer")"
+# With no PIN, or with another, no voucher; with its own, the counter
+# is asked, and says that no network is chosen yet.
+[ "$(at_the_screen issue.counter hand_default)" = 403 ] || fail "a protected satellite hands out a voucher with no PIN: $(cat "$work/answer")"
+jq -e '.error.details.subclass == "satellite_pin_required"' "$work/answer" > /dev/null || fail "a protected satellite asked with no PIN is refused as: $(cat "$work/answer")"
+[ "$(at_the_screen issue.counter hand_default '{"pin": "111111"}')" = 403 ] || fail "a protected satellite hands out a voucher for a wrong PIN: $(cat "$work/answer")"
+jq -e '.error.details.subclass == "satellite_pin_wrong"' "$work/answer" > /dev/null || fail "a wrong PIN is refused a satellite as: $(cat "$work/answer")"
+[ "$(at_the_screen issue.counter hand_default '{"pin": "480273"}')" != 403 ] || fail "a protected satellite is kept from the default voucher with its PIN: $(cat "$work/answer")"
+jq -e '.error.details.subclass == "no_network_chosen"' "$work/answer" > /dev/null || fail "the counter answered a protected satellite: $(cat "$work/answer")"
+# It is given voucher types of its own, which an unlocked one is not.
+# Its session is then good for more than it was, so it is ended, and the
+# screen signs in again; it is told its own types and no others, is let
+# ask for one of them by name, and is refused any other.
+[ "$(change '{"types": ["Day"]}')" = 200 ] || fail "a protected satellite is not given a type: $(cat "$work/answer")"
+[ "$(usher satellite '' "$screen")" = 401 ] || fail "a satellite that was given types keeps the session it had: $(cat "$work/answer")"
+[ "$(usher satellite_sign_in "$presenting")" = 200 ] || fail "a satellite that was given types is not given a session: $(cat "$work/answer")"
+jq -e '(.types | map(.name)) == ["Day"] and .protected == true' "$work/answer" > /dev/null || fail "a satellite that was given a type is told: $(cat "$work/answer")"
+screen=$(jq -r '.token' "$work/answer")
+[ "$(at_the_screen issue.counter hand_type '{"type": "Day", "pin": "480273"}')" != 403 ] || fail "a satellite is kept from a type it was given: $(cat "$work/answer")"
+jq -e '.error.details.subclass == "no_network_chosen"' "$work/answer" > /dev/null || fail "the counter answered a satellite that asked for its type: $(cat "$work/answer")"
+[ "$(at_the_screen issue.counter hand_type '{"type": "Stay", "pin": "480273"}')" = 403 ] || fail "a satellite is given a type it was not given: $(cat "$work/answer")"
+jq -e '.error.details.subclass == "satellite_type_not_given"' "$work/answer" > /dev/null || fail "a type it was not given is refused a satellite as: $(cat "$work/answer")"
+[ "$(at_the_screen issue.counter hand_default '{"pin": "480273"}')" = 403 ] || fail "a satellite that was given types gives the default: $(cat "$work/answer")"
+[ "$(change '{"mode": "unlocked"}')" = 400 ] || fail "an unlocked satellite keeps types of its own: $(cat "$work/answer")"
+jq -e '.error.details.subclass == "satellite_types_unlocked"' "$work/answer" > /dev/null || fail "types on an unlocked satellite are refused as: $(cat "$work/answer")"
+# A logo of its own: a PNG, kept as a file beside the satellites', for
+# the steward alone. The screen is told a stamp, and fetches the
+# picture by it.
+logo=iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==
+[ "$(change '{"logo_png_b64": "bm8gcGljdHVyZQ=="}')" = 400 ] || fail "what is no PNG is a satellite's logo: $(cat "$work/answer")"
+[ "$(change "$(jq -cn --arg logo "$logo" '{logo_png_b64: $logo}')")" = 200 ] || fail "a satellite is not given a logo: $(cat "$work/answer")"
+stamp=$(jq -r '.set.logo.stamp' "$work/answer")
+kept="$(dirname "$SATELLITES")/satellite-logos/$satellite-$stamp.png"
+[ "$(stat -c '%U %a' "$kept" 2> /dev/null)" = "evo 600" ] || fail "the logo of a satellite is kept as $(stat -c '%U %a' "$kept" 2>&1), not in $kept for the steward alone"
+[ "$(usher satellite '' "$screen")" = 200 ] || fail "a satellite that was given a logo is signed out: $(cat "$work/answer")"
+jq -e --arg stamp "$stamp" '.logo == {stamp: $stamp, own: true}' "$work/answer" > /dev/null || fail "a satellite that was given a logo is told: $(cat "$work/answer")"
+[ "$(usher "satellite_logo?stamp=$stamp" '' "$screen")" = 200 ] || fail "a satellite is not given its logo: $(cat "$work/answer")"
+printf '%s' "$logo" | base64 -d | cmp -s - "$work/answer" || fail "the logo a satellite fetched is not the file it was given"
+[ "$(usher "satellite_logo?id=$satellite" '' "$desk")" = 403 ] || fail "a person at the front desk is given a satellite's logo: $(cat "$work/answer")"
+[ "$(usher "satellite_logo?id=$satellite" '')" = 401 ] || fail "a caller who presents nothing is given a satellite's logo: $(cat "$work/answer")"
+# Unlocked again, with the default type and the site's logo: as it was.
+[ "$(change '{"mode": "unlocked", "types": [], "remove_logo": true}')" = 200 ] || fail "a satellite is not unlocked again: $(cat "$work/answer")"
+[ ! -e "$kept" ] || fail "the logo of a satellite stays after it was taken away"
+[ "$(usher satellite_sign_in "$presenting")" = 200 ] || fail "a satellite that was unlocked again is not given a session: $(cat "$work/answer")"
+jq -e '.protected == false and .types == [] and .logo == null' "$work/answer" > /dev/null || fail "a satellite that was unlocked again is told: $(cat "$work/answer")"
+screen=$(jq -r '.token' "$work/answer")
+[ "$(at_the_screen issue.counter hand_default)" != 403 ] || fail "a satellite that was unlocked again is kept from the default voucher: $(cat "$work/answer")"
+echo "  ok    protected, a satellite gives a voucher for its PIN and for no other; it is given voucher types and a logo of its own, is told its own types and a stamp of its logo, and is refused a type it was not given"
+
 echo "prove-unit: the site"
 # Ask the site's shelf as a browser someone is signed in at does.
 site() { ask request "$(request site.settings "$1" "$2")" "$bearer"; }
@@ -456,29 +525,29 @@ answered | jq -e '.name == "" and .time_zone == null and .logo == null and .set_
 # A unit is given its site's name, time zone and language where it is
 # started, as its service file says how: in a drop-in.
 service=$(systemctl show -p FragmentPath --value evo.service)
-grep -q '^#Environment="USHER_SITE_NAME=Parish Hall"$' "$service" || fail "the service file does not say how a unit is given its site's name"
+grep -q '^#Environment="USHER_SITE_NAME=Market Hall"$' "$service" || fail "the service file does not say how a unit is given its site's name"
 grep -q '^#Environment=USHER_TIME_ZONE=Europe/Warsaw$' "$service" || fail "the service file does not say how a unit is given its site's time zone"
 grep -q '^#Environment=USHER_LANGUAGE=de$' "$service" || fail "the service file does not say how a unit is given its site's language"
 mkdir -p "$(dirname "$GIVEN")"
-printf '[Service]\nEnvironment="USHER_SITE_NAME=Parish Hall"\nEnvironment=USHER_TIME_ZONE=Europe/Warsaw\nEnvironment=USHER_LANGUAGE=de\n' > "$GIVEN"
+printf '[Service]\nEnvironment="USHER_SITE_NAME=Market Hall"\nEnvironment=USHER_TIME_ZONE=Europe/Warsaw\nEnvironment=USHER_LANGUAGE=de\n' > "$GIVEN"
 systemctl daemon-reload
 start restart
 [ "$(site get '{}')" = 200 ] || fail "the site is not told: $(cat "$work/answer")"
-answered | jq -e '.name == "Parish Hall" and .time_zone == "Europe/Warsaw" and .set_here == false and .language == "de" and .follows_browser == false and .language_set_here == false' > /dev/null || fail "the unit does not go by the name, the time zone and the language it was started with: $(answered)"
+answered | jq -e '.name == "Market Hall" and .time_zone == "Europe/Warsaw" and .set_here == false and .language == "de" and .follows_browser == false and .language_set_here == false' > /dev/null || fail "the unit does not go by the name, the time zone and the language it was started with: $(answered)"
 # Anyone is told the name, for the form a person signs in by to wear,
 # and the language the form speaks, and nothing else of the site.
 [ "$(usher state)" = 200 ] || fail "the unit does not say what state it is in: $(cat "$work/answer")"
-jq -e '.site == {name: "Parish Hall", logo: null, language: "de", follows_browser: false}' "$work/answer" > /dev/null || fail "before anyone has signed in, the unit says of its site: $(cat "$work/answer")"
+jq -e '.site == {name: "Market Hall", logo: null, language: "de", follows_browser: false}' "$work/answer" > /dev/null || fail "before anyone has signed in, the unit says of its site: $(cat "$work/answer")"
 echo "  ok    given a name, a time zone and a language where it is started, the unit goes by them, and anyone is told the name and the language"
 [ "$(ask request "$(request site.settings set '{"name":"Mallory","time_zone":null}')" "")" = 401 ] || fail "a caller who has not signed in sets the site: $(cat "$work/answer")"
-[ "$(site set '{"name":"Hall of St Mary","time_zone":"London time"}')" != 200 ] || fail "a time zone that is none is taken: $(cat "$work/answer")"
-[ "$(site set '{"name":"Hall of St Mary","language":"German"}')" != 200 ] || fail "a language that is none is taken: $(cat "$work/answer")"
+[ "$(site set '{"name":"Hall of the Weavers","time_zone":"London time"}')" != 200 ] || fail "a time zone that is none is taken: $(cat "$work/answer")"
+[ "$(site set '{"name":"Hall of the Weavers","language":"German"}')" != 200 ] || fail "a language that is none is taken: $(cat "$work/answer")"
 jq -e '.error.details.subclass == "language_not_one"' "$work/answer" > /dev/null || fail "a language that is none is refused as: $(cat "$work/answer")"
-[ "$(site set '{"name":" Hall of St Mary ","time_zone":"Europe/London","language":"en","follows_browser":true}')" = 200 ] || fail "the site's name, time zone and language are not set: $(cat "$work/answer")"
-answered | jq -e '.name == "Hall of St Mary" and .time_zone == "Europe/London" and .language == "en" and .follows_browser == true' > /dev/null || fail "the site was set as: $(answered)"
+[ "$(site set '{"name":" Hall of the Weavers ","time_zone":"Europe/London","language":"en","follows_browser":true}')" = 200 ] || fail "the site's name, time zone and language are not set: $(cat "$work/answer")"
+answered | jq -e '.name == "Hall of the Weavers" and .time_zone == "Europe/London" and .language == "en" and .follows_browser == true' > /dev/null || fail "the site was set as: $(answered)"
 [ "$(stat -c '%U %a' "$SITE" 2> /dev/null)" = "evo 600" ] || fail "the site is kept as $(stat -c '%U %a' "$SITE" 2>&1), not in $SITE for the steward alone"
 [ "$(usher state)" = 200 ] || fail "the unit does not say what state it is in: $(cat "$work/answer")"
-jq -e '.site == {name: "Hall of St Mary", logo: null, language: "en", follows_browser: true}' "$work/answer" > /dev/null || fail "its site set, the unit says of it: $(cat "$work/answer")"
+jq -e '.site == {name: "Hall of the Weavers", logo: null, language: "en", follows_browser: true}' "$work/answer" > /dev/null || fail "its site set, the unit says of it: $(cat "$work/answer")"
 echo "  ok    its administrator sets another name, time zone and language, kept for the steward alone; nobody who has not signed in sets them"
 
 echo "prove-unit: what is kept"
@@ -508,13 +577,86 @@ jq -e '.error.details.subclass == "satellite_unknown"' "$work/answer" > /dev/nul
 [ "$(site get '{}')" = 200 ] || fail "the site is not told after a restart: $(cat "$work/answer")"
 # What was set of the site stands, though the unit is started with the
 # first name, time zone and language as before.
-answered | jq -e '.name == "Hall of St Mary" and .time_zone == "Europe/London" and .set_here == true and .language == "en" and .follows_browser == true and .language_set_here == true' > /dev/null || fail "the site's name, time zone and language were not kept through a restart: $(answered)"
+answered | jq -e '.name == "Hall of the Weavers" and .time_zone == "Europe/London" and .set_here == true and .language == "en" and .follows_browser == true and .language_set_here == true' > /dev/null || fail "the site's name, time zone and language were not kept through a restart: $(answered)"
 [ "$(usher state)" = 200 ] || fail "the unit does not say what state it is in: $(cat "$work/answer")"
-jq -e '.site.name == "Hall of St Mary" and .site.language == "en"' "$work/answer" > /dev/null || fail "started again, the unit says of its site: $(cat "$work/answer")"
+jq -e '.site.name == "Hall of the Weavers" and .site.language == "en"' "$work/answer" > /dev/null || fail "started again, the unit says of its site: $(cat "$work/answer")"
 rm "$GIVEN"
 rmdir "$(dirname "$GIVEN")"
 systemctl daemon-reload
 echo "  ok    started again, who was signed in still is, each as what they are, a satellite among them until it is removed, who signed out is not, and the voucher types and the site are kept as they were set"
+
+echo "prove-unit: an administrator let back in"
+# The password is lost, and there is no other administrator. Whoever
+# keeps the unit gives the administrator a new one on the unit itself,
+# with the steward's own program: as root, in a shell that has nothing
+# of what the service is started with. The service is not stopped.
+STEWARD=/opt/evo/bin/evo-usher-steward
+NEW_PASSWORD="a lantern in the yard"
+pid=$(systemctl show -p MainPID --value evo.service)
+# Run the program with what follows as its arguments and the first as
+# the one line it reads: how it ended goes to standard output, what it
+# said into $work/said.
+given() {
+  local line="$1" ended=0
+  shift
+  printf '%s\n' "$line" | "$@" > "$work/said" 2>&1 || ended=$?
+  echo "$ended"
+}
+# The name is held by five wrong tries, as a name whose password is
+# lost soon is: the right password is not looked at either.
+for _ in 1 2 3 4 5; do
+  [ "$(usher sign_in "$(named "$NAME" "three small owls sang")")" = 401 ] || fail "a wrong password signs in: $(cat "$work/answer")"
+done
+[ "$(usher sign_in "$(named "$NAME" "$PASSWORD")")" = 429 ] || fail "five wrong tries do not hold a name: $(cat "$work/answer")"
+# Asked wrongly, the program says how it is asked; a name that is
+# nobody's, a person at the front desk and a password that is too short
+# are refused, each with a plain word.
+[ "$(given "$NEW_PASSWORD" "$STEWARD" --reset-password)" = 2 ] || fail "asked with no name, the program ends otherwise than with 2: $(cat "$work/said")"
+grep -q -- '--reset-password <name>' "$work/said" || fail "asked with no name, the program does not say how it is asked: $(cat "$work/said")"
+[ "$(given "$NEW_PASSWORD" "$STEWARD" --reset-password Mallory)" = 1 ] || fail "a name that is nobody's is given a password: $(cat "$work/said")"
+grep -q -F "The administrators of this usher are: $NAME." "$work/said" || fail "refusing a name that is nobody's, the program does not name the administrators: $(cat "$work/said")"
+[ "$(given "$NEW_PASSWORD" "$STEWARD" --reset-password Ben)" = 1 ] || fail "a person at the front desk is given a password: $(cat "$work/said")"
+grep -q -F 'new PIN on the page People' "$work/said" || fail "a person at the front desk is refused as: $(cat "$work/said")"
+[ "$(given "eleven char" "$STEWARD" --reset-password "$NAME")" = 1 ] || fail "a password of eleven characters is taken: $(cat "$work/said")"
+grep -q -F 'A password is 12 characters at least' "$work/said" || fail "a password that is too short is refused as: $(cat "$work/said")"
+[ "$(usher me '' "$bearer")" = 200 ] || fail "refused, the program signed the administrator out: $(cat "$work/answer")"
+# Asked rightly, it gives the administrator the new password, says so
+# in two lines, and says the password nowhere.
+[ "$(given "$NEW_PASSWORD" "$STEWARD" --reset-password "$NAME")" = 0 ] || fail "the program does not give an administrator a new password: $(cat "$work/said")"
+[ "$(cat "$work/said")" = "$NAME has a new password, and signs in with it from now on.
+Whoever was signed in as $NAME is signed out." ] || fail "having given a new password, the program says: $(cat "$work/said")"
+! grep -q -F "$NEW_PASSWORD" "$PEOPLE" || fail "the new password stands in the file of the people as it was typed"
+journalctl -u evo.service --no-pager > "$work/journal"
+! grep -q -F "$NEW_PASSWORD" "$work/journal" || fail "the new password stands in the service's log"
+# Written by root, the file of the people is the steward's own as it
+# was, with nothing of the writing left beside it.
+[ "$(stat -c '%U %G %a' "$PEOPLE")" = "evo evo 600" ] || fail "written by root, the people are kept as $(stat -c '%U %G %a' "$PEOPLE"), not for the steward alone"
+[ "$(stat -c '%U %a' "$(dirname "$PEOPLE")")" = "evo 700" ] || fail "the directory of the people is $(stat -c '%U %a' "$(dirname "$PEOPLE")"), not the steward's alone"
+[ ! -e "$PEOPLE.new" ] || fail "the writing left a file beside the people"
+# The unit takes it up at once and is not started again: whoever was
+# signed in as the administrator is signed out, the hold is lifted, the
+# new password signs in and the old one does not. Nobody else is
+# touched.
+[ "$(usher me '' "$bearer")" = 401 ] || fail "who was signed in under the old password still is: $(cat "$work/answer")"
+[ "$(usher sign_in "$(named "$NAME" "$NEW_PASSWORD")")" = 200 ] || fail "the new password does not sign in at once: $(cat "$work/answer")"
+bearer=$(jq -r '.token' "$work/answer")
+[ "$(usher sign_in "$(named "$NAME" "$PASSWORD")")" = 401 ] || fail "the old password still signs in: $(cat "$work/answer")"
+[ "$(usher me '' "$desk")" = 200 ] || fail "a new password for the administrator signed a person at the front desk out: $(cat "$work/answer")"
+[ "$(systemctl show -p MainPID --value evo.service)" = "$pid" ] || fail "the service was started again for a new password"
+echo "  ok    whoever keeps the unit gives its administrator a new password on the unit itself, as root: it signs in at once and the old one does not, the hold of wrong tries is lifted, who was signed in under the old one is signed out, the people stay the steward's own, and the service is not started again"
+# The same as the account the steward runs as, which gives back the
+# password the rest of the proof signs in with.
+[ "$(given "$PASSWORD" runuser -u evo -- "$STEWARD" --reset-password "$NAME")" = 0 ] || fail "as the steward's own account, the program does not give a new password: $(cat "$work/said")"
+[ "$(stat -c '%U %G %a' "$PEOPLE")" = "evo evo 600" ] || fail "written by the steward's account, the people are kept as $(stat -c '%U %G %a' "$PEOPLE")"
+[ "$(usher me '' "$bearer")" = 401 ] || fail "who was signed in under the password before still is: $(cat "$work/answer")"
+[ "$(usher sign_in "$(named "$NAME" "$PASSWORD")")" = 200 ] || fail "the password given as the steward's account does not sign in: $(cat "$work/answer")"
+bearer=$(jq -r '.token' "$work/answer")
+# The program goes by the level it is told, as the service does: where
+# the unit runs at the extended level, it is named to the program too.
+[ "$(given "fifteen letters" env USHER_SECURITY=extended "$STEWARD" --reset-password "$NAME")" = 1 ] || fail "told the extended level, the program takes a password of fifteen characters: $(cat "$work/said")"
+grep -q -F 'A password is 16 characters at least' "$work/said" || fail "told the extended level, the program refuses a short password as: $(cat "$work/said")"
+[ "$(usher me '' "$bearer")" = 200 ] || fail "refused, the program signed the administrator out: $(cat "$work/answer")"
+echo "  ok    the same as the steward's own account; and told the extended level, the program holds a password to it"
 
 echo "prove-unit: the extended level"
 # Whoever has the unit's files takes the people away, and the unit asks
@@ -530,7 +672,7 @@ start start
 [ "$(usher state)" = 200 ] || fail "the unit does not say what state it is in: $(cat "$work/answer")"
 jq -e '.set_up == false and .level == "extended" and .least_password == 16 and .keeps == false' "$work/answer" > /dev/null || fail "a unit of the extended level whose people were taken away says of itself: $(cat "$work/answer")"
 # The form it is set up by wears the site's name still.
-jq -e '.site.name == "Hall of St Mary"' "$work/answer" > /dev/null || fail "its people taken away, the unit says of its site: $(cat "$work/answer")"
+jq -e '.site.name == "Hall of the Weavers"' "$work/answer" > /dev/null || fail "its people taken away, the unit says of its site: $(cat "$work/answer")"
 [ "$(usher me '' "$bearer")" = 401 ] || fail "a session outlives the people it was a person's among: $(cat "$work/answer")"
 echo "  ok    its people taken away, the unit asks to be set up again, and nobody who was signed in still is"
 [ "$(stat -c '%U %a' "$CODE")" = "evo 600" ] || fail "the unit's code is $(stat -c '%U %a' "$CODE"), not the steward's alone"

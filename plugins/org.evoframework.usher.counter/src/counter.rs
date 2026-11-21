@@ -178,6 +178,23 @@ struct HandingDefault {
     satellite: Option<String>,
 }
 
+/// What is asked where a voucher of a named type is handed out with
+/// nothing chosen: the type, and who hands it out, which whoever stands
+/// between the counter and a caller writes.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HandingType {
+    #[serde(rename = "type")]
+    kind: String,
+    #[serde(default)]
+    by: Option<String>,
+    #[serde(default)]
+    unit: bool,
+    /// The name of the satellite the voucher is handed out at.
+    #[serde(default)]
+    satellite: Option<String>,
+}
+
 /// Who hands a voucher out, as the record names them.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct Issuer {
@@ -428,6 +445,16 @@ impl Counter {
             "hand" => {
                 let handing: Handing = asked(payload)?;
                 let issuer = Issuer::of(handing.by, handing.unit, None)?;
+                // A type that is not enabled is offered to nobody, and
+                // so is handed out to nobody, whatever a caller names.
+                if !self
+                    .types
+                    .lock()
+                    .expect("the types' lock")
+                    .is_enabled(&handing.kind)
+                {
+                    return Err(Refusal::AsAsked(no_such(&handing.kind)));
+                }
                 self.hand(&handing.kind, handing.days, handing.guests, &issuer)
                     .await
             }
@@ -450,6 +477,25 @@ impl Counter {
                              administrator sets one under Voucher types.",
                         ))
                     })?;
+                self.hand(&name, None, None, &issuer).await
+            }
+            "hand_type" => {
+                let handing: HandingType = asked(payload)?;
+                let issuer =
+                    Issuer::of(handing.by, handing.unit, handing.satellite)?;
+                // A type that is on offer, and has nothing to choose:
+                // whoever presses a button for it is asked nothing. One
+                // that is not on offer any more is no type to hand out.
+                let name = {
+                    let types = self.types.lock().expect("the types' lock");
+                    types
+                        .find(&handing.kind)
+                        .filter(|kind| {
+                            types.is_enabled(&kind.name) && kind.fixed()
+                        })
+                        .map(|kind| kind.name.clone())
+                }
+                .ok_or_else(|| Refusal::AsAsked(no_such(&handing.kind)))?;
                 self.hand(&name, None, None, &issuer).await
             }
             "assign" => {

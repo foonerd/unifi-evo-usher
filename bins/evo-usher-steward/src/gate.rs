@@ -35,9 +35,15 @@
 //! carries no capability a plugin of the usher's declares.
 //!
 //! A satellite is held closer still: to handing out the default voucher,
-//! to what the site is called, and to saying that it is there. The gate
-//! writes which satellite hands a voucher out, and counts its vouchers
-//! against what it may hand out in an hour.
+//! to what the site is called, to saying that it is there, and to the
+//! logo it wears. The gate writes which satellite hands a voucher out,
+//! and counts its vouchers against what it may hand out in an hour. A
+//! satellite that is protected gives a voucher for its PIN: the gate
+//! takes the PIN off the request, holds it against the satellite's own,
+//! and hands on a request that carries none. evo and the counter never
+//! see a PIN. A satellite that was given voucher types of its own asks
+//! for one of them by name, and is refused any other here; one that
+//! gives the default alone is refused every type that is named.
 //!
 //! evo is shown the one bearer the gate judged, and no other a request
 //! carries beside it. Where a session opens the WebSocket, evo is shown
@@ -92,16 +98,52 @@ pub const OF_THE_COUNTER: [(&str, &str); 4] = [
 ];
 
 /// What a satellite may ask of a shelf: the default voucher handed out,
-/// and what the site is called, how it looks and what language it
-/// speaks, which its page wears.
-pub const OF_A_SATELLITE: [(&str, &str); 2] =
-    [("issue.counter", "hand_default"), ("site.settings", "get")];
+/// or a voucher of a type that is named, which the gate holds to the
+/// types the satellite was given; and what the site is called, how it
+/// looks and what language it speaks, which its page wears.
+pub const OF_A_SATELLITE: [(&str, &str); 3] = [
+    ("issue.counter", "hand_default"),
+    ("issue.counter", "hand_type"),
+    ("site.settings", "get"),
+];
 
 /// The shelf and the request a voucher is handed out with.
 const HANDING: (&str, &str) = ("issue.counter", "hand");
 
 /// The shelf and the request the default voucher is handed out with.
 const HANDING_DEFAULT: (&str, &str) = ("issue.counter", "hand_default");
+
+/// The shelf and the request a voucher of a type that is named is
+/// handed out with, with nothing chosen.
+const HANDING_TYPE: (&str, &str) = ("issue.counter", "hand_type");
+
+/// The shelf the voucher types are kept on, and the request that reads
+/// what a front desk is offered of them and changes nothing; so do the
+/// requests a voucher is handed out with. What else is asked of the
+/// shelf may change what the satellites are told of the types.
+const THE_COUNTER: &str = "issue.counter";
+const READING_THE_COUNTER: [&str; 6] = [
+    "types",
+    "offered",
+    "hand",
+    "hand_default",
+    "hand_type",
+    "handed",
+];
+
+/// What a request for a voucher of a named type names the type under.
+const TYPE: &str = "type";
+
+/// The shelf the site's settings are kept on. What is changed there is
+/// what the satellites are told of the site.
+const THE_SITE: &str = "site.settings";
+
+/// The request that reads the site's settings and changes nothing.
+const READING: &str = "get";
+
+/// What a screen writes its PIN under on the request for the default
+/// voucher.
+const PIN: &str = "pin";
 
 /// The longest that is read of what is asked of a shelf, in bytes: room
 /// for the largest thing a shelf of the usher's takes, a site's logo,
@@ -172,6 +214,11 @@ async fn admit(
     next: Next,
 ) -> Response {
     let asked = asked(request.uri().path(), &gate.api);
+    // A file of the face that is read: a browser is told to ask again
+    // each time whether it is still the file it has.
+    let of_the_face = asked == Asked::File
+        && (request.method() == Method::GET
+            || request.method() == Method::HEAD);
     let found = presented(&request, &asked)
         .into_iter()
         .find_map(|shown| gate.asking(&shown.bearer).map(|who| (who, shown)));
@@ -182,7 +229,7 @@ async fn admit(
         // Who has not signed in presents nothing: a bearer that is no
         // session of the usher's is not shown to evo either.
         show(&mut request, None);
-        return next.run(request).await;
+        return asked_each_time(of_the_face, next.run(request).await);
     };
 
     // A person at the front desk asks what the counter's page asks; and
@@ -206,19 +253,47 @@ async fn admit(
     // What a satellite counted against its hour for this request, to
     // give back where no voucher is handed out.
     let mut counted: Option<(String, u64)> = None;
+    // Whether the site, or the voucher types, are changed by this
+    // request, where it is done.
+    let mut changes_the_site = false;
+    let mut changes_the_types = false;
     if asks_a_shelf {
-        let (read, of) = match of_a_shelf(request, &who).await {
+        let (read, of, typed) = match of_a_shelf(request, &who).await {
             Ok(read) => read,
             Err(refused) => return *refused,
         };
         request = read;
         if let (Asking::Satellite { id, .. }, Some(of)) = (&who, &of) {
-            if (of.0.as_str(), of.1.as_str()) == HANDING_DEFAULT {
+            let asks = (of.0.as_str(), of.1.as_str());
+            if asks == HANDING_DEFAULT || asks == HANDING_TYPE {
+                // A satellite gives what it was given to give: the
+                // default voucher, or one of the types it has. A
+                // protected one gives it for its PIN, which is judged
+                // here and goes no further; and only then is the
+                // voucher counted against its hour.
+                let named = if asks == HANDING_TYPE {
+                    typed.named.as_deref()
+                } else {
+                    None
+                };
+                if let Err(refused) = gate.usher.gives(id, named).await {
+                    return *refused;
+                }
+                if let Err(refused) =
+                    gate.usher.lets_hand(id, typed.pin.as_deref()).await
+                {
+                    return *refused;
+                }
                 match gate.usher.take_of(id) {
                     Ok(at) => counted = Some((id.clone(), at)),
                     Err(left_ms) => return signin::hour_is_full(left_ms),
                 }
             }
+        }
+        if let Some((shelf, request_type)) = &of {
+            changes_the_site = shelf == THE_SITE && request_type != READING;
+            changes_the_types = shelf == THE_COUNTER
+                && !READING_THE_COUNTER.contains(&request_type.as_str());
         }
     }
 
@@ -242,6 +317,14 @@ async fn admit(
         if answer.status() != StatusCode::OK {
             gate.usher.give_back(&satellite, at);
         }
+    }
+    // The satellites are told of the site as it is from now on, and not
+    // as it was last read for them.
+    if changes_the_site && answer.status() == StatusCode::OK {
+        gate.usher.site_changed().await;
+    }
+    if changes_the_types && answer.status() == StatusCode::OK {
+        gate.usher.offer_changed().await;
     }
 
     // A line is opened on the subprotocol the caller offered, and a
@@ -268,6 +351,24 @@ async fn admit(
                 }
             }
         }
+    }
+    asked_each_time(of_the_face, answer)
+}
+
+/// What a browser does with a file of the face it has kept. evo sends a
+/// file with the day it was last changed and no word on how long it may
+/// be used unasked, and a browser then goes on using its own for a
+/// while by guesswork: after a unit is updated, yesterday's scripts
+/// beside today's page. The gate says `no-cache` on every file of the
+/// face it lets through: a browser asks each time whether the file is
+/// still the one it has, and is told so, with nothing sent again, where
+/// it is.
+fn asked_each_time(of_the_face: bool, mut answer: Response) -> Response {
+    if of_the_face {
+        answer.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-cache"),
+        );
     }
     answer
 }
@@ -443,7 +544,12 @@ fn let_in_satellite(method: &Method, asked: &Asked) -> bool {
 /// it, over whatever the caller wrote there: the person by their name,
 /// the unit's keeper, or the satellite by its name. The default voucher
 /// takes nothing else, and a satellite's request for it is written anew
-/// with nothing else on it.
+/// with nothing else on it. The PIN a screen wrote on it is taken off
+/// and given back beside the request, for the gate to judge: what evo
+/// is given carries none, whoever asked. A satellite's request for a
+/// type that is named is written anew with the type and the satellite's
+/// name and nothing else on it, and the type is given back beside it,
+/// for the gate to hold to the types the satellite was given.
 ///
 /// What cannot be read as asking a shelf is refused a person at the
 /// front desk and a satellite, and is left for evo to refuse anyone
@@ -451,7 +557,7 @@ fn let_in_satellite(method: &Method, asked: &Asked) -> bool {
 async fn of_a_shelf(
     request: Request,
     who: &Asking,
-) -> Result<(Request, Option<(String, String)>), Refused> {
+) -> Result<(Request, Option<(String, String)>, Typed), Refused> {
     let at_the_desk = held_as_the_desk(who);
     let at_a_satellite = matches!(who, Asking::Satellite { .. });
     let (mut parts, body) = request.into_parts();
@@ -483,7 +589,11 @@ async fn of_a_shelf(
         if at_the_desk || at_a_satellite {
             return Err(unread());
         }
-        return Ok((Request::from_parts(parts, Body::from(bytes)), None));
+        return Ok((
+            Request::from_parts(parts, Body::from(bytes)),
+            None,
+            Typed::default(),
+        ));
     };
     let asking = (shelf.as_str(), request_type.as_str());
     if at_the_desk && !OF_THE_COUNTER.contains(&asking) {
@@ -492,15 +602,43 @@ async fn of_a_shelf(
     if at_a_satellite && !OF_A_SATELLITE.contains(&asking) {
         return Err(Box::new(signin::not_for_a_satellite()));
     }
-    if asking == HANDING || asking == HANDING_DEFAULT {
-        let handing = asked
+    let mut typed = Typed::default();
+    if asking == HANDING || asking == HANDING_DEFAULT || asking == HANDING_TYPE
+    {
+        let mut handing = asked
             .get("payload_b64")
             .and_then(Value::as_str)
             .and_then(|payload| STANDARD.decode(payload).ok())
             .and_then(|payload| {
                 serde_json::from_slice::<Map<String, Value>>(&payload).ok()
             });
+        // The PIN a screen typed for a voucher is read here and is on
+        // nothing that is handed on.
+        if asking != HANDING {
+            typed.pin = handing
+                .as_mut()
+                .and_then(|handing| handing.remove(PIN))
+                .and_then(|pin| pin.as_str().map(str::to_string));
+        }
+        // The type a request names, where it asks for a named one.
+        if asking == HANDING_TYPE {
+            typed.named = handing
+                .as_ref()
+                .and_then(|handing| handing.get(TYPE))
+                .and_then(Value::as_str)
+                .map(str::to_string);
+        }
         let mut handing = match (handing, who) {
+            // What a satellite asks for a named type names the type,
+            // and nothing else of what its screen sent counts.
+            (_, Asking::Satellite { .. }) if asking == HANDING_TYPE => {
+                let Some(named) = &typed.named else {
+                    return Err(unread());
+                };
+                let mut handing = Map::new();
+                handing.insert(TYPE.to_string(), Value::String(named.clone()));
+                handing
+            }
             // A satellite's one button sends nothing that counts.
             (_, Asking::Satellite { .. }) => Map::new(),
             (Some(handing), _) => handing,
@@ -536,7 +674,18 @@ async fn of_a_shelf(
     Ok((
         Request::from_parts(parts, Body::from(written)),
         Some((shelf, request_type)),
+        typed,
     ))
+}
+
+/// What a screen wrote on a request for a voucher, taken off it for the
+/// gate to judge: the PIN it typed, and the type it names.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Typed {
+    /// The PIN, where one was written.
+    pin: Option<String>,
+    /// The voucher type, where the request asks for a named one.
+    named: Option<String>,
 }
 
 /// A bearer as a request presents it.
@@ -1175,7 +1324,8 @@ mod tests {
         for route in signin::ROUTES {
             assert_eq!(
                 let_in_satellite(&post, &usher(route)),
-                signin::OPEN.contains(&route) || route == "satellite",
+                signin::OPEN.contains(&route)
+                    || ["satellite", "satellite_logo"].contains(&route),
                 "{route}"
             );
         }
@@ -1186,7 +1336,7 @@ mod tests {
     async fn a_satellite_asks_a_shelf_for_the_default_voucher_and_the_site() {
         for (shelf, request_type) in OF_A_SATELLITE {
             let read = of_a_shelf(
-                asking_a_shelf(shelf, request_type, "{}"),
+                asking_a_shelf(shelf, request_type, r#"{"type": "Week"}"#),
                 &satellite(),
             )
             .await;
@@ -1222,7 +1372,7 @@ mod tests {
             r#"{}"#,
             r#"{"type": "Stay", "days": 30, "by": "Anna", "satellite": "Hall"}"#,
         ] {
-            let (read, of) = of_a_shelf(
+            let (read, of, _) = of_a_shelf(
                 asking_a_shelf("issue.counter", "hand_default", sent),
                 &satellite(),
             )
@@ -1242,11 +1392,99 @@ mod tests {
         *request.body_mut() = Body::from(
             r#"{"shelf":"issue.counter","request_type":"hand_default","payload_b64":"not base64"}"#,
         );
-        let (read, _) = of_a_shelf(request, &satellite()).await.unwrap();
+        let (read, _, _) = of_a_shelf(request, &satellite()).await.unwrap();
         assert_eq!(
             given(read).await.2,
             serde_json::json!({ "satellite": "Lobby" })
         );
+        // The PIN a screen typed is taken off the request and given to
+        // the gate to judge: what is handed on to evo carries none, and
+        // nothing else the screen wrote. What is no PIN in words is
+        // none.
+        for (sent, typed) in [
+            (r#"{"pin": "480273"}"#, Some("480273")),
+            (
+                r#"{"pin": "480273", "type": "Stay", "satellite": "Hall"}"#,
+                Some("480273"),
+            ),
+            (r#"{"pin": 480273}"#, None),
+            (r#"{"pin": null}"#, None),
+            (r#"{"PIN": "480273"}"#, None),
+            (r#"{}"#, None),
+        ] {
+            let (read, _, taken) = of_a_shelf(
+                asking_a_shelf("issue.counter", "hand_default", sent),
+                &satellite(),
+            )
+            .await
+            .unwrap();
+            assert_eq!(taken.pin.as_deref(), typed, "{sent}");
+            assert_eq!(taken.named, None, "{sent}");
+            let (_, _, handed_on) = given(read).await;
+            assert_eq!(
+                handed_on,
+                serde_json::json!({ "satellite": "Lobby" }),
+                "{sent}"
+            );
+        }
+        // Nor does a PIN reach evo on anybody else's request for the
+        // default voucher.
+        let (read, _, _) = of_a_shelf(
+            asking_a_shelf(
+                "issue.counter",
+                "hand_default",
+                r#"{"pin": "480273"}"#,
+            ),
+            &administrator_called("Ben"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(given(read).await.2, serde_json::json!({ "by": "Ben" }));
+
+        // A satellite's request for a type that is named is written
+        // anew: the type, the satellite's name, and nothing else its
+        // screen sent. The type and the PIN are taken off for the gate
+        // to judge.
+        let (read, of, taken) = of_a_shelf(
+            asking_a_shelf(
+                "issue.counter",
+                "hand_type",
+                r#"{"type": "Week", "pin": "480273", "days": 30, "by": "Anna", "satellite": "Hall"}"#,
+            ),
+            &satellite(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            of,
+            Some(("issue.counter".to_string(), "hand_type".to_string()))
+        );
+        assert_eq!(
+            taken,
+            Typed {
+                pin: Some("480273".to_string()),
+                named: Some("Week".to_string()),
+            }
+        );
+        assert_eq!(
+            given(read).await.2,
+            serde_json::json!({ "type": "Week", "satellite": "Lobby" })
+        );
+        // One that names no type asks for none.
+        for sent in [r#"{}"#, r#"{"type": 7}"#, r#"{"pin": "480273"}"#] {
+            let refused = of_a_shelf(
+                asking_a_shelf("issue.counter", "hand_type", sent),
+                &satellite(),
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(
+                subclass_of(refused).await,
+                (StatusCode::BAD_REQUEST, "not_as_asked".to_string()),
+                "{sent}"
+            );
+        }
+
         // A person cannot pass for a satellite on a hand-out, nor on
         // the default one.
         for (request_type, sent, written) in [
@@ -1261,7 +1499,7 @@ mod tests {
                 serde_json::json!({ "by": "Ben" }),
             ),
         ] {
-            let (read, _) = of_a_shelf(
+            let (read, _, _) = of_a_shelf(
                 asking_a_shelf("issue.counter", request_type, sent),
                 &administrator_called("Ben"),
             )

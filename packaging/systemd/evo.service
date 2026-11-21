@@ -39,7 +39,7 @@ Environment=EVO_HTTPS_STATIC_DIR=/opt/evo/ui
 # by its name, as Europe/Warsaw. A unit goes by these until an
 # administrator saves a name and a time zone on the page Site; what is
 # saved there stands from then on. Set in a drop-in, or here:
-#Environment="USHER_SITE_NAME=Parish Hall"
+#Environment="USHER_SITE_NAME=Market Hall"
 #Environment=USHER_TIME_ZONE=Europe/Warsaw
 
 # The language the unit speaks, by its tag, as en or de, until one is

@@ -40,6 +40,8 @@ fn the_steward_serves_the_door_the_shell_and_the_widget_pack() {
         format!("/{WIDGETS}/index.js"),
         format!("/{WIDGETS}/controller.js"),
         format!("/{WIDGETS}/counter.js"),
+        format!("/{WIDGETS}/cropper.js"),
+        format!("/{WIDGETS}/plate.js"),
         format!("/{WIDGETS}/networks.js"),
         format!("/{WIDGETS}/reserve.js"),
         format!("/{WIDGETS}/types.js"),
@@ -320,6 +322,66 @@ fn no_shell_is_active_until_the_operator_says_so() {
         refused["error"]["details"]["subclass"], "step_up_required",
         "{refused}"
     );
+    assert_eq!(steward.stop(), Some(0));
+}
+
+#[test]
+fn a_browser_asks_each_time_whether_a_file_of_the_face_is_still_the_same() {
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+
+    // The door, the shell and its scripts, the languages, and the page
+    // of a satellite with what it is made of.
+    for path in [
+        "/".to_string(),
+        "/door.js".to_string(),
+        format!("/{SHELL}/"),
+        format!("/{SHELL}/shell.js"),
+        format!("/{SHELL}/steward.js"),
+        format!("/{SHELL}/words.js"),
+        format!("/{SHELL}/pages.json"),
+        format!("/{SHELL}/lang/languages.json"),
+        format!("/{SHELL}/lang/en.json"),
+        format!("/{SHELL}/lang/de.json"),
+        format!("/{WIDGETS}/index.js"),
+        "/satellite/".to_string(),
+        "/satellite/satellite.js".to_string(),
+        "/satellite/satellite.css".to_string(),
+    ] {
+        // A file is sent with the word that it is asked for each time:
+        // a browser does not go on using its own by guesswork, which
+        // after an update is yesterday's script beside today's page.
+        let (status, sent) = steward.file_sent(&path, &[]);
+        assert_eq!(status, 200, "{path}");
+        assert_eq!(
+            sent("cache-control").as_deref(),
+            Some("no-cache"),
+            "{path}"
+        );
+        let changed = sent("last-modified")
+            .unwrap_or_else(|| panic!("{path} says when it last changed"));
+        // Asked whether it is still the one of that day, the steward
+        // says so and sends nothing again; and says the same word.
+        let (status, sent) =
+            steward.file_sent(&path, &[("If-Modified-Since", &changed)]);
+        assert_eq!(status, 304, "{path}");
+        assert_eq!(
+            sent("cache-control").as_deref(),
+            Some("no-cache"),
+            "{path}"
+        );
+        assert_eq!(sent("content-length").as_deref().unwrap_or("0"), "0");
+    }
+    // A file there is none of is none to keep, and is asked again too.
+    let (status, sent) =
+        steward.file_sent(&format!("/{SHELL}/lang/xx.json"), &[]);
+    assert_eq!(status, 404);
+    assert_eq!(sent("cache-control").as_deref(), Some("no-cache"));
+    // What the usher answers of itself is no file, and is kept nowhere:
+    // the gate leaves that word as it is.
+    let (status, sent) = steward.file_sent("/usher/v1/state", &[]);
+    assert_eq!(status, 200);
+    assert_eq!(sent("cache-control").as_deref(), Some("no-store"));
     assert_eq!(steward.stop(), Some(0));
 }
 

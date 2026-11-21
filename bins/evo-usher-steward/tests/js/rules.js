@@ -251,6 +251,53 @@ hold(
   Array(9).fill(null),
 );
 
+// What the forms of the page say of how a satellite gives a voucher and
+// of the logo it wears, as the usher is asked it.
+hold(
+  "unlocked, whatever was typed",
+  [satellitesPage.lockOf(false, "480273", true), satellitesPage.lockOf(false, "", false)],
+  Array(2).fill({ mode: "unlocked" }),
+);
+hold(
+  "protected by the PIN that was typed",
+  satellitesPage.lockOf(true, " 480273 ", false),
+  { mode: "protected", pin: "480273" },
+);
+hold(
+  "protected with none typed: it keeps the one it has, and is asked for one where it has none",
+  [satellitesPage.lockOf(true, "  ", true), satellitesPage.lockOf(true, "", false)],
+  [{ mode: "protected" }, null],
+);
+hold(
+  "the default type, where the form says so, and whatever is ticked on an unlocked screen",
+  [
+    satellitesPage.typesOf(true, false, ["Week"]),
+    satellitesPage.typesOf(false, true, ["Week"]),
+    satellitesPage.typesOf(false, false, []),
+  ],
+  Array(3).fill({ types: [] }),
+);
+hold(
+  "types of its own, on a protected screen: the ones that are ticked, and one at least",
+  [satellitesPage.typesOf(true, true, ["Day", "Week"]), satellitesPage.typesOf(true, true, [])],
+  [{ types: ["Day", "Week"] }, null],
+);
+hold(
+  "the site's logo: nothing is said, and a logo of its own is taken away",
+  [satellitesPage.logoOf(false, null, false), satellitesPage.logoOf(false, "abc", true)],
+  [{}, { remove_logo: true }],
+);
+hold(
+  "a logo of its own: the picture that was chosen",
+  [satellitesPage.logoOf(true, "abc", false), satellitesPage.logoOf(true, "abc", true)],
+  Array(2).fill({ logo_png_b64: "abc" }),
+);
+hold(
+  "with none chosen it keeps the one it has, and is asked for one where it has none",
+  [satellitesPage.logoOf(true, null, true), satellitesPage.logoOf(true, null, false)],
+  [{}, null],
+);
+
 // When a satellite asks again, and what it shows. Its page starts
 // nothing where there is no screen of its own to draw on.
 const screen = await import("/satellite/satellite.js");
@@ -272,6 +319,76 @@ hold(
 );
 hold("a code as it is shown", [screen.shown("123 456"), screen.shown("123456")], ["123456", "123456"]);
 hold("what is no code", [screen.shown(null), screen.shown(123456)], ["", ""]);
+// A PIN as it is typed on a satellite's keypad.
+hold(
+  "a digit more, where there is room for one",
+  [screen.typedMore("", "4", 12), screen.typedMore("48", "0", 12), screen.typedMore("480273", "9", 6)],
+  ["4", "480", "480273"],
+);
+hold(
+  "what is no digit is not typed",
+  ["x", "10", "", " ", "Enter"].map((key) => screen.typedMore("48", key, 12)),
+  Array(5).fill("48"),
+);
+// Whether a logo stands out from the page, and the plate it is put on
+// where it does not: one rule, for the screen that wears a logo and the
+// page that shows how it will be worn.
+const plates = await import("/org.evoframework.usher.widgets/plate.js");
+hold(
+  "how bright a colour is, and by how much one stands out from another",
+  [
+    plates.brightness(0, 0, 0),
+    plates.brightness(255, 255, 255),
+    Math.round(plates.contrast(0, 1)),
+    plates.contrast(0.4, 0.4),
+  ],
+  [0, 1, 21, 1],
+);
+const logoOf = (width, height, pixel) => {
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) pixels.set(pixel(x, y), (y * width + x) * 4);
+  }
+  return pixels;
+};
+const DARK_PAGE = [10, 14, 20];
+const LIGHT_PAGE = [238, 241, 246];
+const lines = (ink) => logoOf(8, 8, (x, y) => (x % 4 === 0 || y % 4 === 0 ? ink : [0, 0, 0, 0]));
+hold(
+  "dark lines on a dark page are put on a light plate, and light ones stand as they are",
+  [plates.plateFor(lines([20, 20, 24, 255]), DARK_PAGE), plates.plateFor(lines([245, 245, 245, 255]), DARK_PAGE)],
+  ["light", "none"],
+);
+hold(
+  "light lines on a light page are put on a dark plate, and dark ones stand as they are",
+  [plates.plateFor(lines([250, 250, 250, 255]), LIGHT_PAGE), plates.plateFor(lines([20, 20, 24, 255]), LIGHT_PAGE)],
+  ["dark", "none"],
+);
+hold(
+  "a picture that brings a ground of its own stands on it",
+  plates.plateFor(
+    logoOf(8, 8, (x) => (x % 4 === 0 ? [20, 20, 24, 255] : [255, 255, 255, 255])),
+    DARK_PAGE,
+  ),
+  "none",
+);
+hold(
+  "where most of what is drawn is lost on the page, the whole logo is put on a plate",
+  plates.plateFor(
+    logoOf(10, 1, (x) => (x < 6 ? [20, 20, 24, 255] : [200, 30, 30, 255])),
+    DARK_PAGE,
+  ),
+  "light",
+);
+hold(
+  "what is all but clear is not drawn, and a picture with nothing drawn has no plate",
+  [
+    plates.plateFor(logoOf(4, 4, () => [20, 20, 24, 30]), DARK_PAGE),
+    plates.plateFor(logoOf(4, 4, () => [0, 0, 0, 0]), DARK_PAGE),
+    plates.plateFor([], DARK_PAGE),
+  ],
+  ["none", "none", "none"],
+);
 
 // Which shell the door opens.
 hold("no shell active", shellAddress({ active_ui_selection: true }), `/${OWN_SHELL}/`);
@@ -521,32 +638,151 @@ hold(
   ["UTC", true, true],
 );
 hold("a part of a KiB is one", [1, 1024, 1025, 262144].map(sitePage.kib), [1, 1, 2, 256]);
-const bounds = { logo_bytes: 262144, logo_width: 1024, logo_height: 512 };
-const begins = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-const fileOf = (length) => Uint8Array.from({ length }, (_, at) => begins[at] ?? 0);
-hold("a PNG, by its beginning", sitePage.amissFile(fileOf(64), bounds), null);
-hold("the longest a logo is", sitePage.amissFile(fileOf(262144), bounds), null);
+// The cropper: what a picture is kept as, what of it is empty edge, and
+// how its frame is moved and sized.
+const crop = await import("/org.evoframework.usher.widgets/cropper.js");
 hold(
-  "one byte longer",
-  sitePage.amissFile(fileOf(262145), bounds),
-  "This file is 257 KiB. A logo is 256 KiB at most.",
+  "a picture that fits is kept as large as it is",
+  [crop.fitted(300, 84, 1024, 512), crop.fitted(1024, 512, 1024, 512), crop.fitted(1, 1, 1024, 512)],
+  [{ width: 300, height: 84 }, { width: 1024, height: 512 }, { width: 1, height: 1 }],
 );
 hold(
-  "no PNG, whatever it is called",
-  [new TextEncoder().encode("GIF89a, and so on"), new Uint8Array(0), fileOf(7)].map((file) =>
-    sitePage.amissFile(file, bounds),
-  ),
-  Array(3).fill("This file is not a PNG picture. A logo is a PNG file."),
-);
-hold("the largest picture", sitePage.amissPicture(1024, 512, bounds), null);
-hold(
-  "a picture too wide, and one too high",
-  [sitePage.amissPicture(1025, 2, bounds), sitePage.amissPicture(2, 513, bounds)],
+  "one that does not is scaled down, its sides in proportion",
   [
-    "This picture is 1025 by 2 pixels. A logo is 1024 by 512 pixels at most.",
-    "This picture is 2 by 513 pixels. A logo is 1024 by 512 pixels at most.",
+    crop.fitted(1025, 2, 1024, 512),
+    crop.fitted(4000, 3000, 1024, 512),
+    crop.fitted(2048, 512, 1024, 512),
+    crop.fitted(10, 2000, 1024, 512),
+  ],
+  [
+    { width: 1024, height: 2 },
+    { width: 683, height: 512 },
+    { width: 1024, height: 256 },
+    { width: 3, height: 512 },
   ],
 );
+// A picture of so many pixels, each what `pixel` says it is at so far
+// across and so far down.
+const pictureOf = (width, height, pixel) => {
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) pixels.set(pixel(x, y), (y * width + x) * 4);
+  }
+  return pixels;
+};
+const block = (x, y) => x >= 2 && x <= 3 && y >= 1 && y <= 2;
+const CLEAR = [0, 0, 0, 0];
+const INK = [16, 16, 16, 255];
+const PAPER = [255, 255, 255, 255];
+hold(
+  "clear edges are empty",
+  crop.trimmed(pictureOf(6, 4, (x, y) => (block(x, y) ? INK : CLEAR)), 6, 4),
+  { x: 2, y: 1, width: 2, height: 2 },
+);
+hold(
+  "and so are edges of the colour of the corners, near enough",
+  crop.trimmed(
+    pictureOf(6, 4, (x, y) => (block(x, y) ? INK : x === 5 ? [250, 252, 249, 255] : PAPER)),
+    6,
+    4,
+  ),
+  { x: 2, y: 1, width: 2, height: 2 },
+);
+hold(
+  "a picture whose corners are not of one colour has no empty edge",
+  crop.trimmed(pictureOf(6, 4, (x, y) => [x * 40, y * 60, 90, 255]), 6, 4),
+  { x: 0, y: 0, width: 6, height: 4 },
+);
+hold(
+  "one that is empty all over is kept whole",
+  [
+    crop.trimmed(pictureOf(6, 4, () => CLEAR), 6, 4),
+    crop.trimmed(pictureOf(6, 4, () => PAPER), 6, 4),
+  ],
+  Array(2).fill({ x: 0, y: 0, width: 6, height: 4 }),
+);
+hold(
+  "what touches an edge is not trimmed there",
+  crop.trimmed(pictureOf(6, 4, (x, y) => (x <= 3 && y >= 1 ? INK : CLEAR)), 6, 4),
+  { x: 0, y: 1, width: 4, height: 3 },
+);
+const framed = { x: 10, y: 10, width: 20, height: 20 };
+hold(
+  "a frame is moved, and stays within the picture",
+  [
+    crop.moved(framed, 5, -3, 100, 50),
+    crop.moved(framed, -50, 100, 100, 50),
+    crop.moved(framed, 1000, -1000, 100, 50),
+  ],
+  [
+    { x: 15, y: 7, width: 20, height: 20 },
+    { x: 0, y: 30, width: 20, height: 20 },
+    { x: 80, y: 0, width: 20, height: 20 },
+  ],
+);
+hold(
+  "a frame is sized from a corner or an edge: the sides the handle is on move",
+  [
+    crop.sized(framed, "se", 5, 7, 100, 50),
+    crop.sized(framed, "nw", -4, -6, 100, 50),
+    crop.sized(framed, "e", 15, 99, 100, 50),
+    crop.sized(framed, "n", 99, 4, 100, 50),
+  ],
+  [
+    { x: 10, y: 10, width: 25, height: 27 },
+    { x: 6, y: 4, width: 24, height: 26 },
+    { x: 10, y: 10, width: 35, height: 20 },
+    { x: 10, y: 14, width: 20, height: 16 },
+  ],
+);
+hold(
+  "it stays within the picture, and is not made smaller than a frame is",
+  [
+    crop.sized(framed, "se", 1000, 1000, 100, 50),
+    crop.sized(framed, "nw", 1000, 1000, 100, 50),
+    crop.sized(framed, "sw", -1000, -1000, 100, 50),
+    crop.sized({ x: 0, y: 0, width: 4, height: 4 }, "se", -9, -9, 4, 4),
+  ],
+  [
+    { x: 10, y: 10, width: 90, height: 40 },
+    { x: 22, y: 22, width: 8, height: 8 },
+    { x: 0, y: 10, width: 30, height: 8 },
+    { x: 0, y: 0, width: 4, height: 4 },
+  ],
+);
+const opens = (...bytes) => Uint8Array.from([...bytes, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+const asBytes = (text) => new TextEncoder().encode(text);
+hold(
+  "what kind of picture a file is, by how it begins",
+  [
+    opens(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a),
+    opens(0xff, 0xd8, 0xff, 0xe0),
+    asBytes("GIF89a, and so on"),
+    Uint8Array.from([0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4, 0x57, 0x45, 0x42, 0x50]),
+    opens(0x42, 0x4d),
+    asBytes('  <svg xmlns="http://www.w3.org/2000/svg">'),
+    asBytes('<?xml version="1.0"?>\n<SVG width="4">'),
+    asBytes("no picture at all"),
+    new Uint8Array(0),
+  ].map((file) => crop.kindOf(file, "")),
+  [
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "image/bmp",
+    "image/svg+xml",
+    "image/svg+xml",
+    "application/octet-stream",
+    "application/octet-stream",
+  ],
+);
+hold(
+  "a file that says what kind of picture it is, is taken at its word",
+  [crop.kindOf(asBytes("x"), "image/avif"), crop.kindOf(asBytes("x"), "text/plain")],
+  ["image/avif", "application/octet-stream"],
+);
+hold("the page reads a picture of 64 MiB at most", crop.MOST_READ, 64 * 1024 * 1024);
 
 // Which language is spoken: what a person picked on the browser; else,
 // where the site follows a browser, the first of the browser's own that
@@ -563,6 +799,19 @@ hold("a country's own, where it is on offer", words.match("pt-br", offered), "pt
 hold("no country's of another", words.match("pt-PT", offered), null);
 hold("none on offer", words.match("fr", offered), null);
 hold("nothing asked", [words.match(null, offered), words.match("", offered)], [null, null]);
+// A count is said as the country the texts are written for says it: the
+// Portuguese of Portugal says none as it says many, where a browser
+// asked for the bare tag says none as Brazil does, as one.
+hold(
+  "Portuguese counts as Portugal does, and the others as they are named",
+  [words.atHome("pt"), words.atHome("de"), words.atHome("pt-BR")],
+  ["pt-PT", "de", "pt-BR"],
+);
+hold(
+  "none is said as many in the Portuguese of Portugal, and one as one",
+  [0, 1, 2].map((count) => new Intl.PluralRules(words.atHome("pt")).select(count)),
+  ["other", "one", "other"],
+);
 const speaks = (picked, browser, follows, site) =>
   words.best({ picked, browser, follows, site }, offered);
 hold("what was picked, before all else", speaks("de", ["en-GB"], true, "en"), "de");

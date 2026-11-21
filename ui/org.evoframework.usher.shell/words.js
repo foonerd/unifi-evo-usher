@@ -46,6 +46,27 @@ const LANG = new URL("lang/", import.meta.url);
 /** The languages the face speaks. @type {Language[]} */
 let spoken = [{ tag: ENGLISH, name: "English" }];
 
+/**
+ * The country a language's texts are written for, where a browser takes
+ * the bare tag for another's. The texts under `pt` are the Portuguese
+ * of Portugal, which says "0 vouchers" as it says "2 vouchers"; a
+ * browser takes `pt` for Brazil's, which says none as it says one.
+ *
+ * @type {Record<string, string>}
+ */
+const AT_HOME = { pt: "pt-PT" };
+
+/**
+ * A language as the browser's rules of counting and of writing are
+ * asked for it.
+ *
+ * @param {string} of a language, as its tag
+ * @returns {string}
+ */
+export function atHome(of) {
+  return AT_HOME[of] ?? of;
+}
+
 /** The language that is spoken. */
 let tag = ENGLISH;
 
@@ -240,7 +261,8 @@ export function ready() {
     if (named.some((one) => one.tag === ENGLISH)) spoken = named;
     tag = wanted();
     written =
-      browsers().find((liked) => liked.toLowerCase().split("-")[0] === tag.toLowerCase()) ?? tag;
+      browsers().find((liked) => liked.toLowerCase().split("-")[0] === tag.toLowerCase()) ??
+      atHome(tag);
     const [own, fallback] = await Promise.all([
       read(`${tag}.json`),
       tag === ENGLISH ? null : read(`${ENGLISH}.json`),
@@ -329,7 +351,7 @@ function wordsOf(text, values, of) {
   if (text === null || typeof text !== "object") return null;
   let kind = "other";
   try {
-    kind = new Intl.PluralRules(of).select(Number(values[text.by ?? "count"]));
+    kind = new Intl.PluralRules(atHome(of)).select(Number(values[text.by ?? "count"]));
   } catch {
     kind = "other";
   }

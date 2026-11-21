@@ -2179,7 +2179,7 @@ fn people_sign_in_and_out_and_are_looked_after_on_a_page_of_their_own() {
         "add-person-form",
         "The two passwords are not the same.",
     );
-    add(&mut browser, "Ben", "nave", "nave");
+    add(&mut browser, "Ben", "yard", "yard");
     said_in(
         &mut browser,
         "add-person-form",
@@ -2500,6 +2500,109 @@ fn people_sign_in_and_out_and_are_looked_after_on_a_page_of_their_own() {
     browser.wait(
         "the form that sets an usher up",
         r#"document.getElementById("entry")?.open === true && document.getElementById("set-up-form") !== null"#,
+    );
+    assert_eq!(steward.stop(), Some(0));
+}
+
+/// What the dialog a person comes in by holds: whether it is open, what
+/// it says where it says that the people cannot be read, and which ways
+/// in it offers.
+const WAYS_IN: &str = r##"
+    const dialog = document.getElementById("entry");
+    return {
+      open: dialog.open,
+      says: document.querySelector("#people-unread-form [role=alert]")?.textContent ?? null,
+      sign_in: document.getElementById("sign-in-form") !== null,
+      set_up: document.getElementById("set-up-form") !== null,
+      to_type_or_press: dialog.querySelectorAll("input, button").length,
+      widgets: document.querySelectorAll("[data-widget]").length,
+    };
+"##;
+
+#[test]
+fn people_who_cannot_be_read_are_said_so_and_no_way_in_is_offered() {
+    let Some(mut browser) = Browser::open() else {
+        return;
+    };
+    browser.size(1280, 900);
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+    steward.set_up("Anna", PASSWORD);
+    let file = steward.people_file();
+    let whole = std::fs::read(&file).unwrap();
+    let says = "This usher cannot read the list of its people, so nobody \
+                can sign in or set it up. Whoever keeps the unit can put \
+                that right on the unit itself.";
+    let no_way_in = json!({
+        "open": true, "says": says, "sign_in": false, "set_up": false,
+        "to_type_or_press": 0, "widgets": 0,
+    });
+
+    // The form to sign in, as on any day.
+    browser.from(FROM_BEYOND);
+    browser.go(&format!("{}/", steward.address()));
+    browser.wait(
+        "the form to sign in",
+        r#"document.getElementById("entry")?.open === true && document.getElementById("sign-in-form") !== null"#,
+    );
+
+    // The file of the people is cut short under the unit while the form
+    // stands there. Signing in is refused, and the form gives way to
+    // the word that the unit cannot read its people: there is nothing
+    // to type and nothing to press.
+    std::fs::write(&file, &whole[..whole.len() - 7]).unwrap();
+    fill(
+        &mut browser,
+        json!({ "sign-in-name": "Anna", "sign-in-password": PASSWORD }),
+    );
+    browser.act(r#"document.getElementById("sign-in-form").requestSubmit();"#);
+    browser.wait(
+        "the word that the people cannot be read",
+        r#"document.getElementById("people-unread-form") !== null"#,
+    );
+    assert_eq!(browser.look(WAYS_IN), no_way_in);
+
+    // Opened anew, the usher says the same at once, and offers neither
+    // signing in nor setting up.
+    browser.reload();
+    browser.wait(
+        "the word that the people cannot be read",
+        r#"document.getElementById("entry")?.open === true && document.getElementById("people-unread-form") !== null"#,
+    );
+    assert_eq!(browser.look(WAYS_IN), no_way_in);
+
+    // The file is put right on the unit. The page asks the unit again
+    // by itself, and offers signing in as before; Anna signs in.
+    std::fs::write(&file, &whole).unwrap();
+    browser.wait(
+        "the form to sign in again",
+        r#"document.getElementById("sign-in-form") !== null && document.getElementById("people-unread-form") === null"#,
+    );
+    fill(
+        &mut browser,
+        json!({ "sign-in-name": "Anna", "sign-in-password": PASSWORD }),
+    );
+    browser.act(r#"document.getElementById("sign-in-form").requestSubmit();"#);
+    browser.wait(
+        "who is signed in",
+        r#"document.getElementById("entry").open === false && document.getElementById("who-name").textContent === "Anna""#,
+    );
+
+    // Cut short again while she is signed in, the page she works on
+    // gives way to the same word.
+    std::fs::write(&file, &whole[..whole.len() - 7]).unwrap();
+    browser.reload();
+    browser.wait(
+        "the word that the people cannot be read",
+        r#"document.getElementById("entry")?.open === true && document.getElementById("people-unread-form") !== null"#,
+    );
+    assert_eq!(browser.look(WAYS_IN), no_way_in);
+
+    // Taken away, which is the last resort: the usher asks to be set up.
+    std::fs::remove_file(&file).unwrap();
+    browser.wait(
+        "the form that sets an usher up",
+        r#"document.getElementById("set-up-form") !== null && document.getElementById("people-unread-form") === null"#,
     );
     assert_eq!(steward.stop(), Some(0));
 }
@@ -3152,16 +3255,18 @@ fn choose_logo(browser: &mut Browser, name: &str, kind: &str, file: &[u8]) {
     ));
 }
 
-/// A logo made up for the test: an emblem, a disc with a doorway in it,
-/// and two bars where a name would be written, on a clear ground.
+/// A logo made up for the test, of shapes that are nobody's: a disc with
+/// three bars that rise in it, and two bars where a name would be
+/// written, on a clear ground.
 fn made_up_logo() -> Vec<u8> {
     evo_usher_site::png::drawn(300, 84, |across, down| {
         let (across, down) = (across as i32, down as i32);
         let (x, y) = (across - 42, down - 42);
         if x * x + y * y <= 40 * 40 {
-            let doorway = (x.abs() <= 12 && (-6..=26).contains(&y))
-                || x * x + (y + 6) * (y + 6) <= 12 * 12;
-            return if doorway {
+            let bars = ((-20..=-10).contains(&x) && (6..=20).contains(&y))
+                || ((-5..=5).contains(&x) && (-6..=20).contains(&y))
+                || ((10..=20).contains(&x) && (-18..=20).contains(&y));
+            return if bars {
                 [255, 255, 255, 255]
             } else {
                 [14, 124, 134, 255]
@@ -3176,6 +3281,87 @@ fn made_up_logo() -> Vec<u8> {
         [0, 0, 0, 0]
     })
 }
+
+/// Choose a picture in a field for a file, as a person does: one the
+/// page itself draws there and then, so that no picture of anybody's is
+/// kept with the tests. `drawing` is the body of a function that is
+/// given `c`, what a canvas of so many pixels is drawn on, and `width`
+/// and `height`; the picture is given as a file of this name and kind.
+fn choose_drawn(
+    browser: &mut Browser,
+    field: &str,
+    name: &str,
+    kind: &str,
+    (width, height): (u32, u32),
+    drawing: &str,
+) {
+    browser.act(&format!(
+        r#"
+        const sheet = document.createElement("canvas");
+        sheet.width = {width};
+        sheet.height = {height};
+        ((c, width, height) => {{ {drawing} }})(sheet.getContext("2d"), {width}, {height});
+        const file = await new Promise((done) => sheet.toBlob(done, {kind}));
+        const given = new DataTransfer();
+        given.items.add(new File([file], {name}, {{ type: {kind} }}));
+        const field = {field};
+        field.files = given.files;
+        field.dispatchEvent(new Event("change", {{ bubbles: true }}));
+        "#,
+        kind = json!(kind),
+        name = json!(name),
+    ));
+}
+
+/// What a page says will be kept of the picture that was chosen, once
+/// it says so and what it says holds: how wide, how high, and of how
+/// many KiB. `line` is where the page says it; `holds` is asked of
+/// `wide`, `high` and `kib`.
+fn kept_as(browser: &mut Browser, line: &str, holds: &str) -> Value {
+    browser.wait(
+        &format!("what is kept: {holds}"),
+        &format!(
+            r#"(() => {{
+              const said = ({line})?.textContent.match(/^As it will be kept: (\d+) by (\d+) pixels, (\d+) KiB\. It is not saved yet\.$/);
+              if (!said) return null;
+              const [wide, high, kib] = said.slice(1).map(Number);
+              return ({holds}) ? [wide, high, kib] : null;
+            }})()"#
+        ),
+    )
+}
+
+/// The frame of a cropper, as it stands on its picture: how far from
+/// the left and the top, and how wide and high, each in hundredths of
+/// the picture, rounded.
+fn frame_of(browser: &mut Browser, cropper: &str) -> Value {
+    browser.look(&format!(
+        r#"
+        const frame = ({cropper}).querySelector(".usher-crop-frame");
+        return ["left", "top", "width", "height"].map((side) => Math.round(parseFloat(frame.style[side])));
+        "#
+    ))
+}
+
+/// Where a part of the page stands in the window: its middle.
+fn middle_of(browser: &mut Browser, part: &str) -> (f64, f64) {
+    let at = browser.look(&format!(
+        r#"
+        const box = ({part}).getBoundingClientRect();
+        return [box.left + box.width / 2, box.top + box.height / 2];
+        "#
+    ));
+    (at[0].as_f64().unwrap(), at[1].as_f64().unwrap())
+}
+
+/// Where the Site page says what will be kept of a picture, and its
+/// field for a file, and its cropper.
+const SITE_KEPT: &str =
+    r#"widget("usher.site").querySelector(".usher-site-shown > p.usher-hint")"#;
+const SITE_FILE: &str =
+    r#"widget("usher.site").querySelector('input[type="file"]')"#;
+const SITE_CROPPER: &str =
+    r#"widget("usher.site").querySelector(".usher-cropper")"#;
 
 /// What the Site page last said of the logo, once it says this.
 fn logo_said(browser: &mut Browser, words: &str, trouble: bool) {
@@ -3228,7 +3414,7 @@ fn a_site_is_given_its_name_its_time_zone_and_its_logo_from_the_screen() {
     // A unit that was given a name where it was started, as a container
     // is from its Compose file.
     let steward =
-        Steward::start_given(dir.path(), &[("USHER_SITE_NAME", "Parish Hall")]);
+        Steward::start_given(dir.path(), &[("USHER_SITE_NAME", "Market Hall")]);
     let nobody = Caller::beyond();
     let logo = made_up_logo();
 
@@ -3239,12 +3425,12 @@ fn a_site_is_given_its_name_its_time_zone_and_its_logo_from_the_screen() {
     browser.go(&format!("{}/", steward.address()));
     browser.wait(
         "the form that sets an usher up, wearing the site's name",
-        r#"document.getElementById("set-up-form") !== null && document.querySelector('#entry .brand-name')?.textContent === "Parish Hall""#,
+        r#"document.getElementById("set-up-form") !== null && document.querySelector('#entry .brand-name')?.textContent === "Market Hall""#,
     );
-    let worn = json!({ "mark": true, "logo": null, "name": "Parish Hall" });
+    let worn = json!({ "mark": true, "logo": null, "name": "Market Hall" });
     assert_eq!(brand_in(&mut browser, ".bar .brand"), worn);
     assert_eq!(brand_in(&mut browser, "#entry .brand"), worn);
-    assert_eq!(browser.look("return document.title;"), "Parish Hall");
+    assert_eq!(browser.look("return document.title;"), "Market Hall");
 
     // A unit whose controller is set, whose network is chosen, and that
     // has a type to hand out: what is looked at here is the site.
@@ -3318,7 +3504,7 @@ fn a_site_is_given_its_name_its_time_zone_and_its_logo_from_the_screen() {
           file: [file.accept, file.labels[0]?.textContent],
           limits: site.querySelector(".usher-site-logo .usher-hint").textContent,
           shown: site.querySelector(".usher-site-shown").innerText,
-          can: [...site.querySelectorAll("button")].map((b) => [b.textContent, b.disabled]),
+          can: [...site.querySelectorAll("button")].filter(onScreen).map((b) => [b.textContent, b.disabled]),
         };
         "#,
     );
@@ -3327,14 +3513,14 @@ fn a_site_is_given_its_name_its_time_zone_and_its_logo_from_the_screen() {
         json!({
             "heading": "Name, time zone, language and logo",
             "region": ["region", "Name, time zone, language and logo"],
-            "name": ["Parish Hall", 64, "Name"],
+            "name": ["Market Hall", 64, "Name"],
             "zone": ["", "Time zone", [["", "Each browser's own"], ["UTC", "UTC"]]],
             "offers": [true, true],
             "many": true,
             "own": 1,
             "given": "These were given to the unit where it was started. What is saved here takes their place, and stays through a restart.",
-            "file": ["image/png,.png", "Choose a PNG file"],
-            "limits": "A PNG file, 256 KiB at most, its picture 1024 by 512 pixels at most. It stands where the usher's mark does, as high as a line of the bar, so a wide logo with little room around it reads best. One with a clear ground stands on dark pages and on light.",
+            "file": ["image/*,.svg", "Choose a picture"],
+            "limits": "Any picture will do, of any size: PNG, JPEG, WebP, GIF or SVG. Crop it here to what is to be kept; the page makes it small enough, a PNG of 1024 by 512 pixels and 256 KiB at most. It stands where the usher's mark does, as high as a line of the bar, so a wide logo with little room around it reads best. One with a clear ground stands on dark pages and on light.",
             "shown": "No logo is set. The usher wears its own mark.",
             "can": [["Save", false], ["Save the logo", true], ["Remove the logo", true]],
         })
@@ -3346,7 +3532,7 @@ fn a_site_is_given_its_name_its_time_zone_and_its_logo_from_the_screen() {
     browser.act(
         r#"
         const site = widget("usher.site");
-        type(site.querySelector('[name="name"]'), "  St Mary's Hall ");
+        type(site.querySelector('[name="name"]'), "  Weaver's Hall ");
         const zone = site.querySelector('[name="time_zone"]');
         zone.value = "Europe/Warsaw";
         zone.dispatchEvent(new Event("change", { bubbles: true }));
@@ -3373,16 +3559,16 @@ fn a_site_is_given_its_name_its_time_zone_and_its_logo_from_the_screen() {
     assert_eq!(
         saved,
         json!({
-            "name": "St Mary's Hall", "zone": "Europe/Warsaw", "given": null,
-            "at": "Save", "title": "Site - St Mary's Hall",
+            "name": "Weaver's Hall", "zone": "Europe/Warsaw", "given": null,
+            "at": "Save", "title": "Site - Weaver's Hall",
         })
     );
     assert_eq!(
         brand_in(&mut browser, ".bar .brand"),
-        json!({ "mark": true, "logo": null, "name": "St Mary's Hall" })
+        json!({ "mark": true, "logo": null, "name": "Weaver's Hall" })
     );
     let kept = steward.ask("site.settings", "get", json!({}));
-    assert_eq!(kept["name"], "St Mary's Hall", "{kept}");
+    assert_eq!(kept["name"], "Weaver's Hall", "{kept}");
     assert_eq!(kept["time_zone"], "Europe/Warsaw");
     assert_eq!(kept["set_here"], true);
 
@@ -3406,34 +3592,43 @@ fn a_site_is_given_its_name_its_time_zone_and_its_logo_from_the_screen() {
     );
     assert_eq!(
         steward.ask("site.settings", "get", json!({}))["name"],
-        "St Mary's Hall"
+        "Weaver's Hall"
     );
     browser.act(
-        r#"type(widget("usher.site").querySelector('[name="name"]'), "St Mary's Hall");"#,
+        r#"type(widget("usher.site").querySelector('[name="name"]'), "Weaver's Hall");"#,
     );
 
-    // A file that is no logo is refused before it is sent, in the words
-    // the shelf refuses it in, and nothing is there to save: one that is
-    // no PNG whatever it is called, a picture too large, a file too
-    // long.
+    // A file that is no picture is refused before anything is sent, and
+    // nothing is there to save: whatever it is called, and whatever it
+    // says it is.
+    let no_picture = "This file is no picture this browser can show. Choose a PNG, JPEG, WebP, GIF or SVG picture.";
     for (name, kind, file, words) in [
         (
             "logo.png",
             "image/png",
+            b"no picture at all".to_vec(),
+            no_picture,
+        ),
+        (
+            "notes.txt",
+            "text/plain",
+            b"no picture at all".to_vec(),
+            no_picture,
+        ),
+        ("empty.svg", "image/svg+xml", b"<svg".to_vec(), no_picture),
+        // What begins as a picture and holds none, and a picture that is
+        // clear all over: nothing is drawn in either.
+        (
+            "cut.gif",
+            "image/gif",
             b"GIF89a, and so on".to_vec(),
-            "This file is not a PNG picture. A logo is a PNG file.",
+            "Nothing is drawn in this picture.",
         ),
         (
-            "wide.png",
+            "clear.png",
             "image/png",
-            evo_usher_site::png::sample(1025, 2, [0, 0, 0, 255]),
-            "This picture is 1025 by 2 pixels. A logo is 1024 by 512 pixels at most.",
-        ),
-        (
-            "long.png",
-            "image/png",
-            evo_usher_site::png::sample(300, 300, [0, 0, 0, 255]),
-            "This file is 352 KiB. A logo is 256 KiB at most.",
+            evo_usher_site::png::sample(40, 20, [0, 0, 0, 0]),
+            "Nothing is drawn in this picture.",
         ),
     ] {
         choose_logo(&mut browser, name, kind, &file);
@@ -3445,14 +3640,202 @@ fn a_site_is_given_its_name_its_time_zone_and_its_logo_from_the_screen() {
                 return [
                   site.querySelector('input[type="file"]').value,
                   site.querySelector(".usher-looks"),
+                  onScreen(site.querySelector(".usher-cropper")),
                   [...site.querySelectorAll("button")].find((b) => b.textContent === "Save the logo").disabled,
                 ];
                 "#
             ),
-            json!(["", null, true]),
+            json!(["", null, false, true]),
             "{name}"
         );
     }
+
+    // Any picture a browser shows is taken, of whatever kind and size.
+    // It stands in the cropper with a frame on it, and the page makes
+    // what is in the frame small enough itself, and says how large it
+    // will be kept. A picture wider than a logo may be is scaled down
+    // to fit, its sides in proportion.
+    choose_logo(
+        &mut browser,
+        "wide.png",
+        "image/png",
+        &evo_usher_site::png::sample(1025, 2, [0, 0, 0, 255]),
+    );
+    kept_as(&mut browser, SITE_KEPT, "wide === 1024 && high === 2");
+    assert_eq!(
+        browser.look(
+            r#"
+            const site = widget("usher.site");
+            const cropper = site.querySelector(".usher-cropper");
+            const frame = cropper.querySelector(".usher-crop-frame");
+            return {
+              cropper: onScreen(cropper),
+              frame: [frame.tabIndex, frame.getAttribute("role"), frame.getAttribute("aria-label")],
+              told: document.getElementById(frame.getAttribute("aria-describedby")).textContent,
+              can: [...cropper.querySelectorAll("button")].map((b) => b.textContent),
+              looks: site.querySelectorAll(".usher-look img").length,
+              save: [...site.querySelectorAll("button")].find((b) => b.textContent === "Save the logo").disabled,
+            };
+            "#
+        ),
+        json!({
+            "cropper": true,
+            "frame": [0, "group", "The frame: what is inside it is kept"],
+            "told": "Drag the frame to move it, and its corners and edges to size it. With the keyboard: the arrow keys move it, and with Shift held down they size it.",
+            "can": ["Trim the empty edges", "The whole picture"],
+            "looks": 2,
+            "save": false,
+        })
+    );
+    // A photograph as a camera makes one, far larger than a logo and
+    // of every colour, is scaled to fit and then further down, until
+    // its file is no longer than a logo's may be.
+    choose_drawn(
+        &mut browser,
+        SITE_FILE,
+        "photo.png",
+        "image/png",
+        (1600, 800),
+        r#"
+        const pixels = c.createImageData(width, height);
+        for (let at = 0; at < pixels.data.length; at += 65536) {
+          crypto.getRandomValues(pixels.data.subarray(at, at + 65536));
+        }
+        for (let at = 3; at < pixels.data.length; at += 4) pixels.data[at] = 255;
+        c.putImageData(pixels, 0, 0);
+        "#,
+    );
+    let photo = kept_as(
+        &mut browser,
+        SITE_KEPT,
+        "wide < 1024 && high < 512 && kib <= 256 && kib > 64",
+    );
+    let (wide, high) = (photo[0].as_f64().unwrap(), photo[1].as_f64().unwrap());
+    assert!((wide / high - 2.0).abs() < 0.05, "in proportion: {photo}");
+    // A JPEG and a drawing in SVG are taken as a PNG is: what is kept
+    // is a PNG either way, and a drawing is drawn as large as a logo
+    // may be.
+    choose_drawn(
+        &mut browser,
+        SITE_FILE,
+        "photo.jpg",
+        "image/jpeg",
+        (800, 600),
+        r##"
+        const shade = c.createLinearGradient(0, 0, width, height);
+        shade.addColorStop(0, "#084a8a");
+        shade.addColorStop(1, "#f2f2f5");
+        c.fillStyle = shade;
+        c.fillRect(0, 0, width, height);
+        "##,
+    );
+    kept_as(&mut browser, SITE_KEPT, "wide === 683 && high === 512");
+    choose_logo(
+        &mut browser,
+        "mark.svg",
+        "image/svg+xml",
+        br##"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20" viewBox="0 0 40 20"><rect x="4" y="4" width="32" height="12" fill="#084a8a"/></svg>"##,
+    );
+    kept_as(&mut browser, SITE_KEPT, "wide === 1024 && high === 512");
+
+    // The frame: a picture with a clear edge all round is trimmed to
+    // what is drawn in it at the press of a button, and the frame says
+    // where it stands.
+    choose_drawn(
+        &mut browser,
+        SITE_FILE,
+        "logo.png",
+        "image/png",
+        (400, 200),
+        r##"
+        c.fillStyle = "#b3261e";
+        c.fillRect(100, 50, 200, 100);
+        "##,
+    );
+    kept_as(&mut browser, SITE_KEPT, "wide === 400 && high === 200");
+    assert_eq!(
+        frame_of(&mut browser, SITE_CROPPER),
+        json!([0, 0, 100, 100])
+    );
+    browser.act(
+        r#"[...widget("usher.site").querySelectorAll("button")].find((b) => b.textContent === "Trim the empty edges").click();"#,
+    );
+    kept_as(&mut browser, SITE_KEPT, "wide === 200 && high === 100");
+    assert_eq!(
+        frame_of(&mut browser, SITE_CROPPER),
+        json!([25, 25, 50, 50])
+    );
+    assert_eq!(
+        browser.look(r#"return document.activeElement.className;"#),
+        "usher-crop-frame",
+        "whoever trimmed stands at the frame"
+    );
+    // With the keyboard: the arrow keys move the frame, and with Shift
+    // held down they size it, four pixels of this picture at a press.
+    for _ in 0..5 {
+        browser.press("ArrowLeft", true);
+    }
+    for _ in 0..5 {
+        browser.press("ArrowDown", true);
+    }
+    kept_as(&mut browser, SITE_KEPT, "wide === 180 && high === 120");
+    for _ in 0..5 {
+        browser.press("ArrowRight", false);
+        browser.press("ArrowUp", false);
+    }
+    kept_as(&mut browser, SITE_KEPT, "wide === 180 && high === 120");
+    assert_eq!(
+        frame_of(&mut browser, SITE_CROPPER),
+        json!([30, 15, 45, 60])
+    );
+    // It does not leave the picture, however long a key is held.
+    for _ in 0..120 {
+        browser.press("ArrowLeft", false);
+    }
+    assert_eq!(frame_of(&mut browser, SITE_CROPPER), json!([0, 15, 45, 60]));
+    // The whole picture again, at the press of the other button.
+    browser.act(
+        r#"[...widget("usher.site").querySelectorAll("button")].find((b) => b.textContent === "The whole picture").click();"#,
+    );
+    kept_as(&mut browser, SITE_KEPT, "wide === 400 && high === 200");
+    // With the mouse: a corner is dragged to size the frame, and the
+    // frame itself to move it.
+    browser.act(
+        r#"widget("usher.site").querySelector(".usher-cropper").scrollIntoView({ block: "center" });"#,
+    );
+    let shown = browser.look(
+        r#"
+        const box = widget("usher.site").querySelector(".usher-crop-on").getBoundingClientRect();
+        return [box.width, box.height];
+        "#,
+    );
+    assert_eq!(shown, json!([400, 200]), "the picture, as large as it is");
+    let corner = middle_of(
+        &mut browser,
+        r#"widget("usher.site").querySelector(".usher-crop-se")"#,
+    );
+    browser.drag(corner, (corner.0 - 100.0, corner.1 - 50.0));
+    kept_as(&mut browser, SITE_KEPT, "wide === 300 && high === 150");
+    let frame = middle_of(
+        &mut browser,
+        r#"widget("usher.site").querySelector(".usher-crop-frame")"#,
+    );
+    browser.drag(frame, (frame.0 + 40.0, frame.1 + 20.0));
+    browser.wait(
+        "the frame, moved",
+        r#"Math.round(parseFloat(widget("usher.site").querySelector(".usher-crop-frame").style.left)) === 10"#,
+    );
+    assert_eq!(
+        frame_of(&mut browser, SITE_CROPPER),
+        json!([10, 10, 75, 75])
+    );
+    kept_as(&mut browser, SITE_KEPT, "wide === 300 && high === 150");
+    // For the eye: a picture in the cropper, and what will be kept.
+    if let Some(to) = picture_of(Some("site-cropper")) {
+        browser.act("window.scrollTo(0, 0);");
+        browser.picture(&to);
+    }
+    // Nothing of all this was sent, and nothing is kept or worn.
     assert_eq!(
         steward.ask("site.settings", "get", json!({}))["logo"],
         Value::Null
@@ -3518,12 +3901,12 @@ fn a_site_is_given_its_name_its_time_zone_and_its_logo_from_the_screen() {
         looks,
         json!({
             "grounds": [
-                ["On a dark page", "rgb(10, 14, 20)", "St Mary's Hall", "The logo on a dark page", high],
-                ["On a light page", "rgb(255, 255, 255)", "St Mary's Hall", "The logo on a light page", high],
+                ["On a dark page", "rgb(10, 14, 20)", "Weaver's Hall", "The logo on a dark page", high],
+                ["On a light page", "rgb(255, 255, 255)", "Weaver's Hall", "The logo on a light page", high],
             ],
             "bar": high,
             "said": format!(
-                "The file chosen: 300 by 84 pixels, {} KiB. It is not saved yet.",
+                "As it will be kept: 300 by 84 pixels, {} KiB. It is not saved yet.",
                 logo.len().div_ceil(1024)
             ),
             "save": false,
@@ -3546,7 +3929,7 @@ fn a_site_is_given_its_name_its_time_zone_and_its_logo_from_the_screen() {
         r#"document.querySelector(".bar .brand img.brand-logo")?.naturalWidth === 300"#,
     );
     let in_the_bar = json!({
-        "mark": false, "logo": [true, true, 300, 84, ""], "name": "St Mary's Hall",
+        "mark": false, "logo": [true, true, 300, 84, ""], "name": "Weaver's Hall",
     });
     assert_eq!(brand_in(&mut browser, ".bar .brand"), in_the_bar);
     assert_eq!(
@@ -3556,7 +3939,7 @@ fn a_site_is_given_its_name_its_time_zone_and_its_logo_from_the_screen() {
             return [
               Math.round(document.querySelector(".bar .brand img.brand-logo").getBoundingClientRect().height),
               site.querySelector(".usher-site-shown > p.usher-hint").textContent,
-              [...site.querySelectorAll("button")].map((b) => [b.textContent, b.disabled]),
+              [...site.querySelectorAll("button")].filter(onScreen).map((b) => [b.textContent, b.disabled]),
             ];
             "#
         ),
@@ -3579,7 +3962,7 @@ fn a_site_is_given_its_name_its_time_zone_and_its_logo_from_the_screen() {
     assert_eq!(
         state["site"],
         json!({
-            "name": "St Mary's Hall",
+            "name": "Weaver's Hall",
             "logo": { "png_b64": carried, "width": 300, "height": 84 },
             "language": "en", "follows_browser": false,
         })
@@ -3651,7 +4034,7 @@ fn a_site_is_given_its_name_its_time_zone_and_its_logo_from_the_screen() {
         before_the_guest,
         json!({
             "first": "usher-host", "logo": [true, true, 300, ""],
-            "name": "St Mary's Hall", "then": "Wi-Fi: Guests",
+            "name": "Weaver's Hall", "then": "Wi-Fi: Guests",
         })
     );
     // For the eye: the voucher as the guest is shown it at this place.
@@ -3786,7 +4169,7 @@ fn a_site_is_given_its_name_its_time_zone_and_its_logo_from_the_screen() {
         browser.look(
             r#"return [document.title, document.querySelectorAll("[data-widget]").length, sessionStorage.getItem("evoBearer"), localStorage.getItem("evoBearer")];"#
         ),
-        json!(["St Mary's Hall", 0, null, null])
+        json!(["Weaver's Hall", 0, null, null])
     );
     browser.reload();
     browser.wait(
@@ -3844,7 +4227,7 @@ fn a_site_is_given_its_name_its_time_zone_and_its_logo_from_the_screen() {
     );
     assert_eq!(
         brand_in(&mut browser, ".bar .brand"),
-        json!({ "mark": true, "logo": null, "name": "St Mary's Hall" })
+        json!({ "mark": true, "logo": null, "name": "Weaver's Hall" })
     );
     assert_eq!(
         browser.look(
@@ -3852,7 +4235,7 @@ fn a_site_is_given_its_name_its_time_zone_and_its_logo_from_the_screen() {
             const site = widget("usher.site");
             return [
               site.querySelector(".usher-site-shown").innerText,
-              [...site.querySelectorAll("button")].map((b) => [b.textContent, b.disabled]),
+              [...site.querySelectorAll("button")].filter(onScreen).map((b) => [b.textContent, b.disabled]),
             ];
             "#
         ),
@@ -3869,9 +4252,54 @@ fn a_site_is_given_its_name_its_time_zone_and_its_logo_from_the_screen() {
     assert_eq!(
         state["site"],
         json!({
-            "name": "St Mary's Hall", "logo": null,
+            "name": "Weaver's Hall", "logo": null,
             "language": "en", "follows_browser": false,
         })
+    );
+
+    // A picture that was cropped is saved as the page made it: a PNG
+    // the unit takes for a logo, of what was in the frame, and worn at
+    // once.
+    choose_drawn(
+        &mut browser,
+        SITE_FILE,
+        "logo.png",
+        "image/png",
+        (400, 200),
+        r##"
+        c.fillStyle = "#b3261e";
+        c.fillRect(100, 50, 200, 100);
+        "##,
+    );
+    kept_as(&mut browser, SITE_KEPT, "wide === 400 && high === 200");
+    browser.act(&press("Trim the empty edges"));
+    kept_as(&mut browser, SITE_KEPT, "wide === 200 && high === 100");
+    browser.act(&press("Save the logo"));
+    logo_said(&mut browser, "The logo is saved.", false);
+    browser.wait(
+        "the cropped logo in the bar",
+        r#"document.querySelector(".bar .brand img.brand-logo")?.naturalWidth === 200"#,
+    );
+    let kept = steward.ask("site.settings", "get", json!({}));
+    assert_eq!(
+        (&kept["logo"]["width"], &kept["logo"]["height"]),
+        (&json!(200), &json!(100)),
+        "{kept}"
+    );
+    let file = base64::engine::general_purpose::STANDARD
+        .decode(kept["logo"]["png_b64"].as_str().unwrap())
+        .unwrap();
+    let read = evo_usher_site::png::read(&file).expect("a PNG, whole");
+    assert_eq!((read.width, read.height), (200, 100));
+    assert_eq!(
+        browser.look(
+            r#"
+            const site = widget("usher.site");
+            return [onScreen(site.querySelector(".usher-cropper")), site.querySelector('input[type="file"]').value];
+            "#
+        ),
+        json!([false, ""]),
+        "saved, the cropper is put away"
     );
     assert_eq!(steward.stop(), Some(0));
 }
@@ -4951,4 +5379,731 @@ fn the_door_opens_the_shell_the_steward_says_is_active() {
         r#"location.pathname !== "/" && location.pathname"#,
     );
     assert_eq!(then, "/org.example.other/");
+}
+
+#[test]
+fn a_protected_screen_asks_for_its_pin_wears_its_logo_and_gives_its_types() {
+    let Some(mut browser) = Browser::open() else {
+        return;
+    };
+    browser.size(1280, 900);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let simulated = runtime.block_on(Simulated::start());
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+    let anna = signed_in_already(&mut browser, &steward);
+
+    // The unit as its administrator leaves it: three voucher types, of
+    // which the first is the default and the last has days to choose,
+    // the controller set, a network chosen.
+    let ask = |shelf: &str, request: &str, payload: Value| {
+        let (status, said) = steward.ask_status(&anna, shelf, request, payload);
+        assert_eq!(status, 200, "{shelf} {request}: {said}");
+        said
+    };
+    for kind in [
+        json!({ "name": "Day guest", "minutes": 1440, "guests": 1 }),
+        json!({ "name": "Week", "minutes": 10080, "guests": 2 }),
+        json!({ "name": "Contractor", "minutes": 43200, "up_to_days": true }),
+    ] {
+        ask("issue.counter", "put_type", kind);
+    }
+    let presented = ask(
+        "access.controller",
+        "probe",
+        json!({ "base": simulated.base() }),
+    );
+    ask(
+        "access.controller",
+        "set",
+        json!({
+            "base": simulated.base(), "key": simulated.key(),
+            "fingerprint": presented["fingerprint"],
+        }),
+    );
+    let networks = ask("networks.directory", "networks", json!({}));
+    let guests = networks["sites"][0]["networks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|network| network["name"] == "Guests")
+        .expect("the simulated controller has a Guests network")["id"]
+        .clone();
+    ask(
+        "networks.directory",
+        "choose",
+        json!({ "site": simulated.site(), "network": guests }),
+    );
+    let set = |change: Value| {
+        let (status, said) =
+            steward.usher("POST", "set_satellite", Some(change), &anna);
+        assert_eq!(status, 200, "{said}");
+    };
+
+    // A screen that is no satellite shows its code.
+    let screen = format!("{}/satellite/", steward.address());
+    let shell = format!("{}/", steward.address());
+    browser.go(&screen);
+    let code = browser
+        .wait(
+            "the code",
+            r###"/^\d{6}$/.test(document.getElementById("satellite-code")?.textContent ?? "") && document.getElementById("satellite-code").textContent"###,
+        )
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // The form a screen is adopted by asks how it gives a voucher, the
+    // voucher types it gives, and the logo it wears. With nothing said
+    // it is unlocked, gives the default type and wears the site's logo;
+    // types of its own are offered only once it is protected, and the
+    // form says why.
+    browser.go(&shell);
+    go_to(&mut browser, "Satellites");
+    browser.wait(
+        "no satellite yet",
+        r###"onScreen(document.getElementById("satellites-none"))"###,
+    );
+    browser.act(r###"document.getElementById("adopt-satellite").click();"###);
+    browser.wait(
+        "the types on offer, to tick",
+        r###"document.getElementById("adopt-satellite-type-0") !== null"###,
+    );
+    let stands = r###"
+        const part = (id) => document.getElementById(`adopt-satellite-${id}`);
+        return {
+          chosen: ["unlocked", "protected", "types-default", "types-own", "logo-sites", "logo-own"]
+            .filter((id) => part(id).checked),
+          pin: onScreen(part("pin")),
+          own_types: [part("types-own").disabled, onScreen(part("types-part")), onScreen(part("types-locked"))],
+          logo: onScreen(part("logo-file")),
+        };
+    "###;
+    assert_eq!(
+        browser.look(stands),
+        json!({
+            "chosen": ["unlocked", "types-default", "logo-sites"],
+            "pin": false,
+            "own_types": [true, false, true],
+            "logo": false,
+        })
+    );
+    assert_eq!(
+        browser.look(
+            r###"
+            const form = document.getElementById("adopt-satellite-form");
+            return [...form.querySelectorAll("legend")].map((legend) => legend.textContent)
+              .concat(document.getElementById("adopt-satellite-types-locked").textContent);
+            "###
+        ),
+        json!([
+            "How it gives a voucher",
+            "Voucher types it gives",
+            "Logo on the screen",
+            "Types of its own are a protected screen's. An unlocked one gives the default type alone, so that a voucher for longer is not there for whoever walks past.",
+        ])
+    );
+    fill(
+        &mut browser,
+        json!({
+            "adopt-satellite-code": code,
+            "adopt-satellite-name": "Ward 4",
+            "adopt-satellite-place": "Third floor",
+        }),
+    );
+    // Protected: a PIN is asked, and held to what a typed PIN is held
+    // to; what is wrong with it is said on the form, and the form
+    // stays.
+    let choose = |id: &str| {
+        format!(
+            r###"document.getElementById("adopt-satellite-{id}").click();"###
+        )
+    };
+    let send = r###"document.getElementById("adopt-satellite-form").requestSubmit();"###;
+    browser.act(&choose("protected"));
+    assert_eq!(
+        browser.look(stands),
+        json!({
+            "chosen": ["protected", "types-default", "logo-sites"],
+            "pin": true,
+            "own_types": [false, false, false],
+            "logo": false,
+        })
+    );
+    assert_eq!(
+        browser.look(
+            r###"return document.querySelector("#adopt-satellite-pin-part .hint").textContent;"###
+        ),
+        "6 to 12 digits. Not one digit or one group of digits repeated, and not digits that count up or down. Whoever looks after the screen types it for each voucher. It is shown to nobody once it is saved."
+    );
+    browser.act(send);
+    said_in(
+        &mut browser,
+        "adopt-satellite-form",
+        "Type a PIN for the screen.",
+    );
+    fill(&mut browser, json!({ "adopt-satellite-pin": "123456" }));
+    browser.act(send);
+    said_in(
+        &mut browser,
+        "adopt-satellite-form",
+        "A PIN is not digits that count up or down.",
+    );
+    fill(&mut browser, json!({ "adopt-satellite-pin": "480273" }));
+
+    // Types of its own: the types on offer that have nothing to choose,
+    // in the counter's order, each with what it gives; one is ticked at
+    // least.
+    browser.act(&choose("types-own"));
+    let offered = browser.look(
+        r###"
+        const part = document.getElementById("adopt-satellite-types-part");
+        return [onScreen(part), [...part.querySelectorAll("label.check")].map((label) => label.textContent)];
+        "###,
+    );
+    assert_eq!(offered[0], true);
+    let ticks: Vec<String> = offered[1]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|label| label.as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(ticks.len(), 2, "{ticks:?}");
+    assert_eq!(ticks[0], "Day guest: 1 day; one device");
+    let week_gives = ticks[1]
+        .strip_prefix("Week: ")
+        .unwrap_or_else(|| panic!("{ticks:?}"))
+        .to_string();
+    browser.act(send);
+    said_in(
+        &mut browser,
+        "adopt-satellite-form",
+        "Tick a voucher type, or let the screen give the default.",
+    );
+    browser.act(&choose("type-0"));
+    browser.act(&choose("type-1"));
+
+    // A logo of its own: any picture, cropped on the form. This one is
+    // dark lines on a clear ground, as tall as it is wide and with room
+    // around it, which is trimmed off.
+    browser.act(&choose("logo-own"));
+    browser.act(send);
+    said_in(
+        &mut browser,
+        "adopt-satellite-form",
+        "Choose a picture for the logo, or let the screen wear the site's.",
+    );
+    let form_kept = r###"document.querySelector("#adopt-satellite-form .satellites-logo-shown > p.hint")"###;
+    choose_drawn(
+        &mut browser,
+        r###"document.getElementById("adopt-satellite-logo-file")"###,
+        "logo.png",
+        "image/png",
+        (360, 320),
+        r##"
+        c.fillStyle = "#16181d";
+        c.fillRect(80, 200, 40, 80);
+        c.fillRect(160, 120, 40, 160);
+        c.fillRect(240, 40, 40, 240);
+        "##,
+    );
+    kept_as(&mut browser, form_kept, "wide === 360 && high === 320");
+    browser.act(
+        r###"document.querySelector("#adopt-satellite-form .usher-crop-trim").click();"###,
+    );
+    kept_as(&mut browser, form_kept, "wide === 200 && high === 240");
+    // It is shown as the screen will wear it: on a dark page such a
+    // logo is put on a light plate, and on a light one it stands as it
+    // is.
+    browser.wait(
+        "the logo as the screen will wear it",
+        r###"[...document.querySelectorAll("#adopt-satellite-form .usher-look-plate")].map((plate) => plate.dataset.plate).join() === "light,none""###,
+    );
+    assert_eq!(
+        browser.look(
+            r###"
+            const form = document.getElementById("adopt-satellite-form");
+            return [...form.querySelectorAll(".usher-look-alone img")].map((img) => [img.naturalWidth, img.alt]);
+            "###
+        ),
+        json!([
+            [200, "The logo on a dark page"],
+            [200, "The logo on a light page"]
+        ])
+    );
+    // For the eye: the form a screen is adopted by.
+    if let Some(to) = picture_of(Some("satellites-adopt-protected")) {
+        browser.act("window.scrollTo(0, 0);");
+        browser.picture(&to);
+    }
+    browser.act(send);
+    browser.wait(
+        "the satellite in the list",
+        r###"document.querySelector(".satellites-said")?.textContent === "Ward 4 is a satellite now.""###,
+    );
+    assert_eq!(
+        browser.look(
+            r###"
+            const row = document.querySelector(".satellites-list li");
+            return [
+              row.querySelector(".satellites-name").textContent,
+              row.querySelector(".satellites-locked")?.textContent ?? null,
+              row.querySelector(".satellites-told").textContent,
+            ];
+            "###
+        ),
+        json!([
+            "Ward 4",
+            "protected",
+            "Third floor. Not seen since the usher was started. This hour: 0 of 20 vouchers. Gives: Day guest, Week. A logo of its own",
+        ])
+    );
+    let (_, told) = steward.usher("GET", "satellites", None, &anna);
+    let kept = &told["satellites"][0];
+    let id = kept["id"].as_str().unwrap().to_string();
+    assert_eq!(
+        (
+            &kept["mode"],
+            &kept["types"],
+            &kept["logo"]["width"],
+            &kept["logo"]["height"]
+        ),
+        (
+            &json!("protected"),
+            &json!(["Day guest", "Week"]),
+            &json!(200),
+            &json!(240)
+        ),
+        "{kept}"
+    );
+
+    // The screen is a satellite now. It wears its logo large, above
+    // its buttons, on a plate where the page would swallow it, and no
+    // name of the site beside it; and it shows a button for each of its
+    // types, with what the type gives.
+    browser.go(&screen);
+    browser.wait(
+        "the screen under its logo",
+        r###"document.querySelectorAll(".satellite-type").length === 2 && document.querySelector("#satellite-logo img")?.naturalWidth === 200"###,
+    );
+    let worn = r###"
+        const logo = document.getElementById("satellite-logo");
+        const picture = logo.querySelector("img");
+        const ground = getComputedStyle(document.body).backgroundColor.match(/\d+/g).map(Number);
+        const box = picture?.getBoundingClientRect();
+        return {
+          logo: picture === null ? null : [onScreen(picture), picture.naturalWidth, picture.naturalHeight, picture.alt],
+          // As tall as it is wide, it stands tall: no line of a bar.
+          tall: box ? box.height > 150 && Math.abs(box.width / box.height - picture.naturalWidth / picture.naturalHeight) < 0.02 : null,
+          above: box ? box.bottom <= document.getElementById("satellite-press").getBoundingClientRect().top : null,
+          plate: logo.dataset.plate ?? null,
+          dark_page: ground[0] + ground[1] + ground[2] < 200,
+          brand: onScreen(document.querySelector(".bar .brand")),
+          fetched: performance.getEntriesByType("resource").filter((one) => one.name.includes("/usher/v1/satellite_logo")).length,
+        };
+    "###;
+    let wears = browser.look(worn);
+    let dark_page = wears["dark_page"].as_bool().unwrap();
+    assert_eq!(
+        wears,
+        json!({
+            "logo": [true, 200, 240, "Logo"],
+            "tall": true,
+            "above": true,
+            // Dark lines: on a dark page they are put on a light plate,
+            // and on a light one they stand as they are.
+            "plate": if dark_page { "light" } else { "none" },
+            "dark_page": dark_page,
+            "brand": false,
+            "fetched": 1,
+        })
+    );
+    assert_eq!(
+        browser.look(
+            r###"
+            return [
+              document.querySelector("#satellite-press .satellite-title").textContent,
+              [...document.querySelectorAll(".satellite-type")].map((button) => [
+                button.dataset.type,
+                button.querySelector(".satellite-type-name").textContent,
+                button.querySelector(".satellite-type-gives").textContent,
+              ]),
+              document.getElementById("screen").dataset.shows,
+            ];
+            "###
+        ),
+        json!([
+            "Choose a Wi-Fi voucher",
+            [
+                ["Day guest", "Day guest", "1 day; one device"],
+                ["Week", "Week", week_gives],
+            ],
+            "button",
+        ])
+    );
+    // For the eye: a screen under a logo of its own, with its types.
+    if let Some(to) = picture_of(Some("satellite-types")) {
+        browser.picture(&to);
+    }
+    // It says that it is there as often as it likes: the picture is
+    // fetched once, by its stamp, and what it is told each time is a
+    // few hundred bytes.
+    let asked = r###"performance.getEntriesByType("resource").filter((one) => one.name.endsWith("/usher/v1/satellite")).length"###;
+    for _ in 0..3 {
+        let before = browser.look(&format!("return {asked};"));
+        browser.act(
+            r###"document.dispatchEvent(new Event("visibilitychange"));"###,
+        );
+        browser.wait(
+            "the screen said that it is there",
+            &format!("{asked} > {before}"),
+        );
+    }
+    assert_eq!(browser.look(worn)["fetched"], 1);
+
+    // A type is pressed, and the keypad stands on the screen: the
+    // digits as on a telephone, a key to take one back and one to
+    // confirm, each large enough for a finger. What is typed is shown
+    // as dots.
+    browser.act(
+        r###"document.querySelector('.satellite-type[data-type="Week"]').click();"###,
+    );
+    browser.wait(
+        "the keypad",
+        r###"document.getElementById("satellite-pin") !== null"###,
+    );
+    let keypad = r###"
+        const pad = document.getElementById("satellite-pin");
+        const keys = [...pad.querySelectorAll(".satellite-key")];
+        const typed = document.getElementById("satellite-pin-typed");
+        return {
+          title: pad.querySelector("h1").textContent,
+          keys: keys.map((key) => key.textContent),
+          finger: keys.every((key) => { const box = key.getBoundingClientRect(); return box.width >= 44 && box.height >= 44; }),
+          dots: typed.querySelectorAll(".satellite-pin-dot").length,
+          typed: [typed.getAttribute("role"), typed.getAttribute("aria-label"), typed.textContent],
+          ok: document.getElementById("satellite-key-ok").disabled,
+          said: document.getElementById("satellite-said").textContent,
+          shows: document.getElementById("screen").dataset.shows,
+        };
+    "###;
+    assert_eq!(
+        browser.look(keypad),
+        json!({
+            "title": "Type the PIN of this screen",
+            "keys": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "Delete", "0", "OK"],
+            "finger": true,
+            "dots": 0,
+            "typed": ["img", "0 digits typed", ""],
+            "ok": true,
+            "said": "",
+            "shows": "pin",
+        })
+    );
+    // With a finger: six digits, one taken back, one more, and OK. It
+    // is not the screen's PIN, and the keypad says so and is empty
+    // again.
+    let key = |key: &str| {
+        format!(
+            r###"document.getElementById("satellite-key-{key}").click();"###
+        )
+    };
+    for _ in 0..6 {
+        browser.act(&key("1"));
+    }
+    let typed = browser.look(keypad);
+    assert_eq!(
+        (&typed["dots"], &typed["typed"], &typed["ok"]),
+        (
+            &json!(6),
+            &json!(["img", "6 digits typed", ""]),
+            &json!(false)
+        )
+    );
+    browser.act(&key("delete"));
+    let typed = browser.look(keypad);
+    assert_eq!(
+        (&typed["dots"], &typed["typed"][1], &typed["ok"]),
+        (&json!(5), &json!("5 digits typed"), &json!(true))
+    );
+    browser.act(&key("2"));
+    browser.act(&key("ok"));
+    browser.wait(
+        "a wrong PIN, said on the keypad",
+        r###"document.getElementById("satellite-pin") !== null && document.getElementById("satellite-said")?.textContent === "That is not the PIN of this screen.""###,
+    );
+    assert_eq!(browser.look(keypad)["dots"], 0);
+    // With a keyboard, where the screen has one: the digits, the key
+    // that takes one back, and Enter. The right PIN gives the voucher
+    // of the type that was pressed.
+    for digit in ["4", "8", "0", "2"] {
+        browser.press(digit, false);
+    }
+    assert_eq!(browser.look(keypad)["dots"], 4);
+    // For the eye: the keypad, with four digits typed.
+    if let Some(to) = picture_of(Some("satellite-keypad")) {
+        browser.picture(&to);
+    }
+    browser.press("9", false);
+    browser.press("Backspace", false);
+    for digit in ["7", "3"] {
+        browser.press(digit, false);
+    }
+    assert_eq!(browser.look(keypad)["typed"][1], "6 digits typed");
+    browser.press("Enter", false);
+    browser.wait(
+        "the voucher",
+        r###"document.getElementById("satellite-voucher") !== null"###,
+    );
+    assert_eq!(
+        browser.look(
+            r###"
+            const shown = document.getElementById("satellite-voucher");
+            return [
+              shown.querySelector(".usher-hint").textContent,
+              /^\d{5}-\d{5}$/.test(shown.querySelector(".usher-voucher").textContent),
+              onScreen(document.querySelector("#satellite-logo img")),
+              document.getElementById("satellite-pin"),
+            ];
+            "###
+        ),
+        json!([week_gives, true, true, null])
+    );
+    // The record names the screen and the type, and nothing of a PIN.
+    let (_, record) =
+        steward.ask_status(&anna, "issue.counter", "handed", json!({}));
+    assert_eq!(
+        (
+            &record["handed"][0]["type"],
+            &record["handed"][0]["satellite"]
+        ),
+        (&json!("Week"), &json!("Ward 4")),
+        "{record}"
+    );
+    assert!(!record.to_string().contains("480273"), "{record}");
+    browser.act(r###"document.getElementById("satellite-done").click();"###);
+    browser.wait(
+        "the buttons again",
+        r###"document.querySelectorAll(".satellite-type").length === 2"###,
+    );
+    // Escape leaves the keypad, and nothing is asked.
+    browser.act(
+        r###"document.querySelector('.satellite-type[data-type="Day guest"]').click();"###,
+    );
+    browser.wait(
+        "the keypad again",
+        r###"document.getElementById("satellite-pin") !== null"###,
+    );
+    browser.press("Escape", false);
+    browser.wait(
+        "the buttons, with nothing asked",
+        r###"document.getElementById("satellite-pin") === null && document.querySelectorAll(".satellite-type").length === 2"###,
+    );
+
+    // Where the satellite is changed, the form says what it has: that
+    // it is protected, the types that are ticked, and the logo, which
+    // is shown. Saved with no PIN typed, it keeps the PIN it has.
+    browser.go(&shell);
+    go_to(&mut browser, "Satellites");
+    browser.wait(
+        "the satellite's row",
+        r###"document.querySelectorAll(".satellites-list li button").length === 3"###,
+    );
+    browser.act(
+        r###"[...document.querySelectorAll(".satellites-list li button")].find((button) => button.textContent === "Change").click();"###,
+    );
+    browser.wait(
+        "the form, with the logo it has",
+        r###"document.getElementById("change-satellite-type-1") !== null && document.querySelectorAll("#change-satellite-form .usher-look-alone img").length === 2 && [...document.querySelectorAll("#change-satellite-form .usher-look-alone img")].every((img) => img.complete && img.naturalWidth === 200)"###,
+    );
+    assert_eq!(
+        browser.look(
+            r###"
+            const part = (id) => document.getElementById(`change-satellite-${id}`);
+            return {
+              chosen: ["unlocked", "protected", "types-default", "types-own", "logo-sites", "logo-own", "type-0", "type-1"]
+                .filter((id) => part(id).checked),
+              pin: [part("pin").value, document.querySelector("#change-satellite-pin-part .hint").textContent.endsWith("Leave it empty to keep the PIN the screen has.")],
+              has: document.querySelector("#change-satellite-form .satellites-logo-shown > p.hint").textContent.replace(/\d+ KiB/, "n KiB"),
+            };
+            "###
+        ),
+        json!({
+            "chosen": ["protected", "types-own", "logo-own", "type-0", "type-1"],
+            "pin": ["", true],
+            "has": "The logo it has: 200 by 240 pixels, n KiB. Choose a picture to give it another.",
+        })
+    );
+    browser.act(
+        r###"document.getElementById("change-satellite-form").requestSubmit();"###,
+    );
+    browser.wait(
+        "changed, as it was",
+        r###"document.querySelector(".satellites-said")?.textContent === "Ward 4 is changed.""###,
+    );
+    let (_, told) = steward.usher("GET", "satellites", None, &anna);
+    assert_eq!(
+        (
+            &told["satellites"][0]["mode"],
+            &told["satellites"][0]["types"],
+            &told["satellites"][0]["logo"]["width"]
+        ),
+        (
+            &json!("protected"),
+            &json!(["Day guest", "Week"]),
+            &json!(200)
+        ),
+        "{told}"
+    );
+    // Unlocked on the form, it gives the default: types of its own are
+    // not offered, and are not kept.
+    browser.act(
+        r###"[...document.querySelectorAll(".satellites-list li button")].find((button) => button.textContent === "Change").click();"###,
+    );
+    browser.wait(
+        "the form again",
+        r###"document.getElementById("change-satellite-type-1") !== null"###,
+    );
+    browser.act(
+        r###"document.getElementById("change-satellite-unlocked").click();"###,
+    );
+    assert_eq!(
+        browser.look(
+            r###"
+            const part = (id) => document.getElementById(`change-satellite-${id}`);
+            return [part("types-default").checked, part("types-own").disabled, onScreen(part("types-part")), onScreen(part("types-locked")), onScreen(part("pin"))];
+            "###
+        ),
+        json!([true, true, false, true, false])
+    );
+    browser.act(
+        r###"document.getElementById("change-satellite-form").requestSubmit();"###,
+    );
+    browser.wait(
+        "changed, to unlocked",
+        r###"document.querySelector(".satellites-said")?.textContent === "Ward 4 is changed." && document.querySelector(".satellites-locked") === null"###,
+    );
+    assert_eq!(
+        browser.look(
+            r###"return document.querySelector(".satellites-told").textContent.includes("Gives:");"###
+        ),
+        false
+    );
+
+    // The change reaches the screen the next time it says that it is
+    // there, with nothing done at the screen: one button, and a
+    // voucher of the default type at its press, with no keypad.
+    browser.go(&screen);
+    browser.wait(
+        "one button",
+        r###"document.querySelector("button#satellite-press")?.textContent === "Get a Wi-Fi voucher""###,
+    );
+    browser.act(r###"document.getElementById("satellite-press").click();"###);
+    browser.wait(
+        "the default voucher, with no PIN asked",
+        r###"document.getElementById("satellite-voucher")?.querySelector(".usher-hint")?.textContent === "1 day; one device""###,
+    );
+    browser.act(r###"document.getElementById("satellite-done").click();"###);
+    browser.wait(
+        "the button again",
+        r###"document.querySelector("button#satellite-press") !== null"###,
+    );
+    // Protected again while the screen stands there: it learns so the
+    // next time it says that it is there, and asks for its PIN.
+    set(json!({ "id": id, "mode": "protected", "pin": "902746" }));
+    let before = browser.look(&format!("return {asked};"));
+    browser
+        .act(r###"document.dispatchEvent(new Event("visibilitychange"));"###);
+    browser.wait("the screen asked again", &format!("{asked} > {before}"));
+    browser.act(r###"document.getElementById("satellite-press").click();"###);
+    browser.wait(
+        "the keypad, on a screen that was just protected",
+        r###"document.getElementById("satellite-pin") !== null"###,
+    );
+    browser.press("Escape", false);
+    browser.wait(
+        "the button",
+        r###"document.querySelector("button#satellite-press") !== null"###,
+    );
+    // And where it has not asked since, the usher's refusal tells it:
+    // pressed, it shows the keypad all the same.
+    set(json!({ "id": id, "mode": "unlocked" }));
+    let before = browser.look(&format!("return {asked};"));
+    browser
+        .act(r###"document.dispatchEvent(new Event("visibilitychange"));"###);
+    browser.wait("the screen asked again", &format!("{asked} > {before}"));
+    set(json!({ "id": id, "mode": "protected", "pin": "902746" }));
+    browser.act(r###"document.getElementById("satellite-press").click();"###);
+    browser.wait(
+        "the keypad, on a screen that has not asked since",
+        r###"document.getElementById("satellite-pin") !== null"###,
+    );
+    // Five wrong PINs in a row: the screen's PIN is held, and the
+    // screen says for how long, on its button.
+    for _ in 0..5 {
+        for _ in 0..6 {
+            browser.press("5", false);
+        }
+        browser.press("Enter", false);
+        browser.wait(
+            "a wrong PIN",
+            r###"document.getElementById("satellite-said")?.textContent === "That is not the PIN of this screen." && document.querySelectorAll(".satellite-pin-dot").length === 0"###,
+        );
+        browser.act(r###"document.getElementById("satellite-said").textContent = "";"###);
+    }
+    for digit in ["9", "0", "2", "7", "4", "6"] {
+        browser.press(digit, false);
+    }
+    browser.press("Enter", false);
+    browser.wait(
+        "the PIN is held",
+        r###"document.querySelector("button#satellite-press") !== null && document.querySelector(".satellite-detail")?.textContent === "Too many wrong PINs. Try again in 15 minutes.""###,
+    );
+
+    // The logo: taken away, the screen wears the site's, which comes to
+    // it the same way, by its stamp, and with the site's name in the
+    // bar; with none of either, the usher's own mark.
+    set(json!({ "id": id, "remove_logo": true }));
+    let before = browser.look(&format!("return {asked};"));
+    browser
+        .act(r###"document.dispatchEvent(new Event("visibilitychange"));"###);
+    browser.wait("the screen asked again", &format!("{asked} > {before}"));
+    browser.wait(
+        "no logo, and the usher's mark in the bar",
+        r###"!onScreen(document.getElementById("satellite-logo")) && onScreen(document.querySelector(".bar .brand svg.mark"))"###,
+    );
+    use base64::Engine as _;
+    ask(
+        "site.settings",
+        "put_logo",
+        json!({
+            "png_b64": base64::engine::general_purpose::STANDARD.encode(made_up_logo()),
+        }),
+    );
+    ask("site.settings", "set", json!({ "name": "Weaver's Hall" }));
+    let before = browser.look(&format!("return {asked};"));
+    browser
+        .act(r###"document.dispatchEvent(new Event("visibilitychange"));"###);
+    browser.wait("the screen asked again", &format!("{asked} > {before}"));
+    browser.wait(
+        "the site's logo, large, and its name in the bar",
+        r###"document.querySelector("#satellite-logo img")?.naturalWidth === 300 && document.querySelector(".bar .brand")?.textContent === "Weaver's Hall""###,
+    );
+    let wears = browser.look(worn);
+    assert_eq!(
+        (&wears["logo"], &wears["brand"], &wears["fetched"]),
+        (&json!([true, 300, 84, "Logo"]), &json!(true), &json!(2)),
+        "{wears}"
+    );
+    assert_eq!(
+        browser.look(
+            r###"return [document.querySelector(".bar .brand img"), document.querySelector(".bar .brand svg"), document.title];"###
+        ),
+        json!([null, null, "Weaver's Hall"]),
+        "the logo stands once, above the button"
+    );
+    assert_eq!(steward.stop(), Some(0));
 }

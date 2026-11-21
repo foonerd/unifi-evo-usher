@@ -111,10 +111,10 @@ fn the_site_is_kept_through_the_steward_and_across_a_restart() {
         steward.ask(
             "site.settings",
             "set",
-            json!({ "name": " Parish Hall ", "time_zone": "Europe/Warsaw" })
+            json!({ "name": " Market Hall ", "time_zone": "Europe/Warsaw" })
         ),
         json!({
-            "name": "Parish Hall", "time_zone": "Europe/Warsaw",
+            "name": "Market Hall", "time_zone": "Europe/Warsaw",
             "language": "en", "follows_browser": false,
         })
     );
@@ -196,7 +196,7 @@ fn the_site_is_kept_through_the_steward_and_across_a_restart() {
         logo
     );
     let kept = steward.ask("site.settings", "get", json!({}));
-    assert_eq!(kept["name"], "Parish Hall", "{kept}");
+    assert_eq!(kept["name"], "Market Hall", "{kept}");
     assert_eq!(kept["time_zone"], "Europe/Warsaw");
     assert_eq!(kept["set_here"], true);
     assert_eq!(
@@ -221,13 +221,13 @@ fn the_site_is_kept_through_the_steward_and_across_a_restart() {
 fn a_unit_is_given_its_first_name_time_zone_and_language_where_it_is_started() {
     let dir = short_dir();
     let given = [
-        ("USHER_SITE_NAME", "Parish Hall"),
+        ("USHER_SITE_NAME", "Market Hall"),
         ("USHER_TIME_ZONE", "Europe/Warsaw"),
         ("USHER_LANGUAGE", "de"),
     ];
     let steward = Steward::start_given(dir.path(), &given);
     let site = steward.ask("site.settings", "get", json!({}));
-    assert_eq!(site["name"], "Parish Hall", "{site}");
+    assert_eq!(site["name"], "Market Hall", "{site}");
     assert_eq!(site["time_zone"], "Europe/Warsaw");
     assert_eq!(site["language"], "de");
     assert_eq!(site["follows_browser"], false);
@@ -241,12 +241,12 @@ fn a_unit_is_given_its_first_name_time_zone_and_language_where_it_is_started() {
     let steward = Steward::start_given(
         dir.path(),
         &[
-            ("USHER_SITE_NAME", "St Mary's Hall"),
+            ("USHER_SITE_NAME", "Weaver's Hall"),
             ("USHER_TIME_ZONE", ""),
         ],
     );
     let site = steward.ask("site.settings", "get", json!({}));
-    assert_eq!(site["name"], "St Mary's Hall", "{site}");
+    assert_eq!(site["name"], "Weaver's Hall", "{site}");
     assert_eq!(site["time_zone"], Value::Null);
     // Started with no language, the unit speaks English.
     assert_eq!(site["language"], "en");
@@ -256,12 +256,12 @@ fn a_unit_is_given_its_first_name_time_zone_and_language_where_it_is_started() {
     steward.ask(
         "site.settings",
         "set",
-        json!({ "name": "St Mary's Hall, front desk", "time_zone": "UTC" }),
+        json!({ "name": "Weaver's Hall, front desk", "time_zone": "UTC" }),
     );
     assert_eq!(steward.stop(), Some(0));
     let steward = Steward::start_given(dir.path(), &given);
     let site = steward.ask("site.settings", "get", json!({}));
-    assert_eq!(site["name"], "St Mary's Hall, front desk", "{site}");
+    assert_eq!(site["name"], "Weaver's Hall, front desk", "{site}");
     assert_eq!(site["time_zone"], "UTC");
     assert_eq!(site["set_here"], true);
     assert_eq!(site["language"], "de");
@@ -272,12 +272,12 @@ fn a_unit_is_given_its_first_name_time_zone_and_language_where_it_is_started() {
             "site.settings",
             "set",
             json!({
-                "name": "St Mary's Hall, front desk", "time_zone": "UTC",
+                "name": "Weaver's Hall, front desk", "time_zone": "UTC",
                 "language": "en", "follows_browser": true,
             }),
         ),
         json!({
-            "name": "St Mary's Hall, front desk", "time_zone": "UTC",
+            "name": "Weaver's Hall, front desk", "time_zone": "UTC",
             "language": "en", "follows_browser": true,
         })
     );
@@ -295,13 +295,13 @@ fn a_unit_is_given_its_first_name_time_zone_and_language_where_it_is_started() {
     let steward = Steward::start_given(
         other.path(),
         &[
-            ("USHER_SITE_NAME", "St Mary's"),
+            ("USHER_SITE_NAME", "Weaver's"),
             ("USHER_TIME_ZONE", "Warsaw time"),
             ("USHER_LANGUAGE", "German"),
         ],
     );
     let site = steward.ask("site.settings", "get", json!({}));
-    assert_eq!(site["name"], "St Mary's", "{site}");
+    assert_eq!(site["name"], "Weaver's", "{site}");
     assert_eq!(site["time_zone"], Value::Null);
     assert_eq!(site["language"], "en");
     assert_eq!(steward.stop(), Some(0));

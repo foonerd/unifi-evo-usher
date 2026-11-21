@@ -26,7 +26,7 @@ pub const UNITS_CODE: &str = "read-on-the-unit";
 
 /// A password long enough at either level, and one more of the kind.
 pub const PASSWORD: &str = "three small owls sing";
-pub const OTHER_PASSWORD: &str = "a lantern in the nave";
+pub const OTHER_PASSWORD: &str = "a lantern in the yard";
 
 /// An address outside every private range, as a caller from beyond the
 /// network presents itself.
@@ -51,13 +51,62 @@ pub fn short_dir() -> tempfile::TempDir {
         .unwrap()
 }
 
-/// A port nothing listens on.
+/// A port nothing listens on, that no other test of this program was
+/// given, and that the system gives to nobody who asks it for any port.
+///
+/// A steward is told its port before it listens on it, and one that is
+/// stopped and started again leaves its port free for a moment. A port
+/// the system picked could be given, in that time, to the next that
+/// asks the system: another test's steward, or a browser, which asks
+/// for a port of its own as it starts. A test would then find another
+/// on the port it took for its own. So the port is taken from below
+/// the range the system gives out by itself, where there is room below
+/// it, and from the system where there is none.
 pub fn free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
+    use std::collections::BTreeSet;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Mutex;
+
+    static GIVEN: Mutex<BTreeSet<u16>> = Mutex::new(BTreeSet::new());
+    static TRIED: AtomicU32 = AtomicU32::new(0);
+    /// How many ports below the system's own a test takes its from.
+    const ROOM: u32 = 12_000;
+
+    let systems_first =
+        fs::read_to_string("/proc/sys/net/ipv4/ip_local_port_range")
+            .ok()
+            .and_then(|range| {
+                range.split_whitespace().next()?.parse::<u32>().ok()
+            });
+    let below =
+        systems_first.filter(|first| *first >= 1024 + ROOM && *first <= 65_536);
+    loop {
+        let port = match below {
+            Some(first) => {
+                // Another program of tests that runs beside this one
+                // begins elsewhere in the room.
+                let at = std::process::id()
+                    .wrapping_mul(7919)
+                    .wrapping_add(TRIED.fetch_add(1, Ordering::Relaxed))
+                    % ROOM;
+                let Ok(port) = u16::try_from(first - ROOM + at) else {
+                    continue;
+                };
+                if TcpListener::bind(("127.0.0.1", port)).is_err() {
+                    continue;
+                }
+                port
+            }
+            None => TcpListener::bind("127.0.0.1:0")
+                .unwrap()
+                .local_addr()
+                .unwrap()
+                .port(),
+        };
+        if GIVEN.lock().expect("the ports' lock").insert(port) {
+            return port;
+        }
+    }
 }
 
 /// Who asks: with which bearer, and from where the steward is told the
@@ -316,6 +365,62 @@ impl Steward {
         (
             secret,
             said["adopted"]["id"].as_str().expect("an id").to_string(),
+        )
+    }
+
+    /// A screen asks for a code and an administrator adopts it as it is
+    /// said here: its name, and beside that whether it is protected,
+    /// its PIN and a logo of its own. The screen's secret, and what the
+    /// usher said of the satellite.
+    pub fn adopt_as(
+        &self,
+        administrator: &Caller,
+        mut said_of_it: Value,
+    ) -> (String, Value) {
+        let (code, secret) = self.screen();
+        said_of_it["code"] = json!(code);
+        let (status, said) = self.usher(
+            "POST",
+            "adopt_satellite",
+            Some(said_of_it),
+            administrator,
+        );
+        assert_eq!(status, 200, "{said}");
+        (secret, said["adopted"].clone())
+    }
+
+    /// A picture asked of one of the usher's own routes as `who`: the
+    /// status, what kind of file it is, how a browser is to keep it,
+    /// and the file.
+    pub fn picture(
+        &self,
+        route: &str,
+        who: &Caller,
+    ) -> (u16, String, String, Vec<u8>) {
+        let mut asked =
+            self.web.get(format!("{}/usher/v1/{route}", self.address()));
+        if let Some(bearer) = &who.bearer {
+            asked = asked.bearer_auth(bearer);
+        }
+        if let Some(from) = who.from {
+            asked = asked.header("X-Forwarded-For", from);
+        }
+        let answer = asked.send().expect("the steward answers over HTTPS");
+        let status = answer.status().as_u16();
+        let header = |name: &str| {
+            answer
+                .headers()
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_string()
+        };
+        let (kind, kept) = (header("content-type"), header("cache-control"));
+        (
+            status,
+            kind,
+            kept,
+            answer.bytes().unwrap_or_default().to_vec(),
         )
     }
 
@@ -704,6 +809,138 @@ discovery_enabled = false
             .unwrap_or_default()
             .to_string();
         (status, kind, answer.text().unwrap())
+    }
+
+    /// A file the steward serves, asked for with headers of the asker's
+    /// own: the status, and a header it was sent with, by name; nothing
+    /// where it was sent without.
+    pub fn file_sent(
+        &self,
+        path: &str,
+        headers: &[(&str, &str)],
+    ) -> (u16, impl Fn(&str) -> Option<String>) {
+        let mut asked = self.web.get(format!("{}{path}", self.address()));
+        for (name, value) in headers {
+            asked = asked.header(*name, *value);
+        }
+        let answer = asked.send().expect("the steward answers over HTTPS");
+        let sent = answer.headers().clone();
+        (answer.status().as_u16(), move |name: &str| {
+            sent.get(name)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string)
+        })
+    }
+
+    /// The steward's program asked for a new password for an
+    /// administrator, on the unit and beside the steward that runs, as
+    /// whoever has the unit's files asks it: with the steward's own
+    /// arguments and these beside, and with what it is given in its
+    /// environment. A shell on the unit has nothing of what the steward
+    /// was started with.
+    fn resetting(&self, arguments: &[&str], given: &[(&str, &str)]) -> Command {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_evo-usher-steward"));
+        command
+            .arg("--config")
+            .arg(self.dir.join("evo.toml"))
+            .args(arguments)
+            .env_remove("EVO_HTTPS_LISTEN_ADDR")
+            .env_remove("EVO_HTTPS_STATE_DIR")
+            .env_remove("USHER_SECURITY")
+            .envs(given.iter().copied());
+        command
+    }
+
+    /// Ask the program for a new password where there is no terminal:
+    /// the password is one line of what the program reads, or there is
+    /// nothing to read. How the program ended, what it said, and what
+    /// it said went wrong.
+    pub fn reset_password(
+        &self,
+        arguments: &[&str],
+        password: Option<&str>,
+        given: &[(&str, &str)],
+    ) -> (Option<i32>, String, String) {
+        let mut child = self
+            .resetting(arguments, given)
+            .stdin(if password.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        if let Some(password) = password {
+            // The program may have ended before it read a line.
+            let _ = writeln!(child.stdin.take().unwrap(), "{password}");
+        }
+        let ended = child.wait_with_output().unwrap();
+        (
+            ended.status.code(),
+            String::from_utf8_lossy(&ended.stdout).into_owned(),
+            String::from_utf8_lossy(&ended.stderr).into_owned(),
+        )
+    }
+
+    /// Ask the program for a new password on a terminal of its own, and
+    /// type each of the lines at it when it asks for one. How the
+    /// program ended, and everything the terminal showed.
+    pub fn reset_password_typed(
+        &self,
+        arguments: &[&str],
+        typed: &[&str],
+    ) -> (Option<i32>, String) {
+        let terminal = nix::pty::openpty(None, None).expect("a terminal");
+        let its_end = || Stdio::from(terminal.slave.try_clone().unwrap());
+        let mut command = self.resetting(arguments, &[]);
+        let mut child = command
+            .stdin(its_end())
+            .stdout(its_end())
+            .stderr(its_end())
+            .spawn()
+            .unwrap();
+        // The program's end of the terminal is the program's alone, so
+        // that the terminal ends when the program does.
+        drop(command);
+        drop(terminal.slave);
+        let mut ours = fs::File::from(terminal.master);
+        let mut theirs = ours.try_clone().unwrap();
+        let (tell, told) = std::sync::mpsc::channel::<Vec<u8>>();
+        std::thread::spawn(move || {
+            let mut some = [0u8; 1024];
+            // A terminal whose other end is closed reads as an error.
+            while let Ok(read) = theirs.read(&mut some) {
+                if read == 0 || tell.send(some[..read].to_vec()).is_err() {
+                    break;
+                }
+            }
+        });
+        let mut shown = String::new();
+        let mut typed = typed.iter();
+        loop {
+            match told.recv_timeout(Duration::from_secs(30)) {
+                Ok(some) => shown.push_str(&String::from_utf8_lossy(&some)),
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    let _ = child.kill();
+                    panic!("the program neither asked nor ended: {shown:?}");
+                }
+            }
+            // It asks, and waits for a line.
+            if shown.ends_with(": ") {
+                if let Some(line) = typed.next() {
+                    writeln!(ours, "{line}").unwrap();
+                }
+            }
+        }
+        (child.wait().unwrap().code(), shown)
+    }
+
+    /// Where the steward keeps its state.
+    pub fn state_dir(&self) -> PathBuf {
+        self.dir.join("state")
     }
 
     /// Tell the steward to stop, as a service manager does, and say how

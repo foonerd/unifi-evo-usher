@@ -222,6 +222,22 @@ payload_in = "json"
 payload_out = "json"
 
 [[requests]]
+request_type = "hand_type"
+description = """
+Hand out one voucher of a type that is named, with nothing chosen: what
+a satellite asks that offers the types an administrator gave it. Payload
+`{ type: string, by?: string, unit?: bool, satellite?: string }`: the
+type, and who hands it out, as on `hand_default`. Returns what `hand`
+returns.
+
+Refused as permanent, under the code `no_such_type`, where the type is
+not on offer or has days or devices to choose; otherwise as `hand` of
+that type is.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
 request_type = "assign"
 description = """
 Assign a voucher the controller has for handing out. Payload `{ site:

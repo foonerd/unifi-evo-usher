@@ -15,18 +15,38 @@
 //! nothing is gained by a hash that is slow to make, and a thousand
 //! screens that come back at once after a restart are answered at once.
 //!
+//! A satellite is unlocked or protected. Unlocked, it gives a voucher to
+//! whoever presses its button. Protected, it gives one for its PIN,
+//! typed on the screen for each voucher: the PIN is the screen's own,
+//! for whoever looks after it, and is kept as a person's is, as an
+//! Argon2id hash. A satellite whose record says anything but that it is
+//! unlocked is taken for protected.
+//!
+//! A satellite wears the site's logo, or a logo of its own: a file of
+//! its own beside the satellites', which is what a site's logo is and is
+//! held to the same check. The record says which file it is, by a stamp
+//! of what the file holds; a screen is told the stamp and fetches the
+//! picture when the stamp is another.
+//!
+//! A satellite gives the default voucher type, whichever that is at
+//! the time, or the types an administrator gave it, by name. Types of
+//! its own are a protected satellite's alone: an open screen that gave
+//! a week's voucher would give it to whoever walked past. One that is
+//! unlocked is given the default alone, whatever its record says.
+//!
 //! What is kept on disk is who the satellites are. When one was last
 //! seen and what it handed out within the hour are kept in memory: a
 //! screen says it is there every half minute, and nothing is written
 //! down for that.
 
 use std::collections::{HashMap, VecDeque};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, Write as _};
-use std::os::unix::fs::OpenOptionsExt as _;
+use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
 use std::path::{Path, PathBuf};
 
 use argon2::password_hash::rand_core::{OsRng, RngCore as _};
+use evo_usher_site::Logo;
 use evo_usher_why::{why, Why};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
@@ -64,6 +84,40 @@ pub const LONGEST: usize = 64;
 /// The hour a satellite's hand-outs are counted over, in milliseconds.
 pub const HOUR_MS: u64 = 60 * 60 * 1000;
 
+/// What the record of a satellite says that gives a voucher to whoever
+/// presses its button.
+pub const UNLOCKED: &str = "unlocked";
+
+/// What the record of a satellite says that gives a voucher for its PIN.
+pub const PROTECTED: &str = "protected";
+
+/// The most voucher types a satellite is given: as many as a counter
+/// keeps.
+pub const MOST_TYPES: usize = 24;
+
+/// The directory, beside the satellites' file, that holds the logos
+/// satellites have of their own.
+const LOGOS: &str = "satellite-logos";
+
+fn unlocked() -> String {
+    UNLOCKED.to_string()
+}
+
+/// The logo a satellite has of its own, as its record says of it. The
+/// picture is a file of its own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OwnLogo {
+    /// What tells this picture from any other: the beginning of the
+    /// SHA-256 of its file.
+    pub stamp: String,
+    /// How wide the picture is, in pixels.
+    pub width: u32,
+    /// How high the picture is, in pixels.
+    pub height: u32,
+    /// How long the file is, in bytes.
+    pub bytes: u64,
+}
+
 /// A satellite, as kept.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Satellite {
@@ -84,6 +138,21 @@ pub struct Satellite {
     pub limit: u32,
     /// When it was adopted, in milliseconds since 1970.
     pub made_ms: u64,
+    /// How it gives a voucher: [`UNLOCKED`] or [`PROTECTED`]. A screen
+    /// that was adopted before there was a choice has nothing written
+    /// here, and is unlocked as it was.
+    #[serde(default = "unlocked")]
+    mode: String,
+    /// Its PIN, as an Argon2id hash in PHC form; none where it has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pin: Option<String>,
+    /// The logo it has of its own; none where it wears the site's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logo: Option<OwnLogo>,
+    /// The voucher types it is given, by name; none where it gives the
+    /// default, whichever that is.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub types: Vec<String>,
 }
 
 impl Satellite {
@@ -92,6 +161,38 @@ impl Satellite {
     /// secret has another.
     pub fn stamp(&self) -> &str {
         &self.hash[..16.min(self.hash.len())]
+    }
+
+    /// Whether it gives a voucher for its PIN and not without. Whatever
+    /// its record says that is not [`UNLOCKED`] is taken for protected:
+    /// a record that cannot be read as either gives nothing away.
+    pub fn protected(&self) -> bool {
+        self.mode != UNLOCKED
+    }
+
+    /// The hash its PIN is held against, where it has a PIN.
+    pub fn pin_hash(&self) -> Option<&str> {
+        self.pin.as_deref()
+    }
+
+    /// What tells the PIN it has from any other it had or will have;
+    /// empty where it has none.
+    pub fn pin_stamp(&self) -> &str {
+        self.pin
+            .as_deref()
+            .map(people::stamp_of)
+            .unwrap_or_default()
+    }
+
+    /// The voucher types it gives, as the usher goes by them: the ones
+    /// it was given, where it is protected; none, which is the default
+    /// alone, where it is unlocked, whatever its record says.
+    pub fn gives(&self) -> &[String] {
+        if self.mode == UNLOCKED {
+            &[]
+        } else {
+            &self.types
+        }
     }
 }
 
@@ -131,23 +232,72 @@ pub struct Begun {
     pub until_ms: u64,
 }
 
+/// How an administrator says a satellite gives a voucher.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Lock {
+    /// To whoever presses its button. A PIN it had is forgotten.
+    #[default]
+    Unlocked,
+    /// For its PIN: the hash of a new one, or, with none, the one it
+    /// has.
+    Protected(Option<String>),
+}
+
+/// Which logo an administrator says a satellite wears.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Wears {
+    /// One of its own: this file.
+    Own(Vec<u8>),
+    /// The site's. One it had of its own is taken away.
+    Sites,
+}
+
+/// What a screen is adopted as.
+#[derive(Debug, Clone, Default)]
+pub struct Adopting {
+    /// Its name.
+    pub name: String,
+    /// Where it stands. May be empty.
+    pub place: String,
+    /// How it gives a voucher.
+    pub lock: Lock,
+    /// A logo of its own, as a file; none where it wears the site's.
+    pub logo: Option<Vec<u8>>,
+    /// The voucher types it is given, by name; none for the default.
+    pub types: Vec<String>,
+}
+
+#[cfg(test)]
+impl Adopting {
+    /// An unlocked screen that wears the site's logo, under a name and
+    /// at a place.
+    pub fn named(name: &str, place: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            place: place.to_string(),
+            ..Self::default()
+        }
+    }
+}
+
 /// What an administrator changes of a satellite; what is not named
 /// stays.
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Default)]
 pub struct Change {
     /// Its name.
-    #[serde(default)]
     pub name: Option<String>,
     /// Where it stands.
-    #[serde(default)]
     pub place: Option<String>,
     /// How many vouchers it hands out in an hour.
-    #[serde(default)]
     pub limit: Option<u32>,
     /// Whether it hands out vouchers.
-    #[serde(default)]
     pub enabled: Option<bool>,
+    /// How it gives a voucher.
+    pub lock: Option<Lock>,
+    /// Which logo it wears.
+    pub wears: Option<Wears>,
+    /// The voucher types it is given, by name; none for the default.
+    pub types: Option<Vec<String>>,
 }
 
 /// Why a change to the satellites was not made.
@@ -167,12 +317,80 @@ impl From<io::Error> for Unkept {
 
 /// The SHA-256 of a secret, in hexadecimal.
 fn hashed(secret: &str) -> String {
-    let digest = Sha256::digest(secret.as_bytes());
+    hashed_bytes(secret.as_bytes())
+}
+
+/// The SHA-256 of so many bytes, in hexadecimal.
+fn hashed_bytes(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
     let mut hex = String::with_capacity(digest.len() * 2);
     for byte in digest {
         hex.push_str(&format!("{byte:02x}"));
     }
     hex
+}
+
+/// What tells one picture from another: the beginning of the SHA-256 of
+/// its file. A screen is told it, and fetches the picture where the one
+/// it has is of another stamp.
+pub fn stamp_of_picture(file: &[u8]) -> String {
+    hashed_bytes(file)[..16].to_string()
+}
+
+/// The voucher types a satellite is given, as they are kept: each a
+/// name as a type has one, none twice, and no more than a counter
+/// keeps.
+fn types_held(types: &[String]) -> Result<Vec<String>, Why> {
+    let not_a_list = || {
+        why(
+            "not_as_asked",
+            format!(
+                "The types a satellite is given are the names of voucher \
+                 types, each once, {MOST_TYPES} at most."
+            ),
+        )
+    };
+    let mut held: Vec<String> = Vec::with_capacity(types.len());
+    for name in types {
+        let name = name.trim();
+        let is_a_name = !name.is_empty()
+            && name.chars().count() <= LONGEST
+            && !name.chars().any(char::is_control);
+        if !is_a_name || held.iter().any(|kept| kept == name) {
+            return Err(not_a_list());
+        }
+        held.push(name.to_string());
+    }
+    if held.len() > MOST_TYPES {
+        return Err(not_a_list());
+    }
+    Ok(held)
+}
+
+/// The refusal of types of its own for a satellite that is unlocked.
+fn types_unlocked() -> Why {
+    why(
+        "satellite_types_unlocked",
+        "A satellite that is unlocked gives the default voucher type \
+         alone. Protect it with a PIN to give it types of its own.",
+    )
+}
+
+/// The PIN a satellite is to have, as it will be kept: the hash of the
+/// one it is given, or the one it has; or why it has none to be
+/// protected by.
+fn pin_kept(lock: &Lock, has: Option<&String>) -> Result<Option<String>, Why> {
+    match lock {
+        Lock::Unlocked => Ok(None),
+        Lock::Protected(Some(hash)) => Ok(Some(hash.clone())),
+        Lock::Protected(None) => has.cloned().map(Some).ok_or_else(|| {
+            why(
+                "satellite_pin_needed",
+                "A protected satellite gives a voucher for its PIN. Type a \
+                 PIN for it.",
+            )
+        }),
+    }
 }
 
 /// So many bytes made at random, in hexadecimal.
@@ -327,17 +545,29 @@ impl Satellites {
         }
     }
 
-    /// Adopt the screen that shows a code, under a name and at a place.
+    /// Adopt the screen that shows a code: under a name and at a place,
+    /// unlocked or protected by a PIN, and under the site's logo or one
+    /// of its own.
     pub fn adopt(
         &mut self,
         code: &str,
-        name: &str,
-        place: &str,
+        adopting: &Adopting,
         now: u64,
     ) -> Result<Satellite, Unkept> {
         self.forget_late(now);
-        let name = name_held(name).map_err(Unkept::Rule)?;
-        let place = words_held(place, "satellite_place_too_long")
+        let name = name_held(&adopting.name).map_err(Unkept::Rule)?;
+        let place = words_held(&adopting.place, "satellite_place_too_long")
+            .map_err(Unkept::Rule)?;
+        let pin = pin_kept(&adopting.lock, None).map_err(Unkept::Rule)?;
+        let types = types_held(&adopting.types).map_err(Unkept::Rule)?;
+        if pin.is_none() && !types.is_empty() {
+            return Err(Unkept::Rule(types_unlocked()));
+        }
+        let logo = adopting
+            .logo
+            .clone()
+            .map(Logo::of)
+            .transpose()
             .map_err(Unkept::Rule)?;
         // A code is read off a screen and typed: the blanks a person
         // puts between its digits are none of it.
@@ -380,6 +610,12 @@ impl Satellites {
                 break id;
             }
         };
+        // Its logo is written first, and taken away again where the
+        // satellite is not kept.
+        let logo = match logo {
+            Some(logo) => Some(self.write_logo(&id, &logo.png, &logo)?),
+            None => None,
+        };
         let satellite = Satellite {
             id,
             name,
@@ -388,12 +624,96 @@ impl Satellites {
             enabled: true,
             limit: LIMIT,
             made_ms: now,
+            mode: if pin.is_some() { PROTECTED } else { UNLOCKED }.to_string(),
+            pin,
+            logo,
+            types,
         };
         let mut next = self.kept.clone();
         next.push(satellite.clone());
-        self.keep(next)?;
+        if let Err(e) = self.keep(next) {
+            self.forget_logo(&satellite.id, satellite.logo.as_ref());
+            return Err(e);
+        }
         self.waiting.remove(at);
         Ok(satellite)
+    }
+
+    /// Where the logo of a satellite's own is kept, by its stamp. A
+    /// satellite is known by what the usher made for it; whatever a
+    /// record names that is not that names no file.
+    fn logo_path(&self, id: &str, stamp: &str) -> Option<PathBuf> {
+        let made_here = |part: &str| {
+            !part.is_empty()
+                && part.bytes().all(|byte| byte.is_ascii_hexdigit())
+        };
+        (made_here(id) && made_here(stamp)).then(|| {
+            self.path
+                .with_file_name(LOGOS)
+                .join(format!("{id}-{stamp}.png"))
+        })
+    }
+
+    /// Write the logo of a satellite's own down, for the steward's
+    /// account alone, and say what the record is to say of it.
+    fn write_logo(
+        &self,
+        id: &str,
+        file: &[u8],
+        logo: &Logo,
+    ) -> io::Result<OwnLogo> {
+        let own = OwnLogo {
+            stamp: stamp_of_picture(file),
+            width: logo.width,
+            height: logo.height,
+            bytes: file.len() as u64,
+        };
+        let path = self.logo_path(id, &own.stamp).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a satellite that is not known by what the usher made",
+            )
+        })?;
+        let dir = self.path.with_file_name(LOGOS);
+        if !dir.is_dir() {
+            DirBuilder::new().mode(0o700).create(&dir)?;
+        }
+        let beside = path.with_extension("png.new");
+        let _ = fs::remove_file(&beside);
+        let mut written = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&beside)?;
+        written.write_all(file)?;
+        written.sync_all()?;
+        fs::rename(&beside, &path)?;
+        File::open(&dir)?.sync_all()?;
+        Ok(own)
+    }
+
+    /// Take the file of a logo away, where there is one.
+    fn forget_logo(&self, id: &str, logo: Option<&OwnLogo>) {
+        let Some(path) = logo.and_then(|logo| self.logo_path(id, &logo.stamp))
+        else {
+            return;
+        };
+        if let Err(e) = fs::remove_file(&path) {
+            if e.kind() != io::ErrorKind::NotFound {
+                tracing::warn!(
+                    file = %path.display(),
+                    "a logo that is no satellite's any more was not taken \
+                     away: {e}"
+                );
+            }
+        }
+    }
+
+    /// The logo a satellite has of its own: its stamp, and the file it
+    /// is read from. None where it wears the site's.
+    pub fn logo_of(&self, id: &str) -> Option<(String, PathBuf)> {
+        let logo = self.find(id)?.logo.as_ref()?;
+        Some((logo.stamp.clone(), self.logo_path(id, &logo.stamp)?))
     }
 
     /// Whether a satellite other than `but` goes by a name, however its
@@ -436,6 +756,39 @@ impl Satellites {
         if let Some(enabled) = change.enabled {
             satellite.enabled = enabled;
         }
+        if let Some(lock) = &change.lock {
+            satellite.pin =
+                pin_kept(lock, satellite.pin.as_ref()).map_err(Unkept::Rule)?;
+            satellite.mode = if satellite.pin.is_some() {
+                PROTECTED
+            } else {
+                UNLOCKED
+            }
+            .to_string();
+        }
+        if let Some(types) = &change.types {
+            satellite.types = types_held(types).map_err(Unkept::Rule)?;
+        }
+        // Types of its own are a protected satellite's.
+        if !satellite.protected() && !satellite.types.is_empty() {
+            return Err(Unkept::Rule(types_unlocked()));
+        }
+        // The logo it had, and the one it is given: a picture that is
+        // no logo is refused before anything is written.
+        let had = satellite.logo.clone();
+        let given = match &change.wears {
+            Some(Wears::Own(file)) => {
+                Some(Logo::of(file.clone()).map_err(Unkept::Rule)?)
+            }
+            Some(Wears::Sites) => {
+                satellite.logo = None;
+                None
+            }
+            None => None,
+        };
+        if let Some(logo) = &given {
+            satellite.logo = Some(self.write_logo(id, &logo.png, logo)?);
+        }
         let next = self
             .kept
             .iter()
@@ -447,7 +800,17 @@ impl Satellites {
                 }
             })
             .collect();
-        self.keep(next)?;
+        if let Err(e) = self.keep(next) {
+            // What was written for a change that is not kept is taken
+            // away again, unless it is the file the satellite had.
+            if satellite.logo != had {
+                self.forget_logo(id, satellite.logo.as_ref());
+            }
+            return Err(e);
+        }
+        if satellite.logo != had {
+            self.forget_logo(id, had.as_ref());
+        }
         Ok(satellite)
     }
 
@@ -461,6 +824,7 @@ impl Satellites {
             .cloned()
             .collect();
         self.keep(next)?;
+        self.forget_logo(id, satellite.logo.as_ref());
         self.seen.remove(id);
         self.handed.remove(id);
         Ok(satellite)
@@ -546,7 +910,9 @@ impl Satellites {
     }
 }
 
-fn no_such_satellite() -> Unkept {
+/// The refusal where what is named is no satellite, or is one no
+/// longer.
+pub fn no_such_satellite() -> Unkept {
     Unkept::Rule(why(
         "no_such_satellite",
         "There is no such satellite any more.",
@@ -588,12 +954,16 @@ mod tests {
         // A code that no screen shows, and one typed with a blank in
         // it, which is the same code.
         assert_eq!(
-            rule(satellites.adopt("000000x", "Lobby", "", 3_000)),
+            rule(satellites.adopt(
+                "000000x",
+                &Adopting::named("Lobby", ""),
+                3_000
+            )),
             "satellite_no_such_code"
         );
         let spaced = format!("{} {}", &begun.code[..3], &begun.code[3..]);
         let lobby = satellites
-            .adopt(&spaced, " Lobby ", " By the door ", 3_000)
+            .adopt(&spaced, &Adopting::named(" Lobby ", " By the door "), 3_000)
             .unwrap();
         assert_eq!(
             (lobby.name.as_str(), lobby.place.as_str()),
@@ -604,7 +974,11 @@ mod tests {
         assert_eq!(lobby.made_ms, 3_000);
         assert_eq!(satellites.waiting(), 0, "a code adopts one screen");
         assert_eq!(
-            rule(satellites.adopt(&begun.code, "Hall", "", 3_500)),
+            rule(satellites.adopt(
+                &begun.code,
+                &Adopting::named("Hall", ""),
+                3_500
+            )),
             "satellite_no_such_code"
         );
         assert_eq!(
@@ -637,7 +1011,11 @@ mod tests {
         let begun = satellites.begin(0);
         // A moment before its time is up it adopts; at its time, not.
         assert_eq!(
-            rule(satellites.adopt(&begun.code, "Late", "", CODE_MS)),
+            rule(satellites.adopt(
+                &begun.code,
+                &Adopting::named("Late", ""),
+                CODE_MS
+            )),
             "satellite_no_such_code"
         );
         assert_eq!(
@@ -646,7 +1024,11 @@ mod tests {
         );
         let begun = satellites.begin(CODE_MS);
         satellites
-            .adopt(&begun.code, "In time", "", 2 * CODE_MS - 1)
+            .adopt(
+                &begun.code,
+                &Adopting::named("In time", ""),
+                2 * CODE_MS - 1,
+            )
             .unwrap();
 
         // However many codes are asked for, so many screens wait and no
@@ -680,7 +1062,8 @@ mod tests {
         let mut satellites = Satellites::open(dir.path()).unwrap();
         let adopt = |satellites: &mut Satellites, name: &str| {
             let begun = satellites.begin(0);
-            let adopted = satellites.adopt(&begun.code, name, "", 1);
+            let adopted =
+                satellites.adopt(&begun.code, &Adopting::named(name, ""), 1);
             (begun.secret, adopted)
         };
         let (secret, lobby) = adopt(&mut satellites, "Lobby");
@@ -707,6 +1090,7 @@ mod tests {
             place: place.map(str::to_string),
             limit,
             enabled,
+            ..Change::default()
         };
         let set = satellites
             .set(
@@ -791,7 +1175,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut satellites = Satellites::open(dir.path()).unwrap();
         let begun = satellites.begin(0);
-        let lobby = satellites.adopt(&begun.code, "Lobby", "", 0).unwrap();
+        let lobby = satellites
+            .adopt(&begun.code, &Adopting::named("Lobby", ""), 0)
+            .unwrap();
         satellites
             .set(
                 &lobby.id,
@@ -830,5 +1216,471 @@ mod tests {
         assert_eq!(satellites.last_seen("nobody"), None);
         satellites.remove(&lobby.id).unwrap();
         assert_eq!(satellites.last_seen(&lobby.id), None);
+    }
+
+    /// A screen adopted under a name, as it is asked to be.
+    fn adopted(
+        satellites: &mut Satellites,
+        adopting: Adopting,
+    ) -> Result<Satellite, Unkept> {
+        let begun = satellites.begin(0);
+        satellites.adopt(&begun.code, &adopting, 1)
+    }
+
+    #[test]
+    fn a_satellite_is_unlocked_or_protected_by_a_pin_of_its_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut satellites = Satellites::open(dir.path()).unwrap();
+        // With nothing said a screen is unlocked, and has no PIN.
+        let lobby =
+            adopted(&mut satellites, Adopting::named("Lobby", "")).unwrap();
+        assert!(!lobby.protected());
+        assert_eq!((lobby.pin_hash(), lobby.pin_stamp()), (None, ""));
+
+        // Adopted as protected it has the PIN it was given, as the hash
+        // it was given as; and none is adopted as protected without.
+        let hash = |pin: &str| people::hash(pin).unwrap();
+        let first = hash("480273");
+        let ward = adopted(
+            &mut satellites,
+            Adopting {
+                lock: Lock::Protected(Some(first.clone())),
+                ..Adopting::named("Ward 4", "")
+            },
+        )
+        .unwrap();
+        assert!(ward.protected());
+        assert_eq!(ward.pin_hash(), Some(first.as_str()));
+        assert_eq!(ward.pin_stamp(), people::stamp_of(&first));
+        assert_eq!(
+            rule(adopted(
+                &mut satellites,
+                Adopting {
+                    lock: Lock::Protected(None),
+                    ..Adopting::named("Gate", "")
+                },
+            )),
+            "satellite_pin_needed"
+        );
+        assert_eq!(
+            satellites.all().len(),
+            2,
+            "one that is refused is not kept"
+        );
+
+        let lock = |lock: Lock| Change {
+            lock: Some(lock),
+            ..Change::default()
+        };
+        // Protected anew with no PIN typed, it keeps the one it has;
+        // with one typed, it has that one, under another stamp.
+        let kept = satellites
+            .set(&ward.id, &lock(Lock::Protected(None)))
+            .unwrap();
+        assert_eq!(kept.pin_hash(), Some(first.as_str()));
+        let second = hash("902746");
+        let changed = satellites
+            .set(&ward.id, &lock(Lock::Protected(Some(second.clone()))))
+            .unwrap();
+        assert_eq!(changed.pin_hash(), Some(second.as_str()));
+        assert_ne!(changed.pin_stamp(), ward.pin_stamp());
+        // What else is changed leaves how it gives a voucher as it is.
+        let renamed = satellites
+            .set(
+                &ward.id,
+                &Change {
+                    name: Some("Ward 5".to_string()),
+                    ..Change::default()
+                },
+            )
+            .unwrap();
+        assert!(renamed.protected());
+        assert_eq!(renamed.pin_hash(), Some(second.as_str()));
+
+        // An unlocked one is protected only with a PIN; unlocked again,
+        // a satellite has forgotten the PIN it had.
+        assert_eq!(
+            rule(satellites.set(&lobby.id, &lock(Lock::Protected(None)))),
+            "satellite_pin_needed"
+        );
+        assert!(!satellites.find(&lobby.id).unwrap().protected());
+        let open = satellites.set(&ward.id, &lock(Lock::Unlocked)).unwrap();
+        assert!(!open.protected());
+        assert_eq!(open.pin_hash(), None);
+        assert_eq!(
+            rule(satellites.set(&ward.id, &lock(Lock::Protected(None)))),
+            "satellite_pin_needed"
+        );
+
+        // Kept through a restart, the hash and never the PIN.
+        satellites
+            .set(&lobby.id, &lock(Lock::Protected(Some(first.clone()))))
+            .unwrap();
+        let written =
+            fs::read_to_string(dir.path().join("satellites.json")).unwrap();
+        assert!(!written.contains("480273"), "{written}");
+        let again = Satellites::open(dir.path()).unwrap();
+        let lobby = again.find(&lobby.id).unwrap();
+        assert!(lobby.protected());
+        assert!(people::matches("480273", lobby.pin_hash().unwrap()));
+        assert!(!again.find(&ward.id).unwrap().protected());
+    }
+
+    #[test]
+    fn a_record_that_does_not_say_unlocked_is_protected() {
+        let dir = tempfile::tempdir().unwrap();
+        let record = |id: &str, name: &str, more: &str| {
+            format!(
+                r#"{{"id":"{id}","name":"{name}","hash":"{}","enabled":true,"limit":20,"made_ms":1{more}}}"#,
+                hashed(name)
+            )
+        };
+        fs::write(
+            dir.path().join("satellites.json"),
+            format!(
+                "[{},{},{},{}]",
+                // As a version before there was a choice wrote one.
+                record("a1", "Before", ""),
+                record("a2", "Open", r#","mode":"unlocked""#),
+                // What this version does not know, and what says
+                // protected and has no PIN.
+                record("a3", "Later", r#","mode":"supervised""#),
+                record("a4", "Bare", r#","mode":"protected""#),
+            ),
+        )
+        .unwrap();
+        let satellites = Satellites::open(dir.path()).unwrap();
+        let protected: Vec<(&str, bool)> = satellites
+            .all()
+            .iter()
+            .map(|satellite| (satellite.name.as_str(), satellite.protected()))
+            .collect();
+        assert_eq!(
+            protected,
+            [
+                ("Before", false),
+                ("Open", false),
+                ("Later", true),
+                ("Bare", true)
+            ]
+        );
+        // Protected with no PIN, it has none to be held against.
+        assert_eq!(satellites.find("a4").unwrap().pin_hash(), None);
+    }
+
+    #[test]
+    fn a_satellite_wears_the_sites_logo_or_one_of_its_own() {
+        use evo_usher_site::png;
+
+        let dir = tempfile::tempdir().unwrap();
+        let logos = dir.path().join(LOGOS);
+        let files = |logos: &Path| -> Vec<String> {
+            let mut names: Vec<String> = fs::read_dir(logos)
+                .map(|entries| {
+                    entries
+                        .flatten()
+                        .map(|entry| {
+                            entry.file_name().to_string_lossy().into_owned()
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            names.sort();
+            names
+        };
+        let mut satellites = Satellites::open(dir.path()).unwrap();
+        // With nothing said a screen wears the site's, and no file is
+        // kept for it.
+        let lobby =
+            adopted(&mut satellites, Adopting::named("Lobby", "")).unwrap();
+        assert_eq!(lobby.logo, None);
+        assert_eq!(satellites.logo_of(&lobby.id), None);
+        assert!(files(&logos).is_empty());
+
+        // Adopted with a logo of its own, the file is kept as it was
+        // given, for the steward alone, and the record says which.
+        let red = png::sample(300, 84, [200, 30, 30, 255]);
+        let ward = adopted(
+            &mut satellites,
+            Adopting {
+                logo: Some(red.clone()),
+                ..Adopting::named("Ward 4", "")
+            },
+        )
+        .unwrap();
+        let own = ward.logo.clone().expect("a logo of its own");
+        assert_eq!(
+            (own.width, own.height, own.bytes),
+            (300, 84, red.len() as u64)
+        );
+        assert_eq!(own.stamp, stamp_of_picture(&red));
+        let (stamp, file) = satellites.logo_of(&ward.id).unwrap();
+        assert_eq!(stamp, own.stamp);
+        assert_eq!(fs::read(&file).unwrap(), red);
+        let mode = |path: &Path| {
+            fs::metadata(path).unwrap().permissions().mode() & 0o777
+        };
+        assert_eq!((mode(&logos), mode(&file)), (0o700, 0o600));
+        assert_eq!(files(&logos), [format!("{}-{}.png", ward.id, own.stamp)]);
+        // The picture is no part of the satellites' file.
+        let written =
+            fs::read_to_string(dir.path().join("satellites.json")).unwrap();
+        assert!(written.len() < 2_000, "{} bytes", written.len());
+
+        // A file that is no logo is refused, at adoption and after, and
+        // leaves what there was.
+        let no_logo = [
+            (b"GIF89a, and so on".to_vec(), "logo_not_png"),
+            (red[..red.len() - 9].to_vec(), "logo_damaged"),
+            (
+                png::sample(1025, 2, [0, 0, 0, 255]),
+                "logo_picture_too_large",
+            ),
+            (png::sample(600, 512, [0, 0, 0, 255]), "logo_file_too_long"),
+        ];
+        for (file, refused) in &no_logo {
+            assert_eq!(
+                rule(adopted(
+                    &mut satellites,
+                    Adopting {
+                        logo: Some(file.clone()),
+                        ..Adopting::named("Gate", "")
+                    },
+                )),
+                *refused
+            );
+            assert_eq!(
+                rule(satellites.set(
+                    &ward.id,
+                    &Change {
+                        wears: Some(Wears::Own(file.clone())),
+                        ..Change::default()
+                    },
+                )),
+                *refused
+            );
+        }
+        assert_eq!(satellites.all().len(), 2);
+        assert_eq!(satellites.find(&ward.id).unwrap().logo, Some(own.clone()));
+        assert_eq!(files(&logos).len(), 1);
+
+        // Given another, the one before is taken away; given the same
+        // again, it stays; named anew, it wears what it wore.
+        let blue = png::sample(120, 120, [0, 90, 200, 255]);
+        let wears = |wears: Wears| Change {
+            wears: Some(wears),
+            ..Change::default()
+        };
+        let changed = satellites
+            .set(&ward.id, &wears(Wears::Own(blue.clone())))
+            .unwrap();
+        let other = changed.logo.clone().unwrap();
+        assert_ne!(other.stamp, own.stamp);
+        assert_eq!((other.width, other.height), (120, 120));
+        assert_eq!(files(&logos), [format!("{}-{}.png", ward.id, other.stamp)]);
+        satellites
+            .set(&ward.id, &wears(Wears::Own(blue.clone())))
+            .unwrap();
+        let renamed = satellites
+            .set(
+                &ward.id,
+                &Change {
+                    name: Some("Ward 5".to_string()),
+                    ..Change::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(renamed.logo, Some(other.clone()));
+        assert_eq!(files(&logos).len(), 1);
+        // Kept through a restart.
+        let mut again = Satellites::open(dir.path()).unwrap();
+        let (stamp, file) = again.logo_of(&ward.id).unwrap();
+        assert_eq!(stamp, other.stamp);
+        assert_eq!(fs::read(&file).unwrap(), blue);
+
+        // Told to wear the site's, its own is taken away; and a
+        // satellite that is removed leaves no logo behind.
+        let plain = again.set(&ward.id, &wears(Wears::Sites)).unwrap();
+        assert_eq!(plain.logo, None);
+        assert_eq!(again.logo_of(&ward.id), None);
+        assert!(files(&logos).is_empty());
+        again.set(&lobby.id, &wears(Wears::Own(red))).unwrap();
+        assert_eq!(files(&logos).len(), 1);
+        again.remove(&lobby.id).unwrap();
+        assert!(files(&logos).is_empty());
+    }
+
+    #[test]
+    fn a_logo_is_read_only_from_where_the_usher_keeps_logos() {
+        let dir = tempfile::tempdir().unwrap();
+        // A record that names what the usher never made names no file.
+        fs::write(
+            dir.path().join("satellites.json"),
+            format!(
+                r#"[{{"id":"../../etc","name":"Odd","hash":"{}","enabled":true,"limit":20,"made_ms":1,"logo":{{"stamp":"../passwd","width":1,"height":1,"bytes":1}}}}]"#,
+                hashed("odd")
+            ),
+        )
+        .unwrap();
+        let satellites = Satellites::open(dir.path()).unwrap();
+        assert_eq!(satellites.logo_of("../../etc"), None);
+    }
+
+    #[test]
+    fn a_protected_satellite_is_given_types_and_an_unlocked_one_the_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut satellites = Satellites::open(dir.path()).unwrap();
+        let hash = people::hash("480273").unwrap();
+        let named = |names: &[&str]| -> Vec<String> {
+            names.iter().map(|name| name.to_string()).collect()
+        };
+        let types = |names: &[&str]| Change {
+            types: Some(named(names)),
+            ..Change::default()
+        };
+        // With nothing said a satellite gives the default, and keeps no
+        // list.
+        let lobby =
+            adopted(&mut satellites, Adopting::named("Lobby", "")).unwrap();
+        assert!(lobby.types.is_empty() && lobby.gives().is_empty());
+        // Types of its own are a protected satellite's: an unlocked one
+        // is adopted with none, and is given none after.
+        assert_eq!(
+            rule(adopted(
+                &mut satellites,
+                Adopting {
+                    types: named(&["Week"]),
+                    ..Adopting::named("Gate", "")
+                },
+            )),
+            "satellite_types_unlocked"
+        );
+        assert_eq!(
+            rule(satellites.set(&lobby.id, &types(&["Week"]))),
+            "satellite_types_unlocked"
+        );
+        assert_eq!(satellites.all().len(), 1);
+
+        // A protected one is adopted with a list, kept in the order it
+        // was given, each name without the blanks around it.
+        let ward = adopted(
+            &mut satellites,
+            Adopting {
+                lock: Lock::Protected(Some(hash.clone())),
+                types: named(&[" Week ", "Day guest"]),
+                ..Adopting::named("Ward 4", "")
+            },
+        )
+        .unwrap();
+        assert_eq!(ward.types, ["Week", "Day guest"]);
+        assert_eq!(ward.gives(), ["Week", "Day guest"]);
+        // Another list takes its place; what else is changed leaves it;
+        // an empty one is the default again.
+        let changed = satellites.set(&ward.id, &types(&["Month"])).unwrap();
+        assert_eq!(changed.types, ["Month"]);
+        let renamed = satellites
+            .set(
+                &ward.id,
+                &Change {
+                    name: Some("Ward 5".to_string()),
+                    ..Change::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(renamed.types, ["Month"]);
+        // What is no list of names is refused, and leaves what there
+        // was: a name twice, an empty one, one too long, too many.
+        let many: Vec<String> =
+            (0..=MOST_TYPES).map(|at| format!("Type {at}")).collect();
+        let long = "t".repeat(LONGEST + 1);
+        for no_list in [
+            named(&["Week", "Week"]),
+            named(&["Week", " "]),
+            named(&[long.as_str()]),
+            many,
+        ] {
+            assert_eq!(
+                rule(satellites.set(
+                    &ward.id,
+                    &Change {
+                        types: Some(no_list),
+                        ..Change::default()
+                    }
+                )),
+                "not_as_asked"
+            );
+        }
+        assert_eq!(satellites.find(&ward.id).unwrap().types, ["Month"]);
+
+        // Unlocked, it keeps no list: the two are said together, or
+        // the change is refused.
+        assert_eq!(
+            rule(satellites.set(
+                &ward.id,
+                &Change {
+                    lock: Some(Lock::Unlocked),
+                    ..Change::default()
+                }
+            )),
+            "satellite_types_unlocked"
+        );
+        assert!(satellites.find(&ward.id).unwrap().protected());
+        let open = satellites
+            .set(
+                &ward.id,
+                &Change {
+                    lock: Some(Lock::Unlocked),
+                    types: Some(Vec::new()),
+                    ..Change::default()
+                },
+            )
+            .unwrap();
+        assert!(!open.protected() && open.types.is_empty());
+        // Protected and given types in one change.
+        let both = satellites
+            .set(
+                &lobby.id,
+                &Change {
+                    lock: Some(Lock::Protected(Some(hash))),
+                    types: Some(named(&["Week"])),
+                    ..Change::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(both.gives(), ["Week"]);
+        // Kept through a restart.
+        let again = Satellites::open(dir.path()).unwrap();
+        assert_eq!(again.find(&lobby.id).unwrap().types, ["Week"]);
+        assert!(again.find(&ward.id).unwrap().types.is_empty());
+    }
+
+    #[test]
+    fn an_unlocked_satellite_gives_the_default_alone_whatever_its_record_says()
+    {
+        let dir = tempfile::tempdir().unwrap();
+        // A file changed by hand: a list on a satellite that is
+        // unlocked, and on one whose record says nothing of a mode.
+        let record = |id: &str, more: &str| {
+            format!(
+                r#"{{"id":"{id}","name":"{id}","hash":"{}","enabled":true,"limit":20,"made_ms":1,"types":["Week","Month"]{more}}}"#,
+                hashed(id)
+            )
+        };
+        fs::write(
+            dir.path().join("satellites.json"),
+            format!(
+                "[{},{},{}]",
+                record("a1", r#","mode":"unlocked""#),
+                record("a2", ""),
+                record("a3", r#","mode":"protected""#),
+            ),
+        )
+        .unwrap();
+        let satellites = Satellites::open(dir.path()).unwrap();
+        let gives = |id: &str| satellites.find(id).unwrap().gives().len();
+        assert_eq!((gives("a1"), gives("a2"), gives("a3")), (0, 0, 2));
+        // The list is kept as it was read; it is what is gone by that
+        // is none.
+        assert_eq!(satellites.find("a1").unwrap().types.len(), 2);
     }
 }

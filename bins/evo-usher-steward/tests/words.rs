@@ -21,7 +21,7 @@ const COUNTS: [&str; 6] = ["zero", "one", "two", "few", "many", "other"];
 /// its own: what a caller sent was not what a request takes, which the
 /// face never sends, and what went wrong inside the usher, which is said
 /// in the usher's own words for whoever looks into it.
-const NOT_FOR_A_SCREEN: [&str; 17] = [
+const NOT_FOR_A_SCREEN: [&str; 18] = [
     "not_as_asked",
     "role_not_one",
     "pin_not_chosen",
@@ -43,19 +43,25 @@ const NOT_FOR_A_SCREEN: [&str; 17] = [
     "satellite_disabled",
     "not_for_satellite",
     "satellites_alone",
+    // A logo that is not there to fetch: the page that asked wears
+    // none, and says nothing.
+    "no_such_logo",
 ];
 
 /// What stands in a script as written and is no text for a person: a
 /// name the web has for a thing, the usher's own name, and the names
 /// that stand where the words cannot be read.
-const NOT_WORDS: [&str; 11] = [
+const NOT_WORDS: [&str; 14] = [
     // What a request is sent under.
     "Accept",
     "Authorization",
     "Content-Type",
     "Bearer ",
-    // A key of the keyboard.
+    // Keys of the keyboard.
     "Escape",
+    "Backspace",
+    "Delete",
+    "Enter",
     // What an error of the usher's is called.
     "Refusal",
     // The usher's name, and what English calls itself: both are names.
@@ -553,7 +559,7 @@ fn codes_refused_under() -> BTreeSet<String> {
         }
     }
     // The classes of evo's a refusal travels under are no codes.
-    for class in ["permission_denied", "contract_violation"] {
+    for class in ["permission_denied", "contract_violation", "not_found"] {
         codes.remove(class);
     }
     codes

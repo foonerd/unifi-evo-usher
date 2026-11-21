@@ -63,6 +63,11 @@
 //!   default type and answers as `hand` does. It is what a satellite's
 //!   one button asks. Who hands it out is written on it as on `hand`,
 //!   with `"satellite": "..."` for a satellite, by its name.
+//! - `hand_type`: `{"type": "..."}` hands out a voucher of the type
+//!   named, which is on offer and has nothing to choose, and answers as
+//!   `hand` does. It is what a satellite asks that offers the types an
+//!   administrator gave it. Who hands it out is written on it as on
+//!   `hand_default`.
 //! - `assign`: `{"site": "...", "id": "..."}` assigns a voucher the
 //!   controller has, and that no guest has used, for handing out: it is
 //!   held for the type its note names, which is kept on the voucher's
@@ -108,7 +113,7 @@ pub use types::{Types, Unkept, VoucherType, DAY, LONGEST_NAME, MOST};
 pub const NAME: &str = "org.evoframework.usher.counter";
 
 /// The requests the plugin takes.
-pub const REQUESTS: [&str; 11] = [
+pub const REQUESTS: [&str; 12] = [
     "types",
     "offered",
     "put_type",
@@ -118,6 +123,7 @@ pub const REQUESTS: [&str; 11] = [
     "order_types",
     "hand",
     "hand_default",
+    "hand_type",
     "assign",
     "handed",
 ];

@@ -210,6 +210,12 @@ function setUp(unit) {
           done(false);
           return;
         }
+        if (why instanceof steward.Refusal && why.reason === "people_unread") {
+          // The unit cannot read its people: it is looked at again, and
+          // says so in the place of this form.
+          done(false);
+          return;
+        }
         said.textContent = wordsOf(why);
         (why instanceof steward.Refusal && why.reason === "wrong_code" ? code : password).select();
       } finally {
@@ -256,8 +262,9 @@ function signIn(keeps) {
         formDone();
         done(true);
       } catch (why) {
-        if (why instanceof steward.Refusal && why.reason === "not_set_up") {
-          // Its people were taken away: it is set up anew.
+        if (why instanceof steward.Refusal && (why.reason === "not_set_up" || why.reason === "people_unread")) {
+          // Its people were taken away: it is set up anew. Or the unit
+          // cannot read them: it says so in the place of this form.
           done(false);
           return;
         }
@@ -268,6 +275,27 @@ function signIn(keeps) {
       }
     });
   });
+}
+
+/**
+ * The unit cannot read its people: the dialog says so, and offers no
+ * way in, neither setting up nor signing in. The unit is asked again
+ * every few seconds, and the dialog is done with once it says otherwise:
+ * whoever keeps the unit has put the file right, or taken it away.
+ *
+ * @returns {Promise<void>} once the unit reads its people again
+ */
+async function unread() {
+  formFrom("people-unread");
+  for (;;) {
+    await new Promise((later) => setTimeout(later, 3000));
+    try {
+      const unit = await steward.state();
+      if (unit.people_unread !== true) return;
+    } catch {
+      // The steward does not answer: it is asked again.
+    }
+  }
 }
 
 /** Whether the dialog is asking someone in already. */
@@ -299,6 +327,10 @@ function enter() {
           const unit = await steward.state();
           // Whose unit this is, is said to anyone: the form wears it.
           site.learnOpen(unit.site);
+          if (unit.people_unread === true) {
+            await unread();
+            continue;
+          }
           if (await (unit.set_up ? signIn(unit.keeps === true) : setUp(unit))) break;
         } catch (why) {
           // The steward does not answer: said, and asked again.
@@ -677,7 +709,12 @@ const peoplePage = people(peoplePane, { usher: askUsher, me: () => signedIn });
 /** And the satellites' page, kept the same way. */
 const satellitesPane = document.createElement("div");
 satellitesPane.className = "shelf";
-const satellitesPage = satellites(satellitesPane, { usher: askUsher, me: () => signedIn });
+const satellitesPage = satellites(satellitesPane, {
+  usher: askUsher,
+  me: () => signedIn,
+  request: asked.request,
+  picture: steward.picture,
+});
 
 /**
  * Draw what the steward says is stocked, page by page. What is already on

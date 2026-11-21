@@ -2,9 +2,11 @@
 //! set. Everything the steward does is the framework's, through
 //! [`evo::run`]; this program adds only what makes it an usher: the UI
 //! shelves, the plugins it admits, the name it answers `--version` with,
-//! whether the unit is up where it is asked with `--healthy`, that
-//! nothing of it is a household's to lock, and that signing in, with a
-//! name and a password the usher keeps, is the one way in.
+//! whether the unit is up where it is asked with `--healthy`, a new
+//! password for an administrator where it is asked with
+//! `--reset-password` on the unit itself, that nothing of it is a
+//! household's to lock, and that signing in, with a name and a password
+//! the usher keeps, is the one way in.
 
 #![forbid(unsafe_code)]
 
@@ -14,6 +16,7 @@ mod files;
 mod gate;
 mod healthy;
 mod people;
+mod reset;
 mod satellites;
 mod signin;
 
@@ -63,6 +66,24 @@ async fn main() -> anyhow::Result<()> {
             std::process::exit(1);
         }
         return Ok(());
+    }
+    // An administrator who can no longer sign in is given a new password
+    // by whoever has the unit's files, on the unit itself. The steward's
+    // own arguments say which configuration is the unit's; no steward is
+    // started, and nothing is opened on the network.
+    let arguments: Vec<String> = std::env::args().skip(1).collect();
+    match reset::asked(&arguments) {
+        Some(reset::Asked::For(name, left)) => {
+            let args = evo::cli::Args::parse_from(
+                std::iter::once(PROGRAM.to_string()).chain(left),
+            );
+            std::process::exit(reset_password(&args, &name));
+        }
+        Some(reset::Asked::Wrongly) => {
+            eprintln!("{}", reset::usage(PROGRAM));
+            std::process::exit(reset::ASKED_WRONGLY);
+        }
+        None => {}
     }
     let args = evo::cli::Args::parse();
     // Every screen joined to the unit holds a connection: the steward
@@ -124,6 +145,53 @@ fn client_socket(args: &evo::cli::Args) -> PathBuf {
         // A configuration that cannot be read stops evo's own start a
         // moment later, in evo's words.
         Err(_) => PathBuf::from("/var/run/evo/evo.sock"),
+    }
+}
+
+/// Where the steward keeps its state, as evo finds it: named where the
+/// steward is started, or beside the store its configuration names. The
+/// usher's people are kept in it.
+fn state_dir(args: &evo::cli::Args) -> Result<PathBuf, String> {
+    if let Some(named) = std::env::var_os("EVO_HTTPS_STATE_DIR") {
+        return Ok(PathBuf::from(named));
+    }
+    let read = match &args.config {
+        Some(path) => StewardConfig::load_from_required(path),
+        None => StewardConfig::load(),
+    };
+    let config = read.map_err(|e| {
+        format!("The steward's configuration cannot be read: {e}.")
+    })?;
+    Ok(config
+        .persistence
+        .path
+        .parent()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/var/lib/evo")))
+}
+
+/// Give the administrator of that name a new password, and answer how
+/// the program ends: the unit's level says how long a password is, and
+/// the steward's arguments where its people are.
+fn reset_password(args: &evo::cli::Args, name: &str) -> i32 {
+    if args.command.is_some() {
+        eprintln!("{}", reset::usage(PROGRAM));
+        return reset::ASKED_WRONGLY;
+    }
+    let named = std::env::var(people::Level::NAMED_BY).ok();
+    let level = match people::Level::of(named.as_deref()) {
+        Ok(level) => level,
+        Err(why) => {
+            eprintln!("{PROGRAM}: {why}");
+            return reset::ASKED_WRONGLY;
+        }
+    };
+    match state_dir(args) {
+        Ok(state) => reset::run(PROGRAM, &state.join("usher"), name, level),
+        Err(why) => {
+            eprintln!("{PROGRAM}: {why}");
+            reset::REFUSED
+        }
     }
 }
 

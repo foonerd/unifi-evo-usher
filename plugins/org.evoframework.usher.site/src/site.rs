@@ -272,8 +272,9 @@ pub fn too_long(bytes: usize) -> Option<Why> {
 
 impl Logo {
     /// A file as a logo, where it is a PNG within the limits; otherwise
-    /// why not.
-    fn of(png: Vec<u8>) -> Result<Self, Why> {
+    /// why not. The one check of what a logo is: the site's own is held
+    /// to it, and so is whatever else of the usher's wears a logo.
+    pub fn of(png: Vec<u8>) -> Result<Self, Why> {
         if let Some(why) = too_long(png.len()) {
             return Err(why);
         }
@@ -534,12 +535,12 @@ mod tests {
         let png = png::sample(300, 84, [200, 30, 30, 255]);
         {
             let mut site = Site::open(dir.path(), nothing_given()).unwrap();
-            site.set("  Parish Hall ", Some("Europe/Warsaw")).unwrap();
+            site.set("  Market Hall ", Some("Europe/Warsaw")).unwrap();
             let logo = site.put_logo(png.clone()).unwrap();
             assert_eq!((logo.width, logo.height), (300, 84));
         }
         let site = Site::open(dir.path(), nothing_given()).unwrap();
-        assert_eq!(site.name(), "Parish Hall");
+        assert_eq!(site.name(), "Market Hall");
         assert_eq!(site.time_zone(), Some("Europe/Warsaw"));
         assert!(site.set_here());
         let logo = site.logo().expect("the logo is kept");
@@ -783,19 +784,19 @@ mod tests {
             (First::default(), Vec::new())
         );
         let (first, unread) = given(&[
-            ("USHER_SITE_NAME", " Parish Hall "),
+            ("USHER_SITE_NAME", " Market Hall "),
             ("USHER_TIME_ZONE", "Europe/Warsaw"),
         ]);
-        assert_eq!(first.name.as_deref(), Some("Parish Hall"));
+        assert_eq!(first.name.as_deref(), Some("Market Hall"));
         assert_eq!(first.time_zone.as_deref(), Some("Europe/Warsaw"));
         assert!(unread.is_empty());
         // One that is not as it should be is left out, and said; the
         // other is taken.
         let (first, unread) = given(&[
-            ("USHER_SITE_NAME", "Parish Hall"),
+            ("USHER_SITE_NAME", "Market Hall"),
             ("USHER_TIME_ZONE", "Warsaw time"),
         ]);
-        assert_eq!(first.name.as_deref(), Some("Parish Hall"));
+        assert_eq!(first.name.as_deref(), Some("Market Hall"));
         assert_eq!(first.time_zone, None);
         assert_eq!(
             unread,
@@ -896,7 +897,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         fs::write(
             dir.path().join("site.json"),
-            br#"{"set":{"name":"Parish Hall","time_zone":"Europe/Warsaw"},"language":null}"#,
+            br#"{"set":{"name":"Market Hall","time_zone":"Europe/Warsaw"},"language":null}"#,
         )
         .unwrap();
         let first = First {
@@ -904,7 +905,7 @@ mod tests {
             ..First::default()
         };
         let site = Site::open(dir.path(), first).unwrap();
-        assert_eq!(site.name(), "Parish Hall");
+        assert_eq!(site.name(), "Market Hall");
         assert_eq!(site.time_zone(), Some("Europe/Warsaw"));
         // No language was set there: it is the one the unit is given.
         assert_eq!(site.language(), "de");
@@ -921,10 +922,10 @@ mod tests {
         assert_eq!(first.language, None);
         assert!(unread.is_empty());
         let (first, unread) = given(&[
-            ("USHER_SITE_NAME", "Parish Hall"),
+            ("USHER_SITE_NAME", "Market Hall"),
             ("USHER_LANGUAGE", "German"),
         ]);
-        assert_eq!(first.name.as_deref(), Some("Parish Hall"));
+        assert_eq!(first.name.as_deref(), Some("Market Hall"));
         assert_eq!(first.language, None);
         assert_eq!(
             unread,
@@ -963,13 +964,13 @@ mod tests {
     fn the_environment_gives_the_first_values_and_overwrites_nothing_set() {
         let dir = tempfile::tempdir().unwrap();
         let first = First {
-            name: Some("Parish Hall".to_string()),
+            name: Some("Market Hall".to_string()),
             time_zone: Some("Europe/Warsaw".to_string()),
             language: None,
         };
         {
             let site = Site::open(dir.path(), first.clone()).unwrap();
-            assert_eq!(site.name(), "Parish Hall");
+            assert_eq!(site.name(), "Market Hall");
             assert_eq!(site.time_zone(), Some("Europe/Warsaw"));
             assert!(!site.set_here());
         }
@@ -990,17 +991,17 @@ mod tests {
             let mut site = Site::open(dir.path(), first.clone()).unwrap();
             site.put_logo(png::sample(16, 16, [9, 9, 9, 255])).unwrap();
             assert!(!site.set_here());
-            assert_eq!(site.name(), "Parish Hall");
+            assert_eq!(site.name(), "Market Hall");
         }
         // What an administrator set stands from then on.
         {
             let mut site = Site::open(dir.path(), first.clone()).unwrap();
-            site.set("St Mary's Hall", None).unwrap();
-            assert_eq!(site.name(), "St Mary's Hall");
+            site.set("Weaver's Hall", None).unwrap();
+            assert_eq!(site.name(), "Weaver's Hall");
             assert_eq!(site.time_zone(), None);
         }
         let site = Site::open(dir.path(), first).unwrap();
-        assert_eq!(site.name(), "St Mary's Hall");
+        assert_eq!(site.name(), "Weaver's Hall");
         assert_eq!(site.time_zone(), None, "no time zone was set, and is kept");
         assert!(site.set_here());
         assert!(site.logo().is_some());

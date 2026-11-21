@@ -481,3 +481,160 @@ dialog.usher-guest {
 .usher-look figcaption {
   margin-top: 0.25rem;
 }
+
+/* A file to choose, on a page that is no widget's: the same control. */
+input[type="file"].usher-file {
+  display: block;
+  max-width: 100%;
+  min-height: var(--evo-touch, 3rem);
+  padding: 0.5rem 0;
+  color: var(--evo-text, inherit);
+  font: inherit;
+}
+
+input[type="file"].usher-file::file-selector-button {
+  min-height: 2.5rem;
+  margin-right: 0.75rem;
+  padding: 0 1rem;
+  border: 1px solid var(--evo-border-strong, #6b6b6b);
+  border-radius: calc(var(--radius, 0.75rem) - 2px);
+  background: var(--evo-hover, transparent);
+  color: var(--evo-text, inherit);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* The cropper: a picture with a frame on it. What is inside the frame
+   is kept, and what is outside is dimmed. The picture stands on squares
+   of two greys, so that what is clear in it shows as clear. */
+.usher-cropper {
+  margin: 0.75rem 0 0.5rem;
+}
+
+.usher-crop-stage {
+  display: inline-block;
+  max-width: 100%;
+  box-sizing: border-box;
+  /* Room for the corners and the edges of a frame that is as large as
+     the picture. */
+  padding: 1.375rem;
+  overflow: hidden;
+  border: 1px solid var(--evo-border-strong, #6b6b6b);
+  border-radius: calc(var(--radius, 0.75rem) - 4px);
+  background: #1b212b;
+  line-height: 0;
+  touch-action: none;
+  user-select: none;
+}
+
+.usher-crop-on {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  background-color: #b9bdc4;
+  background-image:
+    linear-gradient(45deg, #8d929b 25%, transparent 25%, transparent 75%, #8d929b 75%),
+    linear-gradient(45deg, #8d929b 25%, transparent 25%, transparent 75%, #8d929b 75%);
+  background-position:
+    0 0,
+    0.5rem 0.5rem;
+  background-size: 1rem 1rem;
+  line-height: 0;
+}
+
+.usher-crop-picture {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 22rem;
+}
+
+.usher-crop-frame {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid #ffffff;
+  outline: 1px solid #10151c;
+  box-shadow: 0 0 0 100vmax rgb(8 10 14 / 62%);
+  cursor: move;
+  touch-action: none;
+}
+
+.usher-crop-frame:focus-visible {
+  outline: 3px solid var(--primary, #084a8a);
+  outline-offset: 0;
+}
+
+/* A corner or an edge to size the frame by: large enough for a finger,
+   and marked by a small square in its middle. */
+.usher-crop-handle {
+  position: absolute;
+  width: 2.75rem;
+  height: 2.75rem;
+  margin: -1.375rem;
+  touch-action: none;
+}
+
+.usher-crop-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin: -0.375rem;
+  border: 1px solid #10151c;
+  border-radius: 2px;
+  background: #ffffff;
+}
+
+.usher-crop-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.usher-crop-nw { top: 0; left: 0; cursor: nwse-resize; }
+.usher-crop-n { top: 0; left: 50%; cursor: ns-resize; }
+.usher-crop-ne { top: 0; left: 100%; cursor: nesw-resize; }
+.usher-crop-e { top: 50%; left: 100%; cursor: ew-resize; }
+.usher-crop-se { top: 100%; left: 100%; cursor: nwse-resize; }
+.usher-crop-s { top: 100%; left: 50%; cursor: ns-resize; }
+.usher-crop-sw { top: 100%; left: 0; cursor: nesw-resize; }
+.usher-crop-w { top: 50%; left: 0; cursor: ew-resize; }
+
+/* A logo as a satellite's screen wears it: alone and large, on a dark
+   page and on a light one. */
+.usher-look-alone div {
+  justify-content: center;
+  min-height: 7rem;
+}
+
+.usher-look-alone img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  max-height: 5rem;
+}
+
+/* The plate a logo is put on where the page would swallow it. */
+.usher-look-plate {
+  display: inline-block;
+  line-height: 0;
+}
+
+.usher-look-plate[data-plate="light"],
+.usher-look-plate[data-plate="dark"] {
+  padding: 0.5rem 0.75rem;
+  border-radius: calc(var(--radius, 0.75rem) - 4px);
+}
+
+.usher-look-plate[data-plate="light"] {
+  background: #ffffff;
+}
+
+.usher-look-plate[data-plate="dark"] {
+  background: #0a0e14;
+}

@@ -596,7 +596,8 @@ dialog .hint {
 /* Which of them the reader is, said in a word and ringed; and that a
    satellite is switched off. */
 .person-you,
-.satellites-off {
+.satellites-off,
+.satellites-locked {
   padding: 0 0.5rem;
   border: 1px solid var(--evo-border-strong);
   border-radius: 999px;
@@ -655,15 +656,28 @@ dialog .hint {
 }
 
 /* What a person is to do: one of two, each on a line of its own. */
-.people-role {
+.people-role,
+.satellites-choice {
   margin: 1rem 0 0;
   padding: 0;
   border: 0;
 }
 
-.people-role legend {
+.people-role legend,
+.satellites-choice legend {
   padding: 0;
   font-weight: 600;
+}
+
+/* The voucher types a satellite can be given, ticked: set in under the
+   choice they belong to. */
+.satellites-ticks {
+  margin-left: 1.875rem;
+}
+
+/* The logo a satellite has or is given, under the choice of it. */
+.satellites-logo-shown {
+  margin-top: 0.5rem;
 }
 
 /* A PIN that was just made: large enough to be read out and copied

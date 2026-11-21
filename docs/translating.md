@@ -64,6 +64,15 @@ A key says where its text stands, and what it is: `counter.title` is the heading
 
 A refusal whose code has no text is said in the usher's own English words, and so is one whose text speaks of a value that did not come with it. A test holds every code the usher refuses under to having a text, but for the few that no screen can meet.
 
+## Correcting a translation
+
+The translations were made for the usher, and not every one has been read by someone whose language it is. A text that reads wrong, or that no one would say that way, is put right by whoever reads the language:
+
+- an issue that names the language, the key or the text as it stands on the screen, and the better text is enough;
+- a pull request changes the text in the language's file and nothing else. The keys, the names in braces and the forms for a count stay as they are; `scripts/check.sh` says where one was lost.
+
+A word that names a thing of the usher's, as the voucher, the satellite or the front desk, is the same word wherever the language's file says it: a correction of such a word is made at every place it stands.
+
 ## What the check holds
 
 `scripts/check.sh` runs these with the rest:

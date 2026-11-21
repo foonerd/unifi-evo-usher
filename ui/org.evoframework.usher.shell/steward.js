@@ -272,10 +272,58 @@ export function usher(route, carried = null) {
 }
 
 /**
- * What state the unit is in: whether it is set up yet, and how strict it
- * is. Anyone is told.
+ * A picture, fetched from one of the usher's own routes with the bearer
+ * this browser holds.
  *
- * @returns {Promise<{ set_up: boolean, level: string, least_password: number, keeps: boolean, site?: unknown }>}
+ * @param {string} route the route, with what is asked beside it
+ * @returns {Promise<string | null>} an address the picture is drawn
+ *   from; null where the usher has no such picture
+ * @throws {Refusal}
+ */
+export async function picture(route) {
+  /** @type {Record<string, string>} */
+  const headers = { Accept: "image/png" };
+  const token = bearer();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  let answer;
+  try {
+    answer = await fetch(`/usher/v1/${route}`, { method: "GET", headers, cache: "no-store" });
+  } catch {
+    throw new Refusal(0, "unavailable", "usher_silent", "The usher does not answer.");
+  }
+  if (answer.status === 404) return null;
+  if (!answer.ok) {
+    const text = await answer.text();
+    let said = null;
+    try {
+      said = text ? JSON.parse(text) : {};
+    } catch {
+      said = null;
+    }
+    throw refusalOf(answer.status, said, text);
+  }
+  return addressOf(await answer.blob());
+}
+
+/**
+ * @param {Blob} file
+ * @returns {Promise<string>} an address the file is drawn from, which
+ *   holds the file itself
+ */
+export function addressOf(file) {
+  return new Promise((done, failed) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => done(String(reader.result)));
+    reader.addEventListener("error", () => failed(reader.error));
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * What state the unit is in: whether it is set up yet, whether it can
+ * read its people, and how strict it is. Anyone is told.
+ *
+ * @returns {Promise<{ set_up: boolean, people_unread?: boolean, level: string, least_password: number, keeps: boolean, site?: unknown }>}
  */
 export function state() {
   return ask("/usher/v1/state", "GET", null, false);

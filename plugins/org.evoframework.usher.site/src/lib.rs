@@ -482,26 +482,26 @@ mod tests {
             let set = asked(
                 &mut site,
                 "set",
-                br#"{"name": " Parish Hall ", "time_zone": "Europe/Warsaw"}"#,
+                br#"{"name": " Market Hall ", "time_zone": "Europe/Warsaw"}"#,
             )
             .unwrap();
             assert_eq!(
                 set,
                 json!({
-                    "name": "Parish Hall", "time_zone": "Europe/Warsaw",
+                    "name": "Market Hall", "time_zone": "Europe/Warsaw",
                     "language": "en", "follows_browser": false,
                 })
             );
             let set = asked(
                 &mut site,
                 "set",
-                br#"{"name": "Parish Hall", "time_zone": "Europe/Warsaw", "language": "de", "follows_browser": true}"#,
+                br#"{"name": "Market Hall", "time_zone": "Europe/Warsaw", "language": "de", "follows_browser": true}"#,
             )
             .unwrap();
             assert_eq!(
                 set,
                 json!({
-                    "name": "Parish Hall", "time_zone": "Europe/Warsaw",
+                    "name": "Market Hall", "time_zone": "Europe/Warsaw",
                     "language": "de", "follows_browser": true,
                 })
             );
@@ -513,7 +513,7 @@ mod tests {
         }
         let mut site = Site::open(dir.path(), First::default()).unwrap();
         let kept = asked(&mut site, "get", b"{}").unwrap();
-        assert_eq!(kept["name"], "Parish Hall");
+        assert_eq!(kept["name"], "Market Hall");
         assert_eq!(kept["time_zone"], "Europe/Warsaw");
         assert_eq!(kept["language"], "de");
         assert_eq!(kept["follows_browser"], true);

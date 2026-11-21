@@ -51,7 +51,7 @@ fn a_new_unit_is_set_up_by_whoever_opens_it_first() {
     assert_eq!(
         state,
         json!({
-            "set_up": false, "level": "standard",
+            "set_up": false, "people_unread": false, "level": "standard",
             "least_password": 12, "keeps": true,
             "site": {
                 "name": "", "logo": null,
@@ -84,8 +84,8 @@ fn a_new_unit_is_set_up_by_whoever_opens_it_first() {
             "12 characters at least",
         ),
         (
-            "Anna Kowalska of St Mary",
-            "anna kowalska of st mary",
+            "Anna Kowalska of the Hall",
+            "anna kowalska of the hall",
             "password_is_name",
             Value::Null,
             "not the name",
@@ -422,7 +422,7 @@ fn the_extended_level_takes_the_units_code_and_a_longer_password() {
     assert_eq!(
         steward.usher("GET", "state", None, &nobody).1,
         json!({
-            "set_up": false, "level": "extended",
+            "set_up": false, "people_unread": false, "level": "extended",
             "least_password": 16, "keeps": false,
             "site": {
                 "name": "", "logo": null,
@@ -630,6 +630,7 @@ fn who_has_not_signed_in_gets_the_face_and_the_way_in_and_no_more() {
         "satellite_code",
         "satellite_sign_in",
         "satellite",
+        "satellite_logo",
         "satellites",
         "adopt_satellite",
         "set_satellite",
@@ -810,7 +811,7 @@ fn anyone_is_told_the_sites_name_logo_and_language_and_nothing_else_of_it() {
     let steward = Steward::start_given(
         dir.path(),
         &[
-            ("USHER_SITE_NAME", "Parish Hall"),
+            ("USHER_SITE_NAME", "Market Hall"),
             ("USHER_TIME_ZONE", "Europe/Warsaw"),
             ("USHER_LANGUAGE", "de"),
         ],
@@ -837,10 +838,10 @@ fn anyone_is_told_the_sites_name_logo_and_language_and_nothing_else_of_it() {
     assert_eq!(
         state,
         json!({
-            "set_up": false, "level": "standard",
+            "set_up": false, "people_unread": false, "level": "standard",
             "least_password": 12, "keeps": true,
             "site": {
-                "name": "Parish Hall", "logo": null,
+                "name": "Market Hall", "logo": null,
                 "language": "de", "follows_browser": false,
             },
         })
@@ -866,7 +867,7 @@ fn anyone_is_told_the_sites_name_logo_and_language_and_nothing_else_of_it() {
     let (status, said) = ask(
         &anna,
         "set",
-        json!({ "name": "St Mary's Hall", "time_zone": "Europe/Warsaw" }),
+        json!({ "name": "Weaver's Hall", "time_zone": "Europe/Warsaw" }),
     );
     assert_eq!(status, 200, "{said}");
     // Named without a word of the language, the site speaks what the
@@ -878,7 +879,7 @@ fn anyone_is_told_the_sites_name_logo_and_language_and_nothing_else_of_it() {
         &anna,
         "set",
         json!({
-            "name": "St Mary's Hall", "time_zone": "Europe/Warsaw",
+            "name": "Weaver's Hall", "time_zone": "Europe/Warsaw",
             "language": "en", "follows_browser": true,
         }),
     );
@@ -901,10 +902,10 @@ fn anyone_is_told_the_sites_name_logo_and_language_and_nothing_else_of_it() {
     // Anyone is told the name and the logo, for the form a person signs
     // in by to wear, and is told the same with a session as without.
     let told = json!({
-        "set_up": true, "level": "standard",
+        "set_up": true, "people_unread": false, "level": "standard",
         "least_password": 12, "keeps": true,
         "site": {
-            "name": "St Mary's Hall",
+            "name": "Weaver's Hall",
             "logo": { "png_b64": carried, "width": 220, "height": 62 },
             "language": "en", "follows_browser": true,
         },
@@ -932,7 +933,7 @@ fn anyone_is_told_the_sites_name_logo_and_language_and_nothing_else_of_it() {
     )
     .unwrap();
     assert_eq!(site["time_zone"], "Europe/Warsaw", "{site}");
-    assert_eq!(site["name"], "St Mary's Hall");
+    assert_eq!(site["name"], "Weaver's Hall");
 
     // And nobody changes the site by the routes that are open: what
     // they are sent beside what they take is refused or left unread.
@@ -1345,6 +1346,8 @@ fn the_front_desk_signs_in_with_a_pin_and_hands_vouchers_out() {
     for (route, asked) in [
         ("satellites", None),
         ("satellite", None),
+        ("satellite_logo", None),
+        ("satellite_logo?id=0123456789abcdef", None),
         (
             "adopt_satellite",
             Some(json!({ "code": "000000", "name": "Lobby" })),

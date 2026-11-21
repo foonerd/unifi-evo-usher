@@ -1080,3 +1080,153 @@ async fn an_open_network_is_joined_from_the_voucher() {
         assert_eq!(read, join["text"].as_str().unwrap());
     }
 }
+
+#[tokio::test]
+async fn a_type_that_is_not_enabled_is_handed_out_to_nobody() {
+    let dir = tempfile::tempdir().unwrap();
+    let stand = Arc::new(Stand::working());
+    let counter = Counter::open(dir.path(), Some(stand.clone())).unwrap();
+    ask(&counter, "put_type", house_guests()).await.unwrap();
+    ask(
+        &counter,
+        "put_type",
+        json!({ "name": "Week", "minutes": 10080, "guests": 2 }),
+    )
+    .await
+    .unwrap();
+    ask(&counter, "hand", json!({ "type": "Week", "by": "Ben" }))
+        .await
+        .unwrap();
+
+    // Disabled, the type is offered to nobody, and whoever names it all
+    // the same is refused as for a type that is not there: nothing is
+    // minted, and nothing is written down.
+    ask(
+        &counter,
+        "enable_type",
+        json!({ "name": "Week", "enabled": false }),
+    )
+    .await
+    .unwrap();
+    let minted = stand.asked().len();
+    let noted = ask(&counter, "handed", json!({})).await.unwrap();
+    for payload in [
+        json!({ "type": "Week", "by": "Ben" }),
+        json!({ "type": "Week", "unit": true }),
+    ] {
+        let refused = ask(&counter, "hand", payload.clone()).await;
+        assert!(
+            matches!(&refused, Err(Refusal::AsAsked(why)) if why.code == "no_such_type"),
+            "{payload}: {refused:?}"
+        );
+    }
+    assert_eq!(stand.asked().len(), minted);
+    assert_eq!(ask(&counter, "handed", json!({})).await.unwrap(), noted);
+
+    // Enabled again, it is handed out again.
+    ask(
+        &counter,
+        "enable_type",
+        json!({ "name": "Week", "enabled": true }),
+    )
+    .await
+    .unwrap();
+    ask(&counter, "hand", json!({ "type": "Week", "by": "Ben" }))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn a_voucher_of_a_named_type_is_handed_out_with_nothing_chosen() {
+    let dir = tempfile::tempdir().unwrap();
+    let stand = Arc::new(Stand::working());
+    let counter = Counter::open(dir.path(), Some(stand.clone())).unwrap();
+    ask(&counter, "put_type", house_guests()).await.unwrap();
+    ask(
+        &counter,
+        "put_type",
+        json!({ "name": "Week", "minutes": 10080, "guests": 2 }),
+    )
+    .await
+    .unwrap();
+    ask(
+        &counter,
+        "put_type",
+        json!({ "name": "Contractor", "minutes": 43200, "up_to_days": true }),
+    )
+    .await
+    .unwrap();
+
+    // A type that is on offer and has nothing to choose is handed out
+    // by its name, whether it is the default or not; a satellite is
+    // named in the record, with the type.
+    let handed = ask(
+        &counter,
+        "hand_type",
+        json!({ "type": "Week", "satellite": "Ward 4" }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(handed["type"]["name"], "Week", "{handed}");
+    assert_eq!(handed["type"]["minutes"], 10080, "{handed}");
+    assert!(handed["voucher"]["code"].is_string(), "{handed}");
+    let told = ask(&counter, "handed", json!({})).await.unwrap();
+    assert_eq!(
+        (&told["handed"][0]["type"], &told["handed"][0]["satellite"]),
+        (&json!("Week"), &json!("Ward 4")),
+        "{told}"
+    );
+    ask(&counter, "hand_type", json!({ "type": "House guests" }))
+        .await
+        .unwrap();
+
+    // A type that has days or devices to choose is none to hand out
+    // with nothing chosen; nor is one that is not on offer, or not
+    // there. Nothing is minted for any of them.
+    let minted = stand.asked().len();
+    ask(
+        &counter,
+        "enable_type",
+        json!({ "name": "Week", "enabled": false }),
+    )
+    .await
+    .unwrap();
+    for name in ["Contractor", "Week", "Nobody's", ""] {
+        let refused = ask(&counter, "hand_type", json!({ "type": name })).await;
+        assert!(
+            matches!(&refused, Err(Refusal::AsAsked(why)) if why.code == "no_such_type"),
+            "{name}: {refused:?}"
+        );
+    }
+    // It takes a type and nothing to choose, and names one who hands
+    // it out at most.
+    for payload in [
+        json!({}),
+        json!({ "type": "House guests", "days": 2 }),
+        json!({ "type": "House guests", "satellite": "" }),
+        json!({ "type": "House guests", "satellite": "Lobby", "by": "Ben" }),
+        json!({ "type": 7 }),
+    ] {
+        let refused = ask(&counter, "hand_type", payload.clone()).await;
+        assert!(
+            matches!(&refused, Err(Refusal::AsAsked(why)) if why.code == "not_as_asked"),
+            "{payload}: {refused:?}"
+        );
+    }
+    assert_eq!(stand.asked().len(), minted);
+    // On offer again, it is handed out again.
+    ask(
+        &counter,
+        "enable_type",
+        json!({ "name": "Week", "enabled": true }),
+    )
+    .await
+    .unwrap();
+    ask(
+        &counter,
+        "hand_type",
+        json!({ "type": "Week", "unit": true }),
+    )
+    .await
+    .unwrap();
+}

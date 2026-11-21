@@ -66,6 +66,10 @@ face-satellites.png:satellites.png
 face-satellite-button.png:satellite-button.png
 face-satellite-voucher.png:satellite-voucher.png
 face-vouchers-handed-at.png:vouchers-handed-at.png
+face-site-cropper.png:site-cropper.png
+face-satellites-adopt-protected.png:satellites-adopt-protected.png
+face-satellite-types.png:satellite-types.png
+face-satellite-keypad.png:satellite-keypad.png
 "
 for pair in $pictures; do
   from=${pair%%:*}

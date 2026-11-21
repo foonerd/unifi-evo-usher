@@ -16,7 +16,8 @@
 # capability, no way to gain a privilege and a root file system it cannot
 # write to, and is asked on its own port, believed by its own authority.
 # It holds two thousand connections at once, as a large venue's screens
-# would, and goes on answering.
+# would, and goes on answering. Its administrator is given a new
+# password by the steward's own program, asked in the container.
 #
 # In every case the container must come to say that it is healthy: Docker
 # asks the usher's own program whether the unit is up, as the Compose
@@ -36,7 +37,8 @@
 # front desk, signs in with the PIN the usher made, is told the types on
 # offer and is refused what is an administrator's; a screen is adopted
 # as a satellite by the code it is given, is let ask for the default
-# voucher and refused everything else, and is disabled and refused.
+# voucher and refused everything else, is protected by a PIN and refused
+# a voucher without it, and is disabled and refused.
 # Last, the proxy is given another authority than the unit's and must
 # then pass nothing on: it believes the unit by the unit's authority and
 # by nothing else.
@@ -64,8 +66,8 @@ PASSWORD="three small owls sing"
 # What a unit's site is called, the time zone it keeps and the language
 # it speaks where the unit is started, and what its administrator then
 # sets. Made up.
-export USHER_SITE_NAME="Parish Hall" USHER_TIME_ZONE="Europe/Warsaw" USHER_LANGUAGE="de"
-SET_NAME="Hall of St Mary"
+export USHER_SITE_NAME="Market Hall" USHER_TIME_ZONE="Europe/Warsaw" USHER_LANGUAGE="de"
+SET_NAME="Hall of the Weavers"
 SET_ZONE="Europe/London"
 SET_LANGUAGE="en"
 
@@ -628,6 +630,40 @@ prove() {
   status=$(ask /usher/v1/satellites -H "Authorization: Bearer $bearer")
   [ "$status" = 200 ] || fail "the satellites are not listed: $status $(cat "$dir/answer")"
   jq -e --arg id "$satellite" '(.satellites | length) == 1 and .satellites[0].id == $id and (.satellites[0].last_seen_ms | type == "number")' "$dir/answer" > /dev/null || fail "of its satellites the unit says: $(cat "$dir/answer")"
+  # Protected, it gives a voucher for its PIN and not without: the PIN
+  # is judged by the unit, behind the proxy as before it, and the
+  # screen learns that it is protected on the session it has.
+  # A PIN of eight digits is one at either level; one of six is too
+  # short for a unit at the extended level, and is refused there.
+  status=$(post /usher/v1/set_satellite "$(jq -cn --arg id "$satellite" '{id: $id, mode: "protected", pin: "480273"}')" -H "Authorization: Bearer $bearer")
+  if [ "$proxy" = extended ]; then
+    [ "$status" = 400 ] || fail "at the extended level a satellite is protected by a PIN of six digits: $status $(cat "$dir/answer")"
+    jq -e '.error.details.subclass == "pin_too_short"' "$dir/answer" > /dev/null || fail "a PIN of six digits is refused a satellite at the extended level as: $(cat "$dir/answer")"
+  else
+    [ "$status" = 200 ] || fail "a satellite is not protected by a PIN of six digits: $status $(cat "$dir/answer")"
+  fi
+  status=$(post /usher/v1/set_satellite "$(jq -cn --arg id "$satellite" '{id: $id, mode: "protected", pin: "48027316"}')" -H "Authorization: Bearer $bearer")
+  [ "$status" = 200 ] || fail "a satellite is not protected: $status $(cat "$dir/answer")"
+  ! grep -q -F 48027316 "$dir/answer" || fail "the PIN of a satellite is answered back"
+  status=$(ask /usher/v1/satellite -H "Authorization: Bearer $screen")
+  [ "$status" = 200 ] || fail "a satellite that was protected is signed out: $status $(cat "$dir/answer")"
+  jq -e '.protected == true and .types == [] and .logo == null' "$dir/answer" > /dev/null || fail "a satellite that was protected is told: $(cat "$dir/answer")"
+  status=$(post /api/v1/request "$(request issue.counter hand_default '{}')" -H "Authorization: Bearer $screen")
+  [ "$status" = 403 ] || fail "a protected satellite is let ask for a voucher with no PIN: $status $(cat "$dir/answer")"
+  jq -e '.error.details.subclass == "satellite_pin_required"' "$dir/answer" > /dev/null || fail "a protected satellite asked with no PIN is refused as: $(cat "$dir/answer")"
+  status=$(post /api/v1/request "$(request issue.counter hand_default '{"pin": "11111111"}')" -H "Authorization: Bearer $screen")
+  [ "$status" = 403 ] || fail "a protected satellite is let ask for a voucher with a wrong PIN: $status $(cat "$dir/answer")"
+  jq -e '.error.details.subclass == "satellite_pin_wrong"' "$dir/answer" > /dev/null || fail "a wrong PIN is refused a satellite as: $(cat "$dir/answer")"
+  status=$(post /api/v1/request "$(request issue.counter hand_default '{"pin": "48027316"}')" -H "Authorization: Bearer $screen")
+  [ "$status" != 403 ] || fail "a protected satellite is kept from the default voucher with its PIN: $(cat "$dir/answer")"
+  jq -e '.error.details.subclass == "no_default_type"' "$dir/answer" > /dev/null || fail "the counter answered a protected satellite: $status $(cat "$dir/answer")"
+  status=$(post /api/v1/request "$(request issue.counter hand_type '{"type": "Day", "pin": "48027316"}')" -H "Authorization: Bearer $screen")
+  [ "$status" = 403 ] || fail "a satellite that was given no type is let ask for one by name: $status $(cat "$dir/answer")"
+  jq -e '.error.details.subclass == "satellite_type_not_given"' "$dir/answer" > /dev/null || fail "a type by name is refused a satellite as: $(cat "$dir/answer")"
+  status=$(ask "/usher/v1/satellite_logo" -H "Authorization: Bearer $screen")
+  [ "$status" = 404 ] || fail "a satellite that wears no logo is given one: $status"
+  echo "  ok    protected, a satellite is refused a voucher with no PIN and with a wrong one, and is let ask with its own"
+
   status=$(post /usher/v1/set_satellite "$(jq -cn --arg id "$satellite" '{id: $id, enabled: false}')" -H "Authorization: Bearer $bearer")
   [ "$status" = 200 ] || fail "a satellite is not disabled: $status $(cat "$dir/answer")"
   status=$(ask /usher/v1/satellite -H "Authorization: Bearer $screen")
@@ -661,7 +697,34 @@ prove() {
       || fail "what was set of the site was not kept through a restart: $(jq -r '.payload_b64' "$dir/answer" | base64 -d)"
     echo "  ok    started again, the unit has its people, still answers who was signed in, and goes by the name, the time zone and the language that were set"
     if [ "$proxy" = alone ]; then
-      # A password that is lost: whoever has the unit puts a file of
+      # A password that is lost: whoever has the unit gives its
+      # administrator a new one, in the container, with the steward's
+      # own program. The password is one line of what the program
+      # reads, as a script gives it. The unit is not started again.
+      local renewed="seven grey herons wade" ended=0
+      printf '%s\n' "$renewed" | compose exec -T usher /opt/evo/bin/evo-usher-steward --reset-password "$PERSON" > "$dir/reset" 2>&1 || ended=$?
+      [ "$ended" = 0 ] || fail "asked in the container, the program does not give an administrator a new password: $ended $(cat "$dir/reset")"
+      grep -q -F "$PERSON has a new password" "$dir/reset" || fail "having given a new password, the program says: $(cat "$dir/reset")"
+      ! grep -q -F "$renewed" "$dir/reset" || fail "the program says the password it was given"
+      status=$(post /api/v1/request "$types" -H "Authorization: Bearer $bearer")
+      [ "$status" = 401 ] || fail "who was signed in under the old password is answered: $status $(cat "$dir/answer")"
+      status=$(post /usher/v1/sign_in "$(person "$PERSON" "$renewed")")
+      [ "$status" = 200 ] || fail "the new password does not sign in at once: $status $(cat "$dir/answer")"
+      bearer=$(jq -r '.token' "$dir/answer")
+      status=$(post /api/v1/request "$types" -H "Authorization: Bearer $bearer")
+      [ "$status" = 200 ] || fail "who signed in with the new password is refused: $status $(cat "$dir/answer")"
+      status=$(post /usher/v1/sign_in "$(person "$PERSON" "$PASSWORD")")
+      [ "$status" = 401 ] || fail "the old password still signs in: $status $(cat "$dir/answer")"
+      # A name that is nobody's is refused, with the administrators
+      # named, and nothing is changed.
+      ended=0
+      printf '%s\n' "$renewed" | compose exec -T usher /opt/evo/bin/evo-usher-steward --reset-password Mallory > "$dir/reset" 2>&1 || ended=$?
+      [ "$ended" = 1 ] || fail "asked for a name that is nobody's, the program ends with $ended: $(cat "$dir/reset")"
+      grep -q -F "The administrators of this usher are: $PERSON." "$dir/reset" || fail "a name that is nobody's is refused as: $(cat "$dir/reset")"
+      status=$(post /api/v1/request "$types" -H "Authorization: Bearer $bearer")
+      [ "$status" = 200 ] || fail "refused, the program signed the administrator out: $status $(cat "$dir/answer")"
+      echo "  ok    whoever has the unit gives its administrator a new password in the container: it signs in at once, the old one does not, and who was signed in under the old one is signed out"
+      # Where nothing else helps: whoever has the unit puts a file of
       # nobody in the place of its people, and the unit is set up anew.
       echo '[]' > "$dir/people.json"
       compose cp "$dir/people.json" usher:/var/lib/evo/state/usher/people.json > /dev/null 2>&1 || fail "the file of the people is not put into the unit"
@@ -669,12 +732,12 @@ prove() {
       [ "$status" = 401 ] || fail "who was signed in is answered after the people were taken away: $status $(cat "$dir/answer")"
       status=$(ask /usher/v1/state)
       jq -e '.set_up == false' "$dir/answer" > /dev/null || fail "its people taken away, the unit says of itself: $status $(cat "$dir/answer")"
-      status=$(post /usher/v1/set_up "$(person Ben "a lantern in the nave")")
+      status=$(post /usher/v1/set_up "$(person Ben "a lantern in the yard")")
       [ "$status" = 200 ] || fail "the unit is not set up anew: $status $(cat "$dir/answer")"
       bearer=$(jq -r '.token' "$dir/answer")
       status=$(post /api/v1/request "$types" -H "Authorization: Bearer $bearer")
       [ "$status" = 200 ] || fail "who set the unit up anew is refused: $status $(cat "$dir/answer")"
-      status=$(post /usher/v1/sign_in "$(person "$PERSON" "$PASSWORD")")
+      status=$(post /usher/v1/sign_in "$(person "$PERSON" "$renewed")")
       [ "$status" = 401 ] || fail "who was taken away still signs in: $status $(cat "$dir/answer")"
       echo "  ok    its people taken away by whoever has the unit, it is set up anew, and nobody who was signed in still is"
     fi
