@@ -19,6 +19,7 @@
 #   USHER_SITE_NAME  what the place is called, until one is saved on the page Site
 #   USHER_TIME_ZONE  the time zone it keeps, as Europe/Warsaw, until one is saved there
 #   USHER_LANGUAGE   the language it speaks, as en or de, until one is saved there
+#   USHER_DEMO       1 runs it as a demo, on a simulated controller (default: a unit)
 services:
   usher:
     # The image and the version of it to run. There is no "latest": a
@@ -50,6 +51,12 @@ services:
       # language where the usher speaks it, and in this one where it
       # does not. Left empty, it is English.
       USHER_LANGUAGE: ${USHER_LANGUAGE:-}
+      # Whether the unit is a demo: with 1 it is given a simulated
+      # controller in the place of a UniFi controller, and the vouchers
+      # it hands out open no network. Said when a unit is first
+      # started: a demo's volume stays a demo's, and a unit's volume is
+      # not started as a demo. Left empty, it is a unit.
+      USHER_DEMO: ${USHER_DEMO:-}
     # The least privilege: the unit runs as the image's one account,
     # numbered 10001, with a root file system it cannot write to, no
     # capability, and no way to gain a privilege.

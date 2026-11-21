@@ -1,12 +1,28 @@
 # unifi-evo-usher
 
-Guest Wi-Fi vouchers for UniFi sites, handed out where the guest stands. An evo project: written in Rust, built static, with no runtime under it to drift.
+Guest Wi-Fi vouchers for UniFi sites, handed out where the guest stands.
 
-What it is built to be: a core that holds the UniFi key, mints the vouchers on the controller and keeps a stock of them, so that a voucher can still be handed out while the controller or the link to it is down; and stations, each of which hands a guest a voucher, shown on a screen or printed on a label. A printer belongs to whichever machine it is attached to, by USB or over the network, and a machine may have none.
+A front desk presses one button, or a guest presses one on a screen by the door: the usher makes the voucher on the site's UniFi controller, and shows its code and the square a phone reads to join the network.
+
+An evo project: one program, used from any browser, in eleven languages; written in Rust, built static, with no runtime under it to drift.
+
+<p align="center"><img src="https://raw.githubusercontent.com/wiki/foonerd/unifi-evo-usher/images/demo-counter.png" width="900" alt="The usher's counter in a browser: a button for each voucher type, and the voucher just handed out, with its code and the square a phone reads. A band under the bar says that this unit is a demo."></p>
+
+Try it, with no UniFi controller:
+
+```sh
+docker run --rm -p 8443:8443 -e USHER_DEMO=1 ghcr.io/foonerd/unifi-evo-usher:0.3.22
+```
+
+Then open `https://localhost:8443/`. The browser warns, since the unit signs its own certificate: go on past the warning, and give a name and a password of your own. What runs is a demo: its controller is simulated, and the vouchers it hands out open no network. [The manual](https://github.com/foonerd/unifi-evo-usher/wiki) says how a unit is installed and run for a site.
+
+## What it is built to be
+
+A core that holds the UniFi key, mints the vouchers on the controller and keeps a stock of them, so that a voucher can still be handed out while the controller or the link to it is down; and stations, each of which hands a guest a voucher, shown on a screen or printed on a label. A printer belongs to whichever machine it is attached to, by USB or over the network, and a machine may have none.
 
 ## Status
 
-0.3.21 stands on the evo steward, has a face, and is installed as a service. `evo-usher-steward` is the steward with the usher's catalogue and four plugins: the controller, which mints vouchers on a UniFi Network controller; the counter, which keeps the voucher types on offer and hands a guest a voucher of one of them, one assigned for handing out before one minted for the asking; the stock, which holds the vouchers assigned; and the site, which keeps what the place a unit serves is called, its logo, its time zone and its language. It serves the usher's face to a browser, in any of eleven languages, in which a controller is looked at and set, its vouchers are listed, assigned for handing out and revoked, the wireless network vouchers are for is chosen, the voucher types are kept and a guest is handed a voucher. It is in the archive, in a package of its own, which makes a machine a unit, and in the image; the package is proven on a machine made for it, where it is installed, started as a service, asked as a browser asks, started again and removed. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else.
+0.3.22 stands on the evo steward, has a face, and is installed as a service. `evo-usher-steward` is the steward with the usher's catalogue and four plugins: the controller, which mints vouchers on a UniFi Network controller; the counter, which keeps the voucher types on offer and hands a guest a voucher of one of them, one assigned for handing out before one minted for the asking; the stock, which holds the vouchers assigned; and the site, which keeps what the place a unit serves is called, its logo, its time zone and its language. It serves the usher's face to a browser, in any of eleven languages, in which a controller is looked at and set, its vouchers are listed, assigned for handing out and revoked, the wireless network vouchers are for is chosen, the voucher types are kept and a guest is handed a voucher. It is in the archive, in a package of its own, which makes a machine a unit, and in the image; the package is proven on a machine made for it, where it is installed, started as a service, asked as a browser asks, started again and removed. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else.
 
 The controller plugin is written from Ubiquiti's published description of the UniFi Network API, version 11.0.97, and is held to a simulated controller written from the same description. It has been run from the usher's face against a UniFi Network application, version 11.0.99: the controller set, its version, its sites, its vouchers and its wireless networks read, a wireless network chosen, and vouchers assigned and handed out.
 
@@ -159,6 +175,14 @@ A satellite is unlocked or protected, which the administrator says where the scr
 A protected satellite can be given voucher types of its own, ticked from the types on offer that have nothing to choose; the screen then shows a button for each, and every other satellite gives the default type. This too is held twice: the counter has a request of its own for a type that is named, `hand_type`, under a third capability, `voucher_named`, which only the session of a protected satellite with types is made with; and the gate holds that satellite to the types it was given, and refuses any other with 403 `satellite_type_not_given`. A change that alters what a satellite's session should carry ends the session, and the screen signs in again by itself.
 
 A satellite wears the site's logo or one of its own, a PNG that is what a site's logo is and is kept as a file of its own beside the satellites'. The screen shows it large above its button, on a plate where the page would swallow it, and with its own logo shows no name of the site. With what it asks every thirty seconds a screen is told a stamp of the logo and no picture; it fetches the picture from the route `satellite_logo` only when the stamp is another, and the browser may keep it.
+
+### A demo
+
+A unit that is started with `USHER_DEMO=1` in its environment is a demo: the usher complete, with a simulated controller in the place of a UniFi controller. The steward starts the simulated controller in its own process, on the loopback address, with a certificate and a key made for that start, and points the controller plugin at it, which speaks to it as it speaks to any. It is written from Ubiquiti's description of the API and is the one the tests hold the plugin to. A demo is given the guest network and three voucher types, one of them the default and one with days to choose, where it has none, so its counter and its satellites hand vouchers out at once. No name and no password come with it: whoever opens it first sets it up, as any unit.
+
+A demo says that it is one, and nothing puts that away: a band under the bar on every page, on the forms a person comes in by and on a satellite's page; a line on every voucher shown to a guest; `demo` in what `/usher/v1/state` tells anyone; the page Controller; and the log. It is given no other controller: the request that sets one is refused with 403 `demo_controller`.
+
+A demo never becomes a unit, and a unit never a demo. The first start as a demo writes a mark beside the people, `state/usher/demo`; files with the mark are started as a demo only, and files the steward has started on without it are started as a unit only. The program says which it refuses and why, and ends with 2 before anything is opened; a value of `USHER_DEMO` that is neither a yes nor a no ends it the same way. What the simulated controller holds is in memory and gone when the steward stops; what the usher keeps of its own, its people, its types, its satellites and its record of hand-outs, stays.
 
 ## A unit
 

@@ -8,8 +8,9 @@ publish.workspace = true
 repository.workspace = true
 
 [features]
-# A controller written from Ubiquiti's description of the API, to hold the
-# plugin to in tests. Not part of what ships.
+# A simulated controller, written from Ubiquiti's description of the API:
+# the tests hold the plugin to it, and the steward gives one to a unit
+# that is started as a demo.
 simulated = ["dep:rcgen"]
 
 [dependencies]

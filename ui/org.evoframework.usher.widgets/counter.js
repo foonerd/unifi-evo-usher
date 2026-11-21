@@ -11,7 +11,7 @@ import { el, id, placeOf, svg, words } from "./dom.js";
 import { HELD_CHANGED, TYPES_KEPT, VOUCHER_HANDED } from "./events.js";
 import { RESERVE } from "./shelves.js";
 import { lasts, limits, written } from "./vouchers.js";
-import { say } from "./words.js";
+import { demo, say } from "./words.js";
 
 /** The minutes in a day, the step in which days are chosen. */
 const DAY = 1440;
@@ -124,6 +124,16 @@ export function symbol(join, says) {
 }
 
 /**
+ * What a voucher of a demo says of itself, wherever one is shown: that
+ * it opens no network. Nothing on a unit that is no demo.
+ *
+ * @returns {HTMLElement | null}
+ */
+export function demoVoucher() {
+  return demo() ? el("p", { class: "usher-demo-voucher", role: "note" }, say("demo.voucher")) : null;
+}
+
+/**
  * @param {HTMLElement} element
  * @param {import("./index.js").Context} context
  * @returns {() => void}
@@ -199,6 +209,7 @@ export function counter(element, context) {
           : el("p", {}, say("counter.guest_join")),
         el("p", { class: "usher-voucher" }, written(got?.voucher?.code)),
         el("p", { class: "usher-hint" }, gives(got?.type)),
+        demoVoucher(),
         el(
           "div",
           { class: "row" },
@@ -228,6 +239,7 @@ export function counter(element, context) {
           "div",
           {},
           el("p", { class: "usher-voucher" }, written(got?.voucher?.code)),
+          demoVoucher(),
           el(
             "dl",
             {},

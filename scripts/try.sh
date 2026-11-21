@@ -14,6 +14,11 @@
 # the extended level, where setting it up takes the unit's code as well.
 # USHER_SITE_NAME, USHER_TIME_ZONE and USHER_LANGUAGE in the environment
 # are given to the unit as its first name, time zone and language.
+#
+# With USHER_DEMO=1 in the environment it runs as a demo: on a simulated
+# controller, with voucher types to hand out at once, and with vouchers
+# that open no network. A directory that was a demo's stays a demo's,
+# and one that was a unit's is not started as a demo.
 set -euo pipefail
 ROOT=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
@@ -81,6 +86,9 @@ fi
 if [ "$LEVEL" = extended ]; then
   echo "try: it runs at the extended level; the unit's code, which setting it up takes, is $(cat "$DIR/unit-code"), kept in $DIR/unit-code"
 fi
+case "${USHER_DEMO:-}" in
+  1 | yes | on | true) echo "try: it runs as a demo: its controller is simulated, and the vouchers it hands out open no network" ;;
+esac
 echo "try: Ctrl-C stops the steward"
 
 USHER_SECURITY="$LEVEL" \

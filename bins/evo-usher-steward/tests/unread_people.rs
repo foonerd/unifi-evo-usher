@@ -61,7 +61,7 @@ fn people_who_cannot_be_read_let_nobody_in_and_nobody_sets_the_unit_up() {
         state(&steward),
         json!({
             "set_up": true, "people_unread": false, "level": "standard",
-            "least_password": 12, "keeps": true,
+            "least_password": 12, "keeps": true, "demo": false,
         })
     );
 
@@ -75,7 +75,7 @@ fn people_who_cannot_be_read_let_nobody_in_and_nobody_sets_the_unit_up() {
         state(&steward),
         json!({
             "set_up": true, "people_unread": true, "level": "standard",
-            "least_password": 12, "keeps": true,
+            "least_password": 12, "keeps": true, "demo": false,
         })
     );
     // Nobody is let in: not with the right password, and not however
@@ -159,7 +159,7 @@ fn people_who_cannot_be_read_let_nobody_in_and_nobody_sets_the_unit_up() {
         state(&steward),
         json!({
             "set_up": false, "people_unread": false, "level": "standard",
-            "least_password": 12, "keeps": true,
+            "least_password": 12, "keeps": true, "demo": false,
         })
     );
     let (status, said) = steward.usher(

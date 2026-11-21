@@ -34,7 +34,7 @@ import { learnOpen } from "/org.evoframework.usher.shell/site.js";
 import { addressOf, Refusal } from "/org.evoframework.usher.shell/steward.js";
 import { themeAddress } from "/org.evoframework.usher.shell/theme.js";
 import { offer, ready, refusal, say } from "/org.evoframework.usher.shell/words.js";
-import { gives, symbol } from "/org.evoframework.usher.widgets/counter.js";
+import { demoVoucher, gives, symbol } from "/org.evoframework.usher.widgets/counter.js";
 import { el } from "/org.evoframework.usher.widgets/dom.js";
 import { plateOf } from "/org.evoframework.usher.widgets/plate.js";
 import { written } from "/org.evoframework.usher.widgets/vouchers.js";
@@ -487,6 +487,7 @@ async function start() {
           : el("p", {}, say("counter.guest_join")),
         el("p", { class: "usher-voucher" }, written(got?.voucher?.code)),
         el("p", { class: "usher-hint" }, gives(got?.type)),
+        demoVoucher(),
         el("p", { class: "satellite-detail" }, say("satellite.goes_away")),
         done,
       ),

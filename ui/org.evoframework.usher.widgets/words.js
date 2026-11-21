@@ -3,6 +3,7 @@
 // not there, and speaks the language the page speaks.
 
 export {
+  demo,
   language,
   languages,
   moment,

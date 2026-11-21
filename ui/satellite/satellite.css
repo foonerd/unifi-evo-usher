@@ -24,6 +24,11 @@
   text-align: center;
 }
 
+/* Under the band of a demo there is that much less room. */
+.satellite .masthead:has(.demo-line:not([hidden])) + main {
+  min-height: calc(100vh - 9rem);
+}
+
 .satellite main p {
   max-width: 40rem;
   margin: 0;

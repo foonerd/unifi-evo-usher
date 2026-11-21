@@ -117,6 +117,9 @@ const HANDING_DEFAULT: (&str, &str) = ("issue.counter", "hand_default");
 /// handed out with, with nothing chosen.
 const HANDING_TYPE: (&str, &str) = ("issue.counter", "hand_type");
 
+/// The request that sets the controller, which a demo is refused.
+const SETTING_THE_CONTROLLER: (&str, &str) = ("access.controller", "set");
+
 /// The shelf the voucher types are kept on, and the request that reads
 /// what a front desk is offered of them and changes nothing; so do the
 /// requests a voucher is handed out with. What else is asked of the
@@ -171,6 +174,9 @@ pub fn setup(settings: Settings) -> evo::HttpsSetup {
                     .unwrap_or_else(|| ctx.state_dir.clone());
                 let usher =
                     Usher::open(settings, &state, ctx.dispatcher.clone())?;
+                // A demo is given its simulated controller before the
+                // listener answers anyone.
+                usher.begin_demo().await;
                 let gate = Gate {
                     validator: ctx.validator.clone(),
                     api: ctx.api_prefix.trim_end_matches('/').to_string(),
@@ -291,6 +297,14 @@ async fn admit(
             }
         }
         if let Some((shelf, request_type)) = &of {
+            // A demo keeps the controller it has: it is not pointed at
+            // another, whoever asks.
+            if gate.usher.is_demo()
+                && (shelf.as_str(), request_type.as_str())
+                    == SETTING_THE_CONTROLLER
+            {
+                return signin::demo_keeps_its_controller();
+            }
             changes_the_site = shelf == THE_SITE && request_type != READING;
             changes_the_types = shelf == THE_COUNTER
                 && !READING_THE_COUNTER.contains(&request_type.as_str());

@@ -1,14 +1,22 @@
-//! A controller to hold the plugin to in tests, written from Ubiquiti's
-//! description of the UniFi Network API (version 11.0.97) and from
-//! nothing else: the paths, the fields, the limits and the shape of a
-//! refusal are the description's. It speaks HTTPS with a certificate
-//! signed by nobody, as a console does.
+//! A simulated controller, written from Ubiquiti's description of the
+//! UniFi Network API (version 11.0.97) and from nothing else: the paths,
+//! the fields, the limits and the shape of a refusal are the
+//! description's. It speaks HTTPS with a certificate signed by nobody,
+//! as a console does, on the loopback address and on no other.
 //!
-//! It shows that the plugin does what was intended against the API as
-//! described. It does not show that a controller agrees.
+//! The tests hold the plugin to it: it shows that the plugin does what
+//! was intended against the API as described, and does not show that a
+//! controller agrees. And a unit that is started as a demo is given one
+//! in the place of a controller: the plugin speaks to it as it speaks
+//! to any, and the vouchers it makes open no network.
+//!
+//! What it holds is in memory, and gone when it is: it keeps the newest
+//! vouchers and the newest requests up to a number, and lets the oldest
+//! go.
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use rustls::pki_types::PrivatePkcs8KeyDer;
 use rustls::ServerConfig;
@@ -22,8 +30,12 @@ use crate::trust;
 
 /// What the API stands under on a console.
 const UNDER: &str = "/proxy/network/integration";
-/// The key the simulated controller takes.
-const KEY: &str = "simulated-key";
+/// How many vouchers it holds at most, and how many requests it
+/// remembers being asked: the oldest go as more come.
+const MOST_HELD: usize = 10_000;
+/// The moment everything is made at where the day's own is not asked
+/// for: a test reads the same moment whenever it is run.
+const FIXED_MOMENT: &str = "2026-01-01T00:00:00Z";
 /// The one site it has.
 const SITE: &str = "88f7af54-98f8-306a-a1c7-c9349722b1f6";
 /// The site's own network, and its network for guests.
@@ -32,9 +44,72 @@ const NETWORK_GUEST: &str = "5a3c1d10-7b1e-4c55-9d0a-0000000003e8";
 
 #[derive(Debug, Default)]
 struct State {
+    /// The key it takes, made at random when it is started.
+    key: String,
+    /// Whether a voucher is made at the moment it is made, and not at
+    /// the one fixed moment.
+    of_the_day: bool,
     vouchers: Vec<Value>,
     minted: u64,
     asked: Vec<String>,
+}
+
+impl State {
+    /// The moment something is made at, as the API writes one.
+    fn moment(&self) -> String {
+        if self.of_the_day {
+            written(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|since| since.as_secs())
+                    .unwrap_or(0),
+            )
+        } else {
+            FIXED_MOMENT.to_string()
+        }
+    }
+}
+
+/// A moment, in seconds since 1970, as the API writes one: the day by
+/// the calendar, and the time of day, in UTC.
+fn written(seconds: u64) -> String {
+    let (days, of_day) = (seconds / 86_400, seconds % 86_400);
+    // The day by the calendar, from the days since 1970 (the civil
+    // calendar's own arithmetic, with the year begun in March).
+    let z = days as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let day_of_era = z.rem_euclid(146_097);
+    let year_of_era = (day_of_era - day_of_era / 1_460 + day_of_era / 36_524
+        - day_of_era / 146_096)
+        / 365;
+    let day_of_year =
+        day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_from_march = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_from_march + 2) / 5 + 1;
+    let month = if month_from_march < 10 {
+        month_from_march + 3
+    } else {
+        month_from_march - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        of_day / 3_600,
+        of_day % 3_600 / 60,
+        of_day % 60
+    )
+}
+
+/// A key nobody could guess: 32 bytes of the system's chance, in hex.
+fn key_made() -> Result<String, String> {
+    let mut made = [0u8; 32];
+    rustls::crypto::ring::default_provider()
+        .secure_random
+        .fill(&mut made)
+        .map_err(|_| {
+            "the system gave no chance to make a key of".to_string()
+        })?;
+    Ok(hex::encode(made))
 }
 
 /// A simulated controller, listening on this machine until it is dropped.
@@ -47,11 +122,22 @@ pub struct Simulated {
 }
 
 impl Simulated {
-    /// Start a controller on a port of its own.
+    /// Start a controller on a port of its own, for a test: everything
+    /// it makes is made at one fixed moment.
     pub async fn start() -> Self {
+        Self::open(false)
+            .await
+            .expect("a simulated controller starts")
+    }
+
+    /// Start a controller on a port of its own, on the loopback address,
+    /// with a certificate and a key made for this start alone; or say
+    /// why it does not start. With `of_the_day`, what it makes is made
+    /// at the moment it is made, as a controller makes it.
+    pub async fn open(of_the_day: bool) -> Result<Self, String> {
         let certified =
             rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
-                .expect("a certificate signed by nobody");
+                .map_err(|e| format!("no certificate is made for it: {e}"))?;
         let certificate = certified.cert.der().clone();
         let key = PrivatePkcs8KeyDer::from(certified.key_pair.serialize_der());
         let fingerprint =
@@ -60,14 +146,22 @@ impl Simulated {
             rustls::crypto::ring::default_provider(),
         ))
         .with_safe_default_protocol_versions()
-        .expect("protocol versions")
+        .map_err(|e| format!("its protocol versions are not taken: {e}"))?
         .with_no_client_auth()
         .with_single_cert(vec![certificate], key.into())
-        .expect("the certificate and its key");
+        .map_err(|e| format!("its certificate and key are not taken: {e}"))?;
         let acceptor = TlsAcceptor::from(Arc::new(rules));
-        let listener = TcpListener::bind("127.0.0.1:0").await.expect("a port");
-        let address = listener.local_addr().expect("the port's address");
-        let state = Arc::new(Mutex::new(State::default()));
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .map_err(|e| format!("no port on the loopback address: {e}"))?;
+        let address = listener
+            .local_addr()
+            .map_err(|e| format!("its port's address is not told: {e}"))?;
+        let state = Arc::new(Mutex::new(State {
+            key: key_made()?,
+            of_the_day,
+            ..State::default()
+        }));
         let task = tokio::spawn({
             let state = state.clone();
             async move {
@@ -83,12 +177,12 @@ impl Simulated {
                 }
             }
         });
-        Self {
+        Ok(Self {
             address,
             fingerprint,
             state,
             task,
-        }
+        })
     }
 
     /// The address its API stands under.
@@ -102,8 +196,8 @@ impl Simulated {
     }
 
     /// The key it takes.
-    pub fn key(&self) -> &str {
-        KEY
+    pub fn key(&self) -> String {
+        self.state.lock().expect("the state's lock").key.clone()
     }
 
     /// The identifier of its one site.
@@ -139,7 +233,7 @@ fn refusal(
         "statusCode": status,
         "statusName": name,
         "message": message,
-        "timestamp": "2026-01-01T00:00:00Z",
+        "timestamp": FIXED_MOMENT,
     });
     if let Some(code) = code {
         said["code"] = json!(code);
@@ -191,11 +285,12 @@ fn mint(state: &mut State, body: &Value) -> Result<Value, (u16, Value)> {
     let down = number(body, "rxRateLimitKbps", 2, 100_000)?;
     let up = number(body, "txRateLimitKbps", 2, 100_000)?;
     let mut minted = Vec::new();
+    let made_at = state.moment();
     for _ in 0..count {
         state.minted += 1;
         let mut voucher = json!({
             "id": format!("00000000-0000-4000-8000-{:012x}", state.minted),
-            "createdAt": "2026-01-01T00:00:00Z",
+            "createdAt": made_at,
             "name": name,
             "code": format!("{:010}", 1_000_000_007 * state.minted % 10_000_000_000),
             "authorizedGuestCount": 0,
@@ -214,6 +309,11 @@ fn mint(state: &mut State, body: &Value) -> Result<Value, (u16, Value)> {
         }
         state.vouchers.push(voucher.clone());
         minted.push(voucher);
+    }
+    // It keeps the newest, and lets the oldest go.
+    if state.vouchers.len() > MOST_HELD {
+        let over = state.vouchers.len() - MOST_HELD;
+        state.vouchers.drain(..over);
     }
     Ok(json!({ "vouchers": minted }))
 }
@@ -349,6 +449,18 @@ fn page_of(all: &[Value], query: &str) -> (u16, Value) {
     )
 }
 
+/// Whether a key that is presented is the key that is taken, told in a
+/// time that does not say how much of it was right.
+fn same(presented: &str, taken: &str) -> bool {
+    let (presented, taken) = (presented.as_bytes(), taken.as_bytes());
+    presented.len() == taken.len()
+        && presented
+            .iter()
+            .zip(taken)
+            .fold(0u8, |differs, (a, b)| differs | (a ^ b))
+            == 0
+}
+
 /// Answer one request: the status and the body.
 fn answer(
     state: &mut State,
@@ -369,7 +481,7 @@ fn answer(
                 "Missing credentials",
             )
         }
-        Some(key) if key != KEY => {
+        Some(key) if !same(key, &state.key) => {
             return refusal(401, "UNAUTHORIZED", None, "Unauthorized")
         }
         Some(_) => {}
@@ -494,8 +606,15 @@ where
     }
     let body = &read[head_end..head_end + length];
     let (status, said) = {
-        let mut state = state.lock().expect("the state's lock");
+        // A lock that was left by a line that failed is taken all the
+        // same: what it guards is whole between two requests.
+        let mut state = state.lock().unwrap_or_else(|left| left.into_inner());
         let path = target.split('?').next().unwrap_or("");
+        // It remembers the newest, and lets the older half go at once
+        // when it holds as many as it holds.
+        if state.asked.len() >= MOST_HELD {
+            state.asked.drain(..MOST_HELD / 2);
+        }
         state.asked.push(format!("{method} {path}"));
         answer(
             &mut state,
@@ -513,4 +632,50 @@ where
     );
     line.write_all(answer.as_bytes()).await?;
     line.flush().await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_moment_is_written_as_the_api_writes_one() {
+        for (seconds, moment) in [
+            (0, "1970-01-01T00:00:00Z"),
+            (951_868_800, "2000-03-01T00:00:00Z"),
+            (1_709_210_096, "2024-02-29T12:34:56Z"),
+            (1_795_253_405, "2026-11-21T09:30:05Z"),
+            (4_102_444_799, "2099-12-31T23:59:59Z"),
+        ] {
+            assert_eq!(written(seconds), moment);
+        }
+    }
+
+    #[test]
+    fn a_key_is_the_key_or_it_is_not() {
+        assert!(same("a key", "a key"));
+        for other in ["a kez", "a ke", "a key ", ""] {
+            assert!(!same(other, "a key"), "{other:?}");
+        }
+    }
+
+    #[test]
+    fn the_oldest_vouchers_go_as_more_come_than_it_holds() {
+        let mut state = State::default();
+        let asked = json!({ "name": "Day guest", "timeLimitMinutes": 60, "count": 1000 });
+        for _ in 0..11 {
+            mint(&mut state, &asked).unwrap();
+        }
+        assert_eq!(state.minted, 11_000);
+        assert_eq!(state.vouchers.len(), MOST_HELD);
+        // The newest are the ones it holds.
+        assert_eq!(
+            state.vouchers.last().unwrap()["id"],
+            format!("00000000-0000-4000-8000-{:012x}", 11_000)
+        );
+        assert_eq!(
+            state.vouchers[0]["id"],
+            format!("00000000-0000-4000-8000-{:012x}", 1_001)
+        );
+    }
 }

@@ -5,12 +5,14 @@
 //! whether the unit is up where it is asked with `--healthy`, a new
 //! password for an administrator where it is asked with
 //! `--reset-password` on the unit itself, that nothing of it is a
-//! household's to lock, and that signing in, with a name and a password
-//! the usher keeps, is the one way in.
+//! household's to lock, that signing in, with a name and a password
+//! the usher keeps, is the one way in, and that a unit started as a demo
+//! is given a simulated controller and is a demo for good.
 
 #![forbid(unsafe_code)]
 
 mod code;
+mod demo;
 mod face;
 mod files;
 mod gate;
@@ -110,10 +112,25 @@ async fn main() -> anyhow::Result<()> {
     if args.command.is_none() && level.asks_code() {
         units_code();
     }
+    // Whether the unit is a demo is said when it is started too, and a
+    // value that is mistyped stops the start: it is not taken for a
+    // unit that is none. A demo's files are started as a demo only, and
+    // a unit's as a unit only; that is settled here, before anything is
+    // opened.
+    let named = std::env::var(demo::NAMED_BY).ok();
+    let demo_asked = match demo::asked(named.as_deref()) {
+        Ok(asked) => asked,
+        Err(why) => {
+            eprintln!("{PROGRAM}: {why}");
+            std::process::exit(2);
+        }
+    };
+    let is_demo = args.command.is_none() && settled_as_demo(&args, demo_asked);
     let settings = signin::Settings {
         level,
         socket: client_socket(&args),
         code: std::env::var_os(code::NAMED_BY).map(PathBuf::from),
+        demo: is_demo,
     };
     // A caller on the LAN who presents nothing is given no more than one
     // from beyond it: what lets guests on to the network asks for a
@@ -155,6 +172,15 @@ fn state_dir(args: &evo::cli::Args) -> Result<PathBuf, String> {
     if let Some(named) = std::env::var_os("EVO_HTTPS_STATE_DIR") {
         return Ok(PathBuf::from(named));
     }
+    Ok(store(args)?
+        .parent()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/var/lib/evo")))
+}
+
+/// The store the steward's configuration names, which the steward makes
+/// the first time it starts.
+fn store(args: &evo::cli::Args) -> Result<PathBuf, String> {
     let read = match &args.config {
         Some(path) => StewardConfig::load_from_required(path),
         None => StewardConfig::load(),
@@ -162,12 +188,28 @@ fn state_dir(args: &evo::cli::Args) -> Result<PathBuf, String> {
     let config = read.map_err(|e| {
         format!("The steward's configuration cannot be read: {e}.")
     })?;
-    Ok(config
-        .persistence
-        .path
-        .parent()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/var/lib/evo")))
+    Ok(config.persistence.path)
+}
+
+/// Whether the steward starts as a demo, settled on the files it keeps;
+/// where they are not to be started the way that was asked, the program
+/// says why and ends. A configuration that cannot be read stops a demo
+/// here, since which files it would start on cannot be told; a unit is
+/// stopped by evo a moment later, in evo's words.
+fn settled_as_demo(args: &evo::cli::Args, asked: bool) -> bool {
+    let kept = store(args).and_then(|store| Ok((state_dir(args)?, store)));
+    let settled = match kept {
+        Ok((state, store)) => demo::settle(&state, &store, asked),
+        Err(_) if !asked => Ok(false),
+        Err(why) => Err(why),
+    };
+    match settled {
+        Ok(is_demo) => is_demo,
+        Err(why) => {
+            eprintln!("{PROGRAM}: {why}");
+            std::process::exit(2);
+        }
+    }
 }
 
 /// Give the administrator of that name a new password, and answer how

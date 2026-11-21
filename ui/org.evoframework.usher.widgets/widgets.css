@@ -300,6 +300,25 @@
   overflow-wrap: anywhere;
 }
 
+/* What a demo's voucher says of itself, under the code: as plain as the
+   band on the page, wherever a voucher is shown to a guest. */
+.usher-demo-voucher {
+  display: inline-block;
+  margin: 0 0 0.75rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: calc(var(--radius, 0.75rem) / 2);
+  background: var(--status-warn, #6b4200);
+  color: var(--background, #ffffff);
+  font-weight: 600;
+}
+
+/* What the controller's page says of a demo's controller. */
+.usher-demo-note {
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 0.25rem solid var(--status-warn, #6b4200);
+}
+
 /* The fields of a form, side by side where there is room. */
 .usher-fields {
   display: grid;

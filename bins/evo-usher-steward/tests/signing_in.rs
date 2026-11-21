@@ -52,7 +52,7 @@ fn a_new_unit_is_set_up_by_whoever_opens_it_first() {
         state,
         json!({
             "set_up": false, "people_unread": false, "level": "standard",
-            "least_password": 12, "keeps": true,
+            "least_password": 12, "keeps": true, "demo": false,
             "site": {
                 "name": "", "logo": null,
                 "language": "en", "follows_browser": false,
@@ -432,7 +432,7 @@ fn the_extended_level_takes_the_units_code_and_a_longer_password() {
         steward.usher("GET", "state", None, &nobody).1,
         json!({
             "set_up": false, "people_unread": false, "level": "extended",
-            "least_password": 16, "keeps": false,
+            "least_password": 16, "keeps": false, "demo": false,
             "site": {
                 "name": "", "logo": null,
                 "language": "en", "follows_browser": false,
@@ -848,7 +848,7 @@ fn anyone_is_told_the_sites_name_logo_and_language_and_nothing_else_of_it() {
         state,
         json!({
             "set_up": false, "people_unread": false, "level": "standard",
-            "least_password": 12, "keeps": true,
+            "least_password": 12, "keeps": true, "demo": false,
             "site": {
                 "name": "Market Hall", "logo": null,
                 "language": "de", "follows_browser": false,
@@ -912,7 +912,7 @@ fn anyone_is_told_the_sites_name_logo_and_language_and_nothing_else_of_it() {
     // in by to wear, and is told the same with a session as without.
     let told = json!({
         "set_up": true, "people_unread": false, "level": "standard",
-        "least_password": 12, "keeps": true,
+        "least_password": 12, "keeps": true, "demo": false,
         "site": {
             "name": "Weaver's Hall",
             "logo": { "png_b64": carried, "width": 220, "height": 62 },

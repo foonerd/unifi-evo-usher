@@ -29,6 +29,9 @@ version=$(workspace_version)
 # say, and the check would then say that there is no section.
 notes=$(scripts/release-notes.sh "$version")
 [ -n "$notes" ] || { echo "check: CHANGELOG.md has no section for $version" >&2; exit 1; }
+# The front page runs the version it stands with: the one command names
+# the image of this version, and no other.
+grep -q -F "ghcr.io/foonerd/unifi-evo-usher:$version" README.md || { echo "check: the command on README.md's front page does not name the image of $version" >&2; exit 1; }
 
 echo "check: notices"
 scripts/notices.sh --check

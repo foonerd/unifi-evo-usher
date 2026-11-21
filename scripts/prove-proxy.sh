@@ -7,8 +7,8 @@
 #
 #   scripts/prove-proxy.sh [<case>...]
 #
-# <case> is alone, extended, nginx, apache, caddy or traefik; with none
-# named, all six. The usher's image is unifi-evo-usher:<version> on this
+# <case> is alone, extended, demo, nginx, apache, caddy or traefik; with
+# none named, all seven. The usher's image is unifi-evo-usher:<version> on this
 # machine, as scripts/image.sh --here keeps it, or
 # $USHER_IMAGE:$USHER_VERSION.
 #
@@ -26,6 +26,13 @@
 # Extended: the same unit with packaging/docker/extended.yaml named after
 # its Compose file, which runs it at the extended level of security:
 # setting it up takes the unit's code, which it is given as a file.
+#
+# Demo: the same unit started with USHER_DEMO=1, as a demo: with nothing
+# set up but its first administrator it hands a voucher out at the
+# counter's request and by a screen that was adopted, on its simulated
+# controller; it says that it is a demo; it is given no other
+# controller; and its volume is not started as a unit, as a unit's
+# volume is not started as a demo.
 #
 # For each proxy: the unit is started and its authority taken from it;
 # the proxy is started with a certificate of an authority made for the
@@ -71,11 +78,15 @@ SET_NAME="Hall of the Weavers"
 SET_ZONE="Europe/London"
 SET_LANGUAGE="en"
 
-proxies=${*:-alone extended nginx apache caddy traefik}
+# Whether a unit is a demo is the proof's to say, case by case, and not
+# what the proof was started with.
+unset USHER_DEMO
+
+proxies=${*:-alone extended demo nginx apache caddy traefik}
 # The Compose files of a case, the first the one the unit is in.
 files_of() {
   case "$1" in
-    alone) echo packaging/docker/compose.yaml ;;
+    alone | demo) echo packaging/docker/compose.yaml ;;
     extended) echo packaging/docker/compose.yaml packaging/docker/extended.yaml ;;
     *) echo "packaging/proxy/$1/compose.yaml" ;;
   esac
@@ -113,8 +124,10 @@ waits_for() {
     docker compose $(named_of "$1") config --format json | jq -r '.services.proxy.depends_on.usher.condition // "nothing"'
 }
 for proxy in $proxies; do
-  # The extended level is the same unit with more said of it.
+  # The extended level is the same unit with more said of it, and a
+  # demo the same unit told that it is one.
   [ "$proxy" != extended ] || continue
+  [ "$proxy" != demo ] || continue
   [ "$(unit_of "$proxy")" = "$(unit_of alone)" ] || { echo "prove-proxy: the unit in $(files_of "$proxy") is not the unit of packaging/docker/compose.yaml" >&2; exit 1; }
   # A proxy is started only once the unit says it is up.
   [ "$proxy" = alone ] || [ "$(waits_for "$proxy")" = service_healthy ] || { echo "prove-proxy: the proxy in $(files_of "$proxy") does not wait for the unit to say it is up" >&2; exit 1; }
@@ -767,7 +780,154 @@ prove() {
   project=""
 }
 
+# A unit started as a demo, and what a demo's volume and a unit's are
+# started as afterwards.
+prove_demo() {
+  proxy=demo
+  project="usher-proof-demo"
+  started="$started $project $project-unit"
+  local port dir bearer status unit shown secret screen tries
+  port=$(free_port)
+  dir="$work/demo"
+  mkdir -p "$dir"
+  export USHER_ADDRESS=127.0.0.1 USHER_PORT="$port" USHER_NAME="$project"
+  local name=localhost authority="$dir/unit-ca.crt" logged
+  compose() { docker compose -p "$project" -f packaging/docker/compose.yaml "$@"; }
+  ask() {
+    local path="$1"
+    shift
+    curl -sS --max-time 20 -o "$dir/answer" -w '%{http_code}' \
+      --cacert "$authority" --resolve "$name:$port:127.0.0.1" \
+      "$@" "https://$name:$port$path" 2> "$dir/curl.err" || true
+  }
+  post() {
+    local path="$1" body="$2"
+    shift 2
+    ask "$path" -X POST -H 'Content-Type: application/json' -d "$body" "$@"
+  }
+  request() {
+    jq -cn --arg shelf "$1" --arg type "$2" --arg payload "$(printf '%s' "$3" | base64 -w0)" \
+      '{shelf: $shelf, request_type: $type, payload_b64: $payload}'
+  }
+  # The answer to a request of a shelf, as the shelf gave it.
+  said_of() { jq -r '.payload_b64' "$dir/answer" | base64 -d; }
+  # Start the unit, as a demo or as a unit, and wait for it to say it is
+  # up; where it does not come up, say so by the status.
+  up() {
+    export USHER_DEMO="$1"
+    compose up -d --wait --wait-timeout 60 usher > "$dir/up.log" 2>&1
+  }
+  face() {
+    compose cp usher:/var/lib/evo/state/https/ca.crt "$dir/unit-ca.crt" > /dev/null 2>&1 || fail "the unit that is up made no authority"
+    chmod 644 "$dir/unit-ca.crt"
+    tries=0
+    until [ "$(ask /usher/v1/state)" = 200 ]; do
+      tries=$((tries + 1))
+      [ "$tries" -lt 60 ] || fail "the unit does not say what it is: $(cat "$dir/curl.err") $(head -c 200 "$dir/answer" 2> /dev/null)"
+      sleep 0.5
+    done
+  }
+
+  echo "prove-proxy: demo"
+  up 1 || { cat "$dir/up.log" >&2; fail "a unit started as a demo does not come up"; }
+  face
+  jq -e '.demo == true and .set_up == false' "$dir/answer" > /dev/null || fail "a new demo says of itself: $(cat "$dir/answer")"
+  logged=$(compose logs usher 2> /dev/null || true)
+  grep -q 'this unit is a demo' <<< "$logged" || fail "the log of a demo does not say that it is one"
+  # The page carries the line that says so, for a browser to show.
+  [ "$(ask /org.evoframework.usher.shell/)" = 200 ] || fail "the shell does not come"
+  grep -q 'data-demo' "$dir/answer" || fail "the shell's page has no line to say that the unit is a demo"
+  [ "$(ask /satellite/)" = 200 ] || fail "the page of a satellite does not come"
+  grep -q 'data-demo' "$dir/answer" || fail "a satellite's page has no line to say that the unit is a demo"
+  echo "  ok    started with USHER_DEMO=1 the unit is up, and says that it is a demo: to anyone who asks, in its log, and on its pages"
+
+  # No name and no password come with it: it is set up as any unit.
+  status=$(post /usher/v1/sign_in '{"name": "admin", "password": "admin"}')
+  [ "$status" != 200 ] || fail "a demo lets a name in that nobody gave it"
+  status=$(post /usher/v1/set_up "$(jq -cn --arg name "$PERSON" --arg password "$PASSWORD" '{name: $name, password: $password}')")
+  [ "$status" = 200 ] || fail "a demo is not set up: $status $(cat "$dir/answer")"
+  bearer=$(jq -r '.token' "$dir/answer")
+  # With nothing else set up, the controller is set, the network is
+  # chosen and the types are on offer; and a voucher is handed out.
+  status=$(post /api/v1/request "$(request access.controller info '{}')" -H "Authorization: Bearer $bearer")
+  [ "$status" = 200 ] || fail "a demo does not tell of its controller: $status $(cat "$dir/answer")"
+  said_of | jq -e '.set == true and .held == true and (.base | startswith("https://127.0.0.1:")) and (.version | type == "string")' > /dev/null || fail "of its controller a demo says: $(said_of)"
+  status=$(post /api/v1/request "$(request issue.counter offered '{}')" -H "Authorization: Bearer $bearer")
+  [ "$status" = 200 ] || fail "a demo does not tell the types on offer: $status $(cat "$dir/answer")"
+  said_of | jq -e '(.types | map(.name)) == ["Day guest", "Week", "Stay"] and .default == "Day guest"' > /dev/null || fail "on offer in a demo: $(said_of)"
+  status=$(post /api/v1/request "$(request issue.counter hand '{"type": "Day guest"}')" -H "Authorization: Bearer $bearer")
+  [ "$status" = 200 ] || fail "a demo hands out no voucher at the counter's request: $status $(cat "$dir/answer")"
+  said_of | jq -e '(.voucher.code | test("^[0-9]{10}$")) and .network == "Guests" and (.join.rows | length > 0) and .type.name == "Day guest"' > /dev/null || fail "the voucher a demo handed out: $(said_of)"
+  echo "  ok    set up with a name and a password and nothing else, it hands out a voucher at the counter's request: a code, the network, and the symbol it is joined by"
+
+  # A screen is adopted, and gives the default voucher at its button.
+  status=$(post /usher/v1/satellite_code '{}')
+  [ "$status" = 200 ] || fail "a screen is not given a code: $status $(cat "$dir/answer")"
+  shown=$(jq -r '.code' "$dir/answer")
+  secret=$(jq -r '.secret' "$dir/answer")
+  status=$(post /usher/v1/adopt_satellite "$(jq -cn --arg code "$shown" '{code: $code, name: "Lobby"}')" -H "Authorization: Bearer $bearer")
+  [ "$status" = 200 ] || fail "a screen is not adopted: $status $(cat "$dir/answer")"
+  status=$(post /usher/v1/satellite_sign_in "$(jq -cn --arg secret "$secret" '{secret: $secret}')")
+  [ "$status" = 200 ] || fail "a satellite's secret is not exchanged for a session: $status $(cat "$dir/answer")"
+  screen=$(jq -r '.token' "$dir/answer")
+  status=$(post /api/v1/request "$(request issue.counter hand_default '{}')" -H "Authorization: Bearer $screen")
+  [ "$status" = 200 ] || fail "a satellite of a demo hands out no voucher: $status $(cat "$dir/answer")"
+  said_of | jq -e '(.voucher.code | test("^[0-9]{10}$")) and .network == "Guests"' > /dev/null || fail "the voucher a satellite of a demo handed out: $(said_of)"
+  echo "  ok    a screen is adopted and hands out the default voucher at its button"
+
+  # It is given no other controller.
+  status=$(post /api/v1/request "$(request access.controller set '{"base": "https://203.0.113.9/proxy/network/integration", "key": "a key"}')" -H "Authorization: Bearer $bearer")
+  [ "$status" = 403 ] || fail "a demo is pointed at another controller: $status $(cat "$dir/answer")"
+  jq -e '.error.details.subclass == "demo_controller"' "$dir/answer" > /dev/null || fail "another controller is refused a demo as: $(cat "$dir/answer")"
+  echo "  ok    pointed at another controller, it refuses"
+
+  # Its volume is a demo's for good: started as a unit, the program says
+  # why not and ends; started as a demo again, it is the demo it was.
+  compose down > /dev/null 2>&1 || fail "the demo is not stopped"
+  if up ""; then
+    fail "a demo's volume is started as a unit"
+  fi
+  logged=$(compose logs usher 2> /dev/null || true)
+  grep -q 'a demo does not become a unit' <<< "$logged" || fail "started as a unit, a demo's volume does not say why not: $(compose logs --tail 5 usher 2>&1)"
+  compose down > /dev/null 2>&1 || true
+  up 1 || { cat "$dir/up.log" >&2; fail "a demo's volume is not started as a demo again"; }
+  face
+  jq -e '.demo == true and .set_up == true' "$dir/answer" > /dev/null || fail "started again, the demo says of itself: $(cat "$dir/answer")"
+  status=$(post /usher/v1/sign_in "$(jq -cn --arg name "$PERSON" --arg password "$PASSWORD" '{name: $name, password: $password}')")
+  [ "$status" = 200 ] || fail "started again, the demo's administrator does not sign in: $status $(cat "$dir/answer")"
+  bearer=$(jq -r '.token' "$dir/answer")
+  status=$(post /api/v1/request "$(request issue.counter hand '{"type": "Week"}')" -H "Authorization: Bearer $bearer")
+  [ "$status" = 200 ] || fail "started again, the demo hands out no voucher: $status $(cat "$dir/answer")"
+  echo "  ok    its volume is not started as a unit, and says why; started as a demo again, it is the demo it was and hands out a voucher"
+  compose down --volumes --remove-orphans > /dev/null 2>&1 || true
+
+  # And a unit's volume is a unit's for good.
+  project="usher-proof-demo-unit"
+  export USHER_NAME="$project"
+  up "" || { cat "$dir/up.log" >&2; fail "a unit does not come up"; }
+  face
+  jq -e '.demo == false' "$dir/answer" > /dev/null || fail "a unit says of itself: $(cat "$dir/answer")"
+  compose down > /dev/null 2>&1 || fail "the unit is not stopped"
+  if up 1; then
+    fail "a unit's volume is started as a demo"
+  fi
+  logged=$(compose logs usher 2> /dev/null || true)
+  grep -q 'a unit does not become a demo' <<< "$logged" || fail "started as a demo, a unit's volume does not say why not: $(compose logs --tail 5 usher 2>&1)"
+  compose down > /dev/null 2>&1 || true
+  up "" || { cat "$dir/up.log" >&2; fail "a unit's volume is not started as a unit again"; }
+  face
+  jq -e '.demo == false' "$dir/answer" > /dev/null || fail "started again, the unit says of itself: $(cat "$dir/answer")"
+  echo "  ok    a unit's volume is not started as a demo, and says why; it is the unit it was"
+  compose down --volumes --remove-orphans > /dev/null 2>&1 || true
+  unset USHER_DEMO
+  project=""
+}
+
 for proxy in $proxies; do
-  prove "$proxy"
+  if [ "$proxy" = demo ]; then
+    prove_demo
+  else
+    prove "$proxy"
+  fi
 done
 echo "[OK] prove-proxy: $proxies"

@@ -17,6 +17,7 @@
 #   USHER_SITE_NAME     what the place is called, until one is saved on the page Site
 #   USHER_TIME_ZONE     the time zone it keeps, as Europe/Warsaw, until one is saved there
 #   USHER_LANGUAGE      the language it speaks, as en or de, until one is saved there
+#   USHER_DEMO          1 runs it as a demo, on a simulated controller (default: a unit)
 #   USHER_AUTHORITY     the unit's authority (default ./unit-ca.crt)
 #   SITE_CERT, SITE_KEY the site's certificate and its key (default ./site.crt, ./site.key)
 #   SITE_ADDRESS        the address the proxy is published on (default: every one)
@@ -35,6 +36,8 @@ services:
       USHER_SITE_NAME: ${USHER_SITE_NAME:-}
       USHER_TIME_ZONE: ${USHER_TIME_ZONE:-}
       USHER_LANGUAGE: ${USHER_LANGUAGE:-}
+      # Whether the unit is a demo, as packaging/docker/compose.yaml says it.
+      USHER_DEMO: ${USHER_DEMO:-}
     read_only: true
     cap_drop:
       - ALL

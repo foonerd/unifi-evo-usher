@@ -459,6 +459,34 @@ impl Steward {
         (status, unwrapped(answer))
     }
 
+    /// Start the steward on `dir` with variables in its environment
+    /// that it does not start on: how it ended, and what it said as it
+    /// did. None where it had not ended after a while, and was stopped.
+    pub fn refused_to_start(
+        dir: &Path,
+        given: &[(&str, &str)],
+    ) -> (Option<i32>, String) {
+        let (mut command, _, _) = Self::command_on(dir, true, None, given);
+        let mut child = command.stderr(Stdio::piped()).spawn().unwrap();
+        let until = Instant::now() + Duration::from_secs(20);
+        let ended = loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                break status.code();
+            }
+            if Instant::now() >= until {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+            sleep(Duration::from_millis(50));
+        };
+        let mut said = String::new();
+        if let Some(mut stderr) = child.stderr.take() {
+            let _ = stderr.read_to_string(&mut said);
+        }
+        (ended, said)
+    }
+
     /// Start the steward on `dir`, at the level named or at the ordinary
     /// one, on whatever code is there, and with what it is given in its
     /// environment beside.
@@ -468,6 +496,21 @@ impl Steward {
         level: Option<&str>,
         given: &[(&str, &str)],
     ) -> Self {
+        let (mut command, port, socket) =
+            Self::command_on(dir, face, level, given);
+        let child = command.spawn().unwrap();
+        Self::once_up(dir, port, socket, child)
+    }
+
+    /// The steward as it is started on `dir`: its configuration written,
+    /// and the command with its environment; the port its listener is
+    /// given, and its socket.
+    fn command_on(
+        dir: &Path,
+        face: bool,
+        level: Option<&str>,
+        given: &[(&str, &str)],
+    ) -> (Command, u16, PathBuf) {
         let socket = dir.join("evo.sock");
         let config = dir.join("evo.toml");
         let catalogue =
@@ -547,6 +590,7 @@ discovery_enabled = false
             .env_remove("USHER_SITE_NAME")
             .env_remove("USHER_TIME_ZONE")
             .env_remove("USHER_LANGUAGE")
+            .env_remove("USHER_DEMO")
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         if face {
@@ -556,8 +600,16 @@ discovery_enabled = false
             command.env("USHER_SECURITY", level);
         }
         command.envs(given.iter().copied());
-        let mut child = command.spawn().unwrap();
+        (command, port, socket)
+    }
 
+    /// The steward that was started, once it answers.
+    fn once_up(
+        dir: &Path,
+        port: u16,
+        socket: PathBuf,
+        mut child: Child,
+    ) -> Self {
         // Up when its socket answers and its listener takes a connection;
         // the listener's certificate authority is on disk by then.
         let authority = dir.join("state/https/ca.crt");

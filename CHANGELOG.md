@@ -2,6 +2,19 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## [0.3.22] - 2026-11-21
+
+- A unit can be tried with no UniFi controller. Started with `USHER_DEMO=1` in its environment it is a demo: the usher complete, with a simulated controller in the place of a controller, started in the steward's own process on the loopback address, with a certificate and a key made for that start. One command runs one from the image: `docker run --rm -p 8443:8443 -e USHER_DEMO=1 ghcr.io/foonerd/unifi-evo-usher:<version>`; `scripts/try.sh`, `scripts/try-image.sh` and `packaging/docker/compose.yaml` pass the variable on
+- A demo comes with the guest network chosen and three voucher types, one the default and one with days to choose, where it has none, so its counter and its satellites hand a voucher out at once. No name and no password come with it: it is set up as any unit
+- A demo says that it is one: a band under the bar on every page, on the forms a person comes in by and on a satellite's page, which nothing puts away; a line on every voucher shown to a guest; the page Controller; `demo` in `/usher/v1/state`; and the log
+- A demo is given no other controller: the request that sets one is refused with 403 `demo_controller`
+- A demo never becomes a unit, and a unit never a demo. The first start as a demo writes a mark beside the people; files with the mark are started as a demo only, files the steward has started on without it as a unit only, and the program says why it refuses and ends with 2 before anything is opened. A value of `USHER_DEMO` that is mistyped stops the start
+- The simulated controller is part of the steward as it is released, where it was part of the tests alone. It takes a key made at random at every start where it took a fixed one, keeps the newest ten thousand vouchers, and makes a demo's vouchers at the moment they are made. No library came into the release with it
+- The README opens with what the usher is in three lines, one picture and the one command; the manual's first page and its quick start lead to the demo the same way
+- `scripts/prove-proxy.sh` has a case `demo`: a unit started as a demo hands out a voucher at the counter's request and by an adopted screen, with nothing set up but its administrator; it refuses another controller; and a demo's volume and a unit's are each started as what they are, and as nothing else
+- The Compose files, those of the four proxy examples among them, pass `USHER_DEMO` to the unit, and `scripts/try.sh` and `scripts/try-image.sh` take it from their environment
+- All of it in the eleven languages
+
 ## [0.3.21] - 2026-11-21
 
 - An administrator who can no longer sign in, and has no other administrator to set them a new password, is given one on the unit itself: `evo-usher-steward --reset-password <name>`, run by whoever keeps the unit, as root or as the account the steward runs as; in a container with `docker exec`, `docker compose exec` or `kubectl exec`. The password is typed twice and not shown, or read as one line where there is no terminal; it is held to the unit's level and written nowhere. The running unit takes it up at once: the new password signs in, the old one does not, and whoever was signed in as that administrator is signed out. There is no route for it and no page, and it is for administrators alone

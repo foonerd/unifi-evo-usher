@@ -30,6 +30,23 @@ docker compose cp usher:/var/lib/evo/state/https/ca.crt ./unit-ca.crt
 
 `--wait` comes back once the unit says it is up. The face is then at `https://localhost:8443/`, believed by `unit-ca.crt`. Nobody has set the unit up yet: whoever opens the face first does, by choosing the name and the password they sign in with from then on. Open it before the unit is reachable by anyone it is not meant for.
 
+### Trying it with no controller
+
+A unit that is started with `USHER_DEMO=1` is a demo: the usher complete, with a simulated controller in the place of a UniFi controller. One command runs one, as the image's own account and with nothing kept after it. **Proven** by `scripts/prove-proxy.sh`, in its case `demo`, which starts it with Compose; the line below was **run here**, with the image as `scripts/image.sh --here` makes it.
+
+```sh
+docker run --rm -p 8443:8443 -e USHER_DEMO=1 ghcr.io/foonerd/unifi-evo-usher:<version>
+```
+
+The face is then at `https://localhost:8443/`, under the certificate of the unit's own authority, so a browser warns. Whoever opens it first sets it up, with a name and a password of their own: no name and no password come with a demo. With `packaging/docker/compose.yaml` the same is `USHER_DEMO=1` in the `.env` or in the shell, on a volume of its own; from a checkout of the repository it is `USHER_DEMO=1 scripts/try.sh`.
+
+- **What a demo is.** Every part of it is the usher's own: the plugins, the counter, the reserve, the face and the satellites are the ones a unit runs. Only the controller is not one. The steward starts a simulated controller in its own process, on the loopback address and on no other, with a certificate and a key made for that start, and points the controller plugin at it; the plugin speaks to it over HTTPS as it speaks to any. The simulated controller is written from Ubiquiti's description of the API, and is the one the tests hold the plugin to.
+- **What it comes with.** The guest network chosen for vouchers, and three voucher types, one of them the default and one whose days are chosen when a voucher is handed out, where the demo has no types; they are made through the requests the pages use and are held to the same rules, and an administrator changes them as on any unit. So the counter hands a voucher out at once, and so does a screen that is adopted as a satellite.
+- **What it is not.** It reaches no UniFi controller and no network: a voucher of a demo is a code the simulated controller made, and lets nobody in anywhere. What the simulated controller holds is in memory, the newest ten thousand vouchers at most, and is gone when the steward stops; what the usher keeps of its own, its people, its types, its satellites and its record of hand-outs, stays on the volume. It shows how the usher is worked, and nothing of how a controller answers.
+- **How it is marked.** A band under the bar on every page, on the forms a unit is set up and signed in to by, and on a satellite's page, which nothing on the page puts away; a line on every voucher shown to a guest; the page Controller, which says that the controller is the simulated one and offers no other; `"demo": true` in what `GET /usher/v1/state` tells anyone; and a line in the log at every start.
+- **No other controller.** The request that sets the controller is refused in a demo with 403 `demo_controller`, at the unit's gate, whoever asks.
+- **A demo stays a demo, and a unit a unit.** The first start as a demo writes a mark beside the people, `/var/lib/evo/state/usher/demo`. Files with the mark are a demo's: started without `USHER_DEMO`, the program says that a demo does not become a unit, and ends with 2. Files the steward has started on without the mark are a unit's: started with `USHER_DEMO=1`, the program says that a unit does not become a demo, and ends with 2. Either way nothing is opened and nothing is changed, and the way on is a volume or a directory of its own. Where it cannot be told which the files are, the start is refused. A value of `USHER_DEMO` that is neither `1`, `yes`, `on` or `true` nor `0`, `no`, `off` or `false` stops the start too: it is not taken for a unit. An installed unit has started by the time it is installed, so a demo is run in a container or from a checkout.
+
 ### The values of a site
 
 Every value that differs from one site to the next is a variable, and all but the version have a default. They stand in a file `.env` beside the Compose file that is run: Compose reads it from that directory. `packaging/docker/.env.example` is a model of the file, with every variable the Compose files of this repository read; a test holds it to them. (**Run here**: a unit started from a copy of the model with the version named in it, by itself and behind nginx, and its authority taken from it.)
@@ -46,6 +63,7 @@ A variable of the shell goes before the file, so `USHER_VERSION=<version> docker
 | `USHER_SITE_NAME` | every file | What the place the unit serves is called, until a name is saved on the page Site. | The unit has no name of its own, and goes by the usher's. |
 | `USHER_TIME_ZONE` | every file | The time zone the place keeps, by its name, as `Europe/Warsaw`, until one is saved on the page Site. | Each screen shows a time as its own browser keeps it. |
 | `USHER_LANGUAGE` | every file | The language the unit speaks, by its tag, as `en` or `de`, until one is saved on the page Site. | English. |
+| `USHER_DEMO` | `compose.yaml` | With `1`, the unit is a demo, on a simulated controller: see above. It is said when a unit is first started, on a volume of its own. | A unit. |
 | `USHER_CODE` | `extended.yaml` | The file with the unit's code, readable by the account 10001. | `./unit-code` |
 | `SITE_CERT`, `SITE_KEY` | the proxy examples | The site's certificate and its key. | `./site.crt`, `./site.key` |
 | `USHER_AUTHORITY` | the proxy examples | The unit's own authority, as it was taken from the unit. | `./unit-ca.crt` |

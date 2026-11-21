@@ -96,7 +96,7 @@ async fn a_controller_is_set_once_it_answers_and_is_kept() {
     let rest =
         std::fs::read_to_string(kept.state.path().join("controller.json"))
             .unwrap();
-    assert!(!rest.contains(simulated.key()), "{rest}");
+    assert!(!rest.contains(&simulated.key()), "{rest}");
 
     // Opened again, as after a restart, it is the controller that was set.
     let again = kept.open();
@@ -192,6 +192,42 @@ async fn a_controller_that_is_not_believed_or_refuses_the_key_is_not_set() {
         json!({ "set": false }),
         "and nothing was kept"
     );
+}
+
+#[tokio::test]
+async fn a_simulated_controller_has_a_key_of_its_own_and_can_keep_the_days_time(
+) {
+    // Each has a key made for it, which no other takes.
+    let (first, second) = (Simulated::start().await, Simulated::start().await);
+    assert_eq!(first.key().len(), 64, "{}", first.key());
+    assert_ne!(first.key(), second.key());
+    let kept = Kept::new();
+    let refused = ask(
+        &kept.open(),
+        "set",
+        json!({
+            "base": first.base(),
+            "key": second.key(),
+            "fingerprint": first.fingerprint(),
+        }),
+    )
+    .await;
+    assert!(refused.is_err(), "another's key is taken: {refused:?}");
+
+    // For a test, what it makes is made at one fixed moment; started
+    // to keep the day's time, a voucher is made when it is made.
+    let asked = |simulated: &Simulated| json!({ "site": simulated.site(), "note": "day guest", "minutes": 60, "count": 1 });
+    let kept = Kept::new();
+    let controller = kept.open();
+    set(&controller, &first).await;
+    let fixed = ask(&controller, "mint", asked(&first)).await.unwrap();
+    assert!(fixed.to_string().contains("2026-01-01T00:00:00"), "{fixed}");
+    let of_the_day = Simulated::open(true).await.unwrap();
+    let kept = Kept::new();
+    let controller = kept.open();
+    set(&controller, &of_the_day).await;
+    let made = ask(&controller, "mint", asked(&of_the_day)).await.unwrap();
+    assert!(!made.to_string().contains("2026-01-01T00:00:00"), "{made}");
 }
 
 #[tokio::test]

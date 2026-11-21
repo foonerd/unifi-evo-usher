@@ -10,7 +10,7 @@
 
 import { el, id, words } from "./dom.js";
 import { CONTROLLER_SET } from "./networks.js";
-import { say, sayOf } from "./words.js";
+import { demo, say, sayOf } from "./words.js";
 
 /**
  * A fingerprint as it is compared by eye: pairs of digits, colons between.
@@ -72,6 +72,9 @@ export function controller(element, context) {
   const showSet = (info) => {
     const sites = el("dd", {}, say("controller.asking"));
     show(
+      // A demo's controller is the simulated one, and the page says so;
+      // a demo is given no other, so none is offered.
+      demo() ? el("p", { class: "usher-demo-note", role: "note" }, say("controller.simulated")) : "",
       el(
         "dl",
         {},
@@ -92,11 +95,13 @@ export function controller(element, context) {
           { type: "button", class: "quiet", onclick: () => load() },
           say("common.ask_again"),
         ),
-        el(
-          "button",
-          { type: "button", class: "quiet", onclick: () => showAddress(String(info.base)) },
-          say("controller.set_another"),
-        ),
+        demo()
+          ? ""
+          : el(
+              "button",
+              { type: "button", class: "quiet", onclick: () => showAddress(String(info.base)) },
+              say("controller.set_another"),
+            ),
       ),
     );
     if (info.trouble) {
@@ -251,6 +256,18 @@ export function controller(element, context) {
       const info = await ask("info");
       if (info?.set) {
         showSet(info);
+      } else if (demo()) {
+        // A demo whose simulated controller did not start is given no
+        // other: it is started again.
+        show(
+          el("p", { class: "usher-demo-note", role: "note" }, say("controller.simulated")),
+          el(
+            "div",
+            { class: "row" },
+            el("button", { type: "button", class: "quiet", onclick: () => load() }, say("common.ask_again")),
+          ),
+        );
+        tell(say("controller.simulated_missing"), true);
       } else {
         showAddress();
       }

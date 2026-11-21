@@ -468,7 +468,7 @@ fn a_new_usher_is_set_up_and_its_controller_set_from_the_screen() {
         "{set}"
     );
     assert!(
-        !set.contains(simulated.key()),
+        !set.contains(&simulated.key()),
         "the key is not on the screen: {set}"
     );
 
@@ -5330,6 +5330,226 @@ fn a_screen_is_adopted_and_hands_a_guest_the_default_voucher() {
             json!(code)
         ),
     );
+    assert_eq!(steward.stop(), Some(0));
+}
+
+/// What says to whoever stands at the screen that the unit is a demo:
+/// the lines in view, in order, on the form a person comes in by where
+/// one stands before the page, and on the page where none does; and
+/// whether anything on any of them can be pressed to put it away.
+const DEMO_LINES: &str = r##"
+    const before = document.querySelector("dialog[open]") ?? document;
+    const lines = [...before.querySelectorAll("[data-demo]")]
+      .filter((line) => !line.hidden && line.getClientRects().length > 0);
+    return {
+      says: lines.map((line) => line.textContent),
+      pressed: lines.some((line) => line.querySelector("button, a, input") !== null),
+    };
+"##;
+
+#[test]
+fn a_demo_says_that_it_is_one_on_every_page_and_on_every_voucher() {
+    let Some(mut browser) = Browser::open() else {
+        return;
+    };
+    browser.size(1280, 900);
+    let dir = short_dir();
+    let steward = Steward::start_given(dir.path(), &[("USHER_DEMO", "1")]);
+    let line = "Demo: the controller is simulated, and the vouchers shown here open no network.";
+    let on_the_form = json!({ "says": [line], "pressed": false });
+
+    // The form a new unit is set up by says that it is a demo, before
+    // anyone has typed anything; no name and no password stand in it.
+    browser.from(FROM_BEYOND);
+    browser.go(&format!("{}/", steward.address()));
+    browser.wait(
+        "the form that sets an usher up",
+        r#"document.getElementById("entry")?.open === true && document.getElementById("set-up-form") !== null && document.documentElement.dataset.spoken === "en""#,
+    );
+    assert_eq!(browser.look(DEMO_LINES), on_the_form);
+    assert_eq!(
+        browser.look(
+            r##"return [...document.querySelectorAll("#set-up-form input")].map((field) => field.value);"##
+        ),
+        json!(["", "", "", ""]),
+        "a demo comes with no name and no password"
+    );
+
+    // Set up, the form to sign in says it too, and so does every page
+    // of the face, under the bar.
+    fill(
+        &mut browser,
+        json!({
+            "set-up-name": "Anna", "set-up-password": PASSWORD,
+            "set-up-again": PASSWORD,
+        }),
+    );
+    browser.act(r#"document.getElementById("set-up-form").requestSubmit();"#);
+    browser.wait(
+        "who is signed in",
+        r#"document.getElementById("entry").open === false && document.getElementById("who-name").textContent === "Anna""#,
+    );
+    let on_a_page = r##"
+        const lines = [...document.querySelectorAll("[data-demo]")]
+          .filter((line) => !line.hidden && line.getClientRects().length > 0);
+        const bar = document.querySelector(".bar").getBoundingClientRect();
+        return {
+          says: lines.map((line) => line.textContent),
+          under_the_bar: lines.length === 1 && lines[0].getBoundingClientRect().top >= bar.bottom - 1,
+          as_wide: lines.length === 1 && Math.round(lines[0].getBoundingClientRect().width) === document.documentElement.clientWidth,
+        };
+    "##;
+    for page in [
+        "Counter",
+        "Vouchers",
+        "Voucher types",
+        "Network",
+        "Controller",
+        "Site",
+        "Satellites",
+        "People",
+    ] {
+        go_to(&mut browser, page);
+        assert_eq!(
+            browser.look(on_a_page),
+            json!({ "says": [line], "under_the_bar": true, "as_wide": true }),
+            "{page}"
+        );
+    }
+
+    // The page of the controller says that it is the simulated one, and
+    // offers no other.
+    go_to(&mut browser, "Controller");
+    browser.wait(
+        "the controller that is set",
+        r#"widget("usher.controller").querySelector("dl") !== null"#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"
+            const page = widget("usher.controller");
+            return {
+              says: page.querySelector(".usher-demo-note")?.textContent ?? null,
+              buttons: [...page.querySelectorAll("button")].map((button) => button.textContent),
+              address: page.querySelector(".usher-address").textContent.startsWith("https://127.0.0.1:"),
+            };
+            "#
+        ),
+        json!({
+            "says": "This is the demo's simulated controller. It answers as a UniFi controller does, and the vouchers it makes open no network. A demo is given no other controller.",
+            "buttons": ["Ask again"],
+            "address": true,
+        })
+    );
+
+    // The counter hands a voucher out at once: the demo came with its
+    // types. The voucher says that it is a demo's, on the page and on
+    // the sheet it is shown to the guest on.
+    go_to(&mut browser, "Counter");
+    browser.wait(
+        "the types on offer",
+        r#"widget("usher.counter").querySelectorAll("button.usher-type").length === 3"#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"return [...widget("usher.counter").querySelectorAll("button.usher-type strong")].map((name) => name.textContent);"#
+        ),
+        json!(["Day guest", "Week", "Stay"])
+    );
+    browser.act(r#"widget("usher.counter").querySelector("button.usher-type").click();"#);
+    browser.wait(
+        "the voucher",
+        r#"widget("usher.counter").querySelector(".usher-voucher") !== null"#,
+    );
+    let of_a_demo = "Demo voucher: it opens no network.";
+    assert_eq!(
+        browser.look(
+            r#"return [...widget("usher.counter").querySelectorAll(".usher-ticket .usher-demo-voucher")].map((note) => note.textContent);"#
+        ),
+        json!([of_a_demo])
+    );
+    // For the eye: the counter of a demo, with a voucher handed out.
+    if let Some(to) = picture_of(Some("demo-counter")) {
+        browser.act("window.scrollTo(0, 0);");
+        browser.picture(&to);
+    }
+    browser.act(
+        r#"[...widget("usher.counter").querySelectorAll("button")].find((b) => b.textContent === "Show to the guest").click();"#,
+    );
+    browser.wait(
+        "the sheet for the guest",
+        r#"widget("usher.counter").querySelector("dialog.usher-guest[open]") !== null"#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"return [...widget("usher.counter").querySelectorAll("dialog.usher-guest .usher-demo-voucher")].map((note) => note.textContent);"#
+        ),
+        json!([of_a_demo])
+    );
+    browser.act(r#"widget("usher.counter").querySelector("dialog.usher-guest button").click();"#);
+
+    // Signed out, the form to sign in says it.
+    browser.act(r#"document.getElementById("sign-out").click();"#);
+    browser.wait(
+        "the form to sign in",
+        r#"document.getElementById("entry")?.open === true && document.getElementById("sign-in-form") !== null"#,
+    );
+    assert_eq!(browser.look(DEMO_LINES), on_the_form);
+
+    // A satellite's page says it under its bar, while it waits to be
+    // adopted and once it is; and the voucher it gives says it is a
+    // demo's.
+    let anna = steward.signed_in("Anna", PASSWORD);
+    browser.go(&format!("{}/satellite/", steward.address()));
+    let code = browser.wait(
+        "the code of the screen",
+        r###"/^\d{6}$/.test(document.getElementById("satellite-code")?.textContent ?? "") && document.getElementById("satellite-code").textContent"###,
+    );
+    assert_eq!(browser.look(DEMO_LINES), on_the_form);
+    let (status, said) = steward.usher(
+        "POST",
+        "adopt_satellite",
+        Some(json!({ "code": code, "name": "Lobby" })),
+        &anna,
+    );
+    assert_eq!(status, 200, "{said}");
+    browser.reload();
+    browser.wait(
+        "the button of the screen",
+        r#"document.getElementById("satellite-press") !== null"#,
+    );
+    assert_eq!(browser.look(DEMO_LINES), on_the_form);
+    browser.act(r#"document.getElementById("satellite-press").click();"#);
+    browser.wait(
+        "the voucher",
+        r#"document.getElementById("satellite-voucher") !== null"#,
+    );
+    assert_eq!(
+        browser.look(
+            r##"return [...document.querySelectorAll("#satellite-voucher .usher-demo-voucher")].map((note) => note.textContent);"##
+        ),
+        json!([of_a_demo])
+    );
+    assert_eq!(browser.look(DEMO_LINES), on_the_form);
+    assert_eq!(steward.stop(), Some(0));
+
+    // A unit that is no demo says nothing of the kind, on its form or
+    // on a satellite's page.
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+    let nothing = json!({ "says": [], "pressed": false });
+    browser.go(&format!("{}/", steward.address()));
+    browser.wait(
+        "the form that sets an usher up",
+        r#"document.getElementById("entry")?.open === true && document.getElementById("set-up-form") !== null && document.documentElement.dataset.spoken === "en""#,
+    );
+    assert_eq!(browser.look(DEMO_LINES), nothing);
+    browser.go(&format!("{}/satellite/", steward.address()));
+    browser.wait(
+        "the code of the screen",
+        r###"/^\d{6}$/.test(document.getElementById("satellite-code")?.textContent ?? "")"###,
+    );
+    assert_eq!(browser.look(DEMO_LINES), nothing);
     assert_eq!(steward.stop(), Some(0));
 }
 

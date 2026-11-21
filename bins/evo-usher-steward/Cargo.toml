@@ -14,7 +14,9 @@ evo-plugin-sdk = { workspace = true }
 evo-projection-core = { workspace = true }
 evo-runtime-http = { workspace = true }
 evo-usher-about = { path = "../../crates/about" }
-evo-usher-controller-unifi = { path = "../../plugins/org.evoframework.usher.controller.unifi" }
+# With the simulated controller, which a unit started as a demo is given
+# in the place of a controller.
+evo-usher-controller-unifi = { path = "../../plugins/org.evoframework.usher.controller.unifi", features = ["simulated"] }
 evo-usher-counter = { path = "../../plugins/org.evoframework.usher.counter" }
 evo-usher-site = { path = "../../plugins/org.evoframework.usher.site" }
 evo-usher-stock = { path = "../../plugins/org.evoframework.usher.stock" }

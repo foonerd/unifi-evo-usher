@@ -52,6 +52,7 @@ use subtle::ConstantTimeEq as _;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::UnixStream;
 
+use crate::demo::Demo;
 use crate::people::{self, Level, People, ADMINISTRATOR, FRONT_DESK};
 use crate::satellites::{self, Known, Satellites, SATELLITE};
 
@@ -488,6 +489,8 @@ pub struct Settings {
     pub socket: PathBuf,
     /// The file the unit's code is read from, where the level asks it.
     pub code: Option<PathBuf>,
+    /// Whether the unit is a demo: its controller is simulated.
+    pub demo: bool,
 }
 
 /// What was last read of the site for the satellites.
@@ -531,6 +534,8 @@ pub struct Usher {
     /// The bearer the unit's keeper asks a shelf with, and until when it
     /// is good, in milliseconds since 1970.
     keepers: tokio::sync::Mutex<Option<(String, u64)>>,
+    /// What a demo holds, where the unit is one.
+    demo: Option<Demo>,
 }
 
 impl Usher {
@@ -578,7 +583,32 @@ impl Usher {
             checking: tokio::sync::Semaphore::new(2),
             shelves,
             keepers: tokio::sync::Mutex::new(None),
+            demo: settings.demo.then(Demo::default),
         }))
+    }
+
+    /// Whether the unit is a demo: its controller is simulated, and the
+    /// vouchers it hands out open no network.
+    pub fn is_demo(&self) -> bool {
+        self.demo.is_some()
+    }
+
+    /// Give a demo its simulated controller, and what a demo has, as the
+    /// steward starts; a unit is given nothing. The log says that the
+    /// unit is a demo. Where the demo cannot be made ready, the log says
+    /// why and the face comes up all the same, saying that it is a demo:
+    /// its page for the controller then shows that none answers.
+    pub async fn begin_demo(&self) {
+        let Some(demo) = &self.demo else {
+            return;
+        };
+        tracing::warn!(
+            "this unit is a demo: its controller is simulated, and the \
+             vouchers it hands out open no network"
+        );
+        if let Err(why) = demo.begin(&self.shelves).await {
+            tracing::error!("the demo is not ready: {why}");
+        }
     }
 
     /// What anyone is told of the site: its name and its logo, which
@@ -1565,6 +1595,7 @@ async fn state(State(usher): State<Arc<Usher>>) -> Response {
             "level": usher.level.as_str(),
             "least_password": usher.level.least_password(),
             "keeps": usher.level.keeps(),
+            "demo": usher.is_demo(),
             "site": site,
         }),
     )
@@ -2183,6 +2214,19 @@ pub fn not_for_a_satellite() -> Response {
         "not_for_satellite",
         "That is not a satellite's to ask. A satellite hands out the \
          default voucher.",
+    )
+}
+
+/// The answer to whoever would give a demo another controller than its
+/// simulated one.
+pub fn demo_keeps_its_controller() -> Response {
+    refusal(
+        StatusCode::FORBIDDEN,
+        "permission_denied",
+        "demo_controller",
+        "This unit is a demo: its controller is simulated, and it is \
+         given no other. For a controller of your own, start a new unit \
+         that is not a demo.",
     )
 }
 
@@ -3159,6 +3203,7 @@ mod tests {
                 level: Level::Standard,
                 socket: dir.path().join("evo.sock"),
                 code: None,
+                demo: false,
             },
             dir.path(),
             Arc::new(NoShelves),
@@ -3395,6 +3440,7 @@ mod tests {
                 level: Level::Standard,
                 socket: dir.join("evo.sock"),
                 code: None,
+                demo: false,
             },
             dir,
             shelves,

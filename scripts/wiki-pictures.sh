@@ -70,6 +70,7 @@ face-site-cropper.png:site-cropper.png
 face-satellites-adopt-protected.png:satellites-adopt-protected.png
 face-satellite-types.png:satellite-types.png
 face-satellite-keypad.png:satellite-keypad.png
+face-demo-counter.png:demo-counter.png
 "
 for pair in $pictures; do
   from=${pair%%:*}

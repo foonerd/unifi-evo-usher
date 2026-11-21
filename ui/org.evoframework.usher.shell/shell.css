@@ -61,6 +61,32 @@ body {
   color: var(--evo-text);
 }
 
+/* The bar, and under it what says that the unit is a demo: they stay
+   at the top together, however far the page is moved. */
+.masthead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+/* What says that the unit is a demo: a band under the bar on every
+   page, and on the form a person comes in by. It is the colour of a
+   warning, written in the colour of the page so that it reads in the
+   dark scheme and in the light, and nothing puts it away. */
+.demo-line {
+  margin: 0;
+  padding: 0.5rem var(--evo-gap);
+  background: var(--status-warn, #6b4200);
+  color: var(--background, #ffffff);
+  font-weight: 600;
+  text-align: center;
+}
+
+dialog .demo-line {
+  margin: 0 0 1rem;
+  border-radius: calc(var(--radius, 0.75rem) / 2);
+}
+
 /* The bar stays at the top, a pane of glass like the rest. */
 .bar {
   position: sticky;

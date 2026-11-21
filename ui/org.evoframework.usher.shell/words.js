@@ -77,6 +77,13 @@ let tag = ENGLISH;
  */
 let written = ENGLISH;
 
+/**
+ * Whether the unit is a demo: its controller is simulated, and the
+ * vouchers it hands out open no network. Told with the site's language,
+ * before anyone has signed in, so that every page can say so.
+ */
+let aDemo = false;
+
 /** The texts of the language that is spoken. @type {Record<string, Text>} */
 let texts = {};
 
@@ -227,7 +234,9 @@ async function askSite() {
       cache: "no-store",
     });
     if (!answer.ok) return;
-    const told = (await answer.json())?.site;
+    const unit = await answer.json();
+    aDemo = unit?.demo === true;
+    const told = unit?.site;
     if (typeof told?.language === "string") {
       site = { language: told.language, follows: told.follows_browser === true };
     }
@@ -272,10 +281,33 @@ export function ready() {
     if (typeof document !== "undefined") {
       document.documentElement.lang = tag;
       fill(document);
+      markDemo(document);
       document.documentElement.dataset.spoken = tag;
     }
   })();
   return made;
+}
+
+/**
+ * Whether the unit is a demo, as it said when the page was opened.
+ *
+ * @returns {boolean}
+ */
+export function demo() {
+  return aDemo;
+}
+
+/**
+ * Show what says that the unit is a demo, where it is one: every
+ * element marked `data-demo`, which a page keeps hidden until then.
+ * There is nothing on the page to put it away with.
+ *
+ * @param {ParentNode} within
+ */
+export function markDemo(within) {
+  for (const line of within.querySelectorAll("[data-demo]")) {
+    /** @type {HTMLElement} */ (line).hidden = !aDemo;
+  }
 }
 
 /**
