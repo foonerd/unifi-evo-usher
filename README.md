@@ -31,7 +31,7 @@ The usher makes the voucher on your UniFi controller and shows the code and the 
 No UniFi controller is needed for a first look: the demo brings a simulated one.
 
 ```sh
-docker run --rm -p 8443:8443 -e USHER_DEMO=1 ghcr.io/foonerd/unifi-evo-usher:0.3.22
+docker run --rm -p 8443:8443 -e USHER_DEMO=1 ghcr.io/foonerd/unifi-evo-usher:latest
 ```
 
 Open `https://localhost:8443/`, go on past the browser's warning (the unit signs its own certificate), give a name and a password of your own, and hand yourself a voucher. A demo says on every page that it is one, and its vouchers open no network.
@@ -422,7 +422,7 @@ A release is tagged `v<version>` and is published as a pre-release until it has 
 | `evo-usher-core-<version>-1.<machine>.rpm` | The core, installed as `/opt/evo/bin/evo-usher-core`. |
 | `evo-usher-station-<version>-1.<machine>.rpm` | The station, installed as `/opt/evo/bin/evo-usher-station`. |
 
-Beside them stand `SHA256SUMS` and its signature, `SHA256SUMS.sig`. The steward is also published as an image for both architectures, `ghcr.io/foonerd/unifi-evo-usher:<version>`: the unit as its package installs it, on an empty image.
+Beside them stand `SHA256SUMS` and its signature, `SHA256SUMS.sig`. The steward is also published as an image for both architectures, `ghcr.io/foonerd/unifi-evo-usher:<version>`: the unit as its package installs it, on an empty image. Once a release is made public the same image is also `ghcr.io/foonerd/unifi-evo-usher:latest`, for a first look; a unit that is kept names its version.
 
 The programs are static. They depend on nothing the machine has or may lose, and the same file runs on a bare machine, from the package and in the image.
 

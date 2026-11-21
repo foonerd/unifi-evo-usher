@@ -206,7 +206,8 @@ jobs:
           path: dist
           if-no-files-found: error
       # The image under the version and no other tag: which version is the
-      # latest is said by hand, once the release has been tried.
+      # latest is said by hand, once the release has been tried, and
+      # latest.yml then lays the tag latest on this image.
       - name: Publish the image
         if: startsWith(github.ref, 'refs/tags/v')
         run: |

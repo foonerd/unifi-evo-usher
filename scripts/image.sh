@@ -14,7 +14,8 @@
 #                      the login is the caller's
 #
 # No tag but the version is pushed: which version is the latest is said by
-# hand, once a release has been tried.
+# hand, once a release has been tried, and .github/workflows/latest.yml
+# then lays the tag latest on that version's image.
 set -euo pipefail
 ROOT=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
