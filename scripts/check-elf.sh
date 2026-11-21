@@ -26,7 +26,11 @@ while IFS= read -r -d '' f; do
     *"statically linked"*|*"static-pie linked"*) detail="$detail, static" ;;
     *) ok=0; detail="$detail, NOT static" ;;
   esac
-  if readelf -d "$f" 2> /dev/null | grep -q '(NEEDED)'; then
+  # What the file needs is read whole before it is looked through: a
+  # reader that leaves at the first line it finds ends the writer, and
+  # the two together would then say that nothing was found.
+  needs=$(readelf -d "$f" 2> /dev/null || true)
+  if grep -q '(NEEDED)' <<< "$needs"; then
     ok=0
     detail="$detail, needs a shared library"
   fi

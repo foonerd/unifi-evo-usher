@@ -174,7 +174,8 @@ files=$(awk '/^Max open files/ { print $4 }' "/proc/$pid/limits")
 echo "  ok    as many open files as a large venue takes: $files"
 
 echo "prove-unit: the face"
-curl --silent --cacert "$AUTHORITY" --max-time 10 "$FACE/" | grep -q 'door.js' || fail "the door is not served"
+door=$(curl --silent --cacert "$AUTHORITY" --max-time 10 "$FACE/") || fail "the door is not served"
+grep -q 'door.js' <<< "$door" || fail "what is served for the door is not the door"
 [ "$(ask describe_active_ui_selection)" = 200 ] || fail "the door is not told which shell is active: $(cat "$work/answer")"
 echo "  ok    the door is served, and is told which shell to open"
 for part in org.evoframework.usher.shell/index.html org.evoframework.usher.shell/shell.css org.evoframework.usher.theme.frost/theme.css org.evoframework.usher.shell/lang/languages.json; do

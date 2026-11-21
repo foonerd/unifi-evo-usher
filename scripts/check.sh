@@ -24,7 +24,11 @@ RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
 echo "check: version and changelog"
 version=$(workspace_version)
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "check: the workspace's version '$version' is not major.minor.patch" >&2; exit 1; }
-scripts/release-notes.sh "$version" | grep -q . || { echo "check: CHANGELOG.md has no section for $version" >&2; exit 1; }
+# The section is read whole before it is asked whether there is one: a
+# reader that leaves at the first line ends a writer that has more to
+# say, and the check would then say that there is no section.
+notes=$(scripts/release-notes.sh "$version")
+[ -n "$notes" ] || { echo "check: CHANGELOG.md has no section for $version" >&2; exit 1; }
 
 echo "check: notices"
 scripts/notices.sh --check
