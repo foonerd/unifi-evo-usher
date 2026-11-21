@@ -1,0 +1,60 @@
+name: latest
+
+# The image's tag `latest`: it names the latest release, and is moved
+# when a release is made public, not before. A release is published as a
+# pre-release and made the latest by hand, once it has been tried
+# (gh release edit <tag> --prerelease=false --latest); this workflow then
+# says the same of the image, so that
+# `ghcr.io/foonerd/unifi-evo-usher:latest` is there for a first look and
+# is never a version nobody has tried. A unit that is kept names its
+# version, as the Compose files have it.
+#
+# The image is not built again: the tag is laid on the image of the
+# version, for both architectures, as it was published with the release.
+# Asked by hand (workflow_dispatch), it lays the tag on whichever
+# release is the latest now.
+on:
+  release:
+    types: [released]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/foonerd/unifi-evo-usher
+
+jobs:
+  latest:
+    name: the image's latest tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # Which release is the latest is asked of the repository, not taken
+      # from what started the run: a release that is made public and is
+      # not the latest moves nothing.
+      - name: Which release is the latest
+        id: which
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          tag=$(gh api "repos/$REPOSITORY/releases/latest" --jq .tag_name)
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "latest: the latest release is tagged '$tag', which names no version" >&2; exit 1; }
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "latest: the latest release is $tag"
+      - name: Lay the tag on that version's image
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+          VERSION: ${{ steps.which.outputs.version }}
+        run: |
+          echo "$TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+          docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE:$VERSION"
+          said=$(docker buildx imagetools inspect "$IMAGE:latest")
+          echo "$said"
+          for platform in linux/amd64 linux/arm64; do
+            grep -q -F "$platform" <<< "$said" || { echo "latest: $IMAGE:latest has no image for $platform" >&2; exit 1; }
+          done
+          echo "latest: $IMAGE:latest is the image of $VERSION"

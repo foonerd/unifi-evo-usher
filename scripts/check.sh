@@ -53,7 +53,7 @@ echo "check: actionlint"
 if command -v actionlint > /dev/null; then
   actionlint -no-color .github/workflows/*.yml
 elif command -v docker > /dev/null && docker info > /dev/null 2>&1; then
-  docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:latest -no-color .github/workflows/ci.yml .github/workflows/release.yml
+  docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:latest -no-color .github/workflows/*.yml
 else
   echo "check: neither actionlint nor a running docker is here; the workflows were not linted" >&2
   exit 1
