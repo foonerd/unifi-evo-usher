@@ -1,20 +1,143 @@
-# unifi-evo-usher
+<h1 align="center">unifi-evo-usher</h1>
 
-Guest Wi-Fi vouchers for UniFi sites, handed out where the guest stands.
+<p align="center"><strong>Guest Wi-Fi in one tap, on your own UniFi network.</strong></p>
 
-A front desk presses one button, or a guest presses one on a screen by the door: the usher makes the voucher on the site's UniFi controller, and shows its code and the square a phone reads to join the network.
+<p align="center">
+A front desk presses one button, or a guest presses one on a screen by the door.<br>
+The usher makes the voucher on your UniFi controller and shows the code and the square that put a phone online.
+</p>
 
-An evo project: one program, used from any browser, in eleven languages; written in Rust, built static, with no runtime under it to drift.
+<p align="center">
+<a href="https://github.com/foonerd/unifi-evo-usher/actions/workflows/ci.yml"><img src="https://github.com/foonerd/unifi-evo-usher/actions/workflows/ci.yml/badge.svg" alt="The tests and proofs of the main branch"></a>
+<a href="https://github.com/foonerd/unifi-evo-usher/releases/latest"><img src="https://img.shields.io/github/v/release/foonerd/unifi-evo-usher?label=release" alt="The latest release"></a>
+<img src="https://img.shields.io/badge/runs%20on-amd64%20%7C%20arm64-informational" alt="Runs on amd64 and arm64">
+<img src="https://img.shields.io/badge/speaks-11%20languages-informational" alt="Speaks eleven languages">
+<a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-informational" alt="Licence: MIT"></a>
+</p>
 
-<p align="center"><img src="https://raw.githubusercontent.com/wiki/foonerd/unifi-evo-usher/images/demo-counter.png" width="900" alt="The usher's counter in a browser: a button for each voucher type, and the voucher just handed out, with its code and the square a phone reads. A band under the bar says that this unit is a demo."></p>
+<table>
+<tr>
+<td width="50%"><a href="https://raw.githubusercontent.com/wiki/foonerd/unifi-evo-usher/images/counter-voucher.png"><img src="https://raw.githubusercontent.com/wiki/foonerd/unifi-evo-usher/images/counter-voucher.png" alt="The usher's counter in a browser: a button for each voucher type, and the voucher just handed out, with its code and the square a phone reads"></a></td>
+<td width="50%"><a href="https://raw.githubusercontent.com/wiki/foonerd/unifi-evo-usher/images/guest.png"><img src="https://raw.githubusercontent.com/wiki/foonerd/unifi-evo-usher/images/guest.png" alt="What the guest is shown: the network's name, a large square to point a phone's camera at, and the voucher's code in large digits"></a></td>
+</tr>
+<tr>
+<td align="center"><strong>The front desk</strong> presses one button.</td>
+<td align="center"><strong>The guest</strong> points a phone at the square, and is online.</td>
+</tr>
+</table>
 
-Try it, with no UniFi controller:
+## Try it in a minute
+
+No UniFi controller is needed for a first look: the demo brings a simulated one.
 
 ```sh
 docker run --rm -p 8443:8443 -e USHER_DEMO=1 ghcr.io/foonerd/unifi-evo-usher:0.3.22
 ```
 
-Then open `https://localhost:8443/`. The browser warns, since the unit signs its own certificate: go on past the warning, and give a name and a password of your own. What runs is a demo: its controller is simulated, and the vouchers it hands out open no network. [The manual](https://github.com/foonerd/unifi-evo-usher/wiki) says how a unit is installed and run for a site.
+Open `https://localhost:8443/`, go on past the browser's warning (the unit signs its own certificate), give a name and a password of your own, and hand yourself a voucher. A demo says on every page that it is one, and its vouchers open no network.
+
+For the real thing, the [quick start](https://github.com/foonerd/unifi-evo-usher/wiki/Quick-Start) takes a unit from nothing to its first voucher.
+
+## Why the usher
+
+Guest Wi-Fi on UniFi works by vouchers, and vouchers are made in the controller. That leaves a front desk three poor choices: a printed sheet of codes in a drawer, a member of staff with a login to the network's controller, or one password for everybody that never changes.
+
+The usher is the fourth: a small service beside the controller that does one thing well.
+
+- **One press, one guest.** A voucher of the right kind is on the screen at once, as a code and as a square the guest's phone reads.
+- **Nobody at the desk touches the network.** The front desk signs in with a PIN and hands out vouchers; it can do nothing else. The controller's key is kept on the unit, and no screen shows it.
+- **It works where the guests are.** The PC at reception, a tablet by the door, a screen in the lobby: all it takes is a browser.
+- **It is yours.** It runs on your own machine, beside your own controller, under the MIT licence.
+
+## What you get
+
+- **A counter for the front desk.** One button for each kind of voucher; the code and the square appear at once, and one more press shows them large to the guest.
+- **Screens where guests help themselves.** Any tablet or kiosk becomes a satellite: adopted with a six-digit code, held to so many vouchers an hour, switched off from one page.
+- **Supervised screens.** Protect a screen with a PIN, give it a logo of its own and voucher types of its own: a day for visitors in the lobby, a week for contractors on the staff floor.
+- **Voucher types you define once.** How long, how many devices, how fast, how much data; fixed, or with the days chosen at the desk. Staff choose a name, not numbers.
+- **Two roles.** Administrators run the unit. Front desk staff sign in with a PIN and hand out vouchers, and that is all they can do.
+- **A record of every voucher.** Which one, of what kind, when, and who or which screen handed it out.
+- **A reserve on the unit.** Vouchers set aside are handed out first, also while the controller cannot be reached.
+- **Eleven languages**, chosen on the screen before anything else: English, German, Spanish, French, Italian, Japanese, Dutch, Polish, Portuguese, Russian and Chinese.
+- **Your name and your logo** on every screen, from any picture, cropped on the page.
+- **A demo mode**, to show it to a colleague before a controller is involved.
+
+<table>
+<tr>
+<td width="33%"><a href="https://raw.githubusercontent.com/wiki/foonerd/unifi-evo-usher/images/satellite-button.png"><img src="https://raw.githubusercontent.com/wiki/foonerd/unifi-evo-usher/images/satellite-button.png" alt="A satellite's screen: one large button, Get a Wi-Fi voucher"></a></td>
+<td width="33%"><a href="https://raw.githubusercontent.com/wiki/foonerd/unifi-evo-usher/images/satellite-types.png"><img src="https://raw.githubusercontent.com/wiki/foonerd/unifi-evo-usher/images/satellite-types.png" alt="A satellite under a logo of its own, with a button for each of two voucher types"></a></td>
+<td width="33%"><a href="https://raw.githubusercontent.com/wiki/foonerd/unifi-evo-usher/images/satellite-keypad.png"><img src="https://raw.githubusercontent.com/wiki/foonerd/unifi-evo-usher/images/satellite-keypad.png" alt="A protected satellite asks for its PIN on a keypad on the screen"></a></td>
+</tr>
+<tr>
+<td align="center">A screen by the door: one button.</td>
+<td align="center">Its own logo, its own voucher types.</td>
+<td align="center">Supervised: a PIN for each voucher.</td>
+</tr>
+<tr>
+<td width="33%"><a href="https://raw.githubusercontent.com/wiki/foonerd/unifi-evo-usher/images/voucher-types.png"><img src="https://raw.githubusercontent.com/wiki/foonerd/unifi-evo-usher/images/voucher-types.png" alt="The page Voucher types: each type with what a voucher of it gives, whether the front desk is offered it, and which is the default"></a></td>
+<td width="33%"><a href="https://raw.githubusercontent.com/wiki/foonerd/unifi-evo-usher/images/vouchers-handed-by.png"><img src="https://raw.githubusercontent.com/wiki/foonerd/unifi-evo-usher/images/vouchers-handed-by.png" alt="The page Vouchers: a voucher handed out, with the time and the name of who handed it out"></a></td>
+<td width="33%"><a href="https://raw.githubusercontent.com/wiki/foonerd/unifi-evo-usher/images/language-japanese.png"><img src="https://raw.githubusercontent.com/wiki/foonerd/unifi-evo-usher/images/language-japanese.png" alt="The counter in Japanese"></a></td>
+</tr>
+<tr>
+<td align="center">Voucher types, defined once.</td>
+<td align="center">On record: when, and by whom.</td>
+<td align="center">Eleven languages.</td>
+</tr>
+</table>
+
+## Made for
+
+| Where | How it is used |
+| --- | --- |
+| A guest house, a cafe, a small practice | One small machine is the server and the screen. |
+| An office, a clinic, a school | Reception hands out day vouchers; a tablet by the door serves visitors on its own. |
+| A hotel, a campus, a hospital, a venue | Many desks and many screens on one unit, each screen with its own logo, voucher types and limit. In its proofs one unit holds two thousand connections at once. |
+
+## How it works
+
+<p align="center"><img src="https://raw.githubusercontent.com/wiki/foonerd/unifi-evo-usher/images/hero.png" width="900" alt="The guest asks for Wi-Fi; the front desk presses one button; the usher gets a voucher from the UniFi controller and writes it down; the guest is given a code to type and a square the phone reads to join"></p>
+
+The usher asks the controller for a voucher through UniFi's own API, with a key that stays on the unit. The guest joins the guest network and gives the code to UniFi's hotspot portal, as with any voucher: nothing changes on the network, and nothing is installed on a guest's phone.
+
+## Getting started
+
+What it needs: a UniFi Network controller with an API key and a guest network whose hotspot portal takes vouchers; a machine for the usher, `amd64` or `arm64`; and a browser.
+
+| You run | Start here |
+| --- | --- |
+| Docker or Compose | [In Docker](https://github.com/foonerd/unifi-evo-usher/wiki/In-Docker) |
+| Debian, Ubuntu, Raspberry Pi OS, or an RPM system | [Installing](https://github.com/foonerd/unifi-evo-usher/wiki/Installing) |
+| A Synology | [On a Synology](https://github.com/foonerd/unifi-evo-usher/wiki/On-a-Synology) |
+| A reverse proxy with the site's certificate: nginx, Apache, Caddy, Traefik | [Behind a proxy](https://github.com/foonerd/unifi-evo-usher/wiki/Behind-a-proxy) |
+| Nothing yet, and ten minutes | [Quick start](https://github.com/foonerd/unifi-evo-usher/wiki/Quick-Start) |
+
+[The manual](https://github.com/foonerd/unifi-evo-usher/wiki) has a page for every screen, with pictures, and one for what to do when something does not work.
+
+## Safe by design
+
+- HTTPS only. Whoever has not signed in is shown the form to sign in, and nothing else.
+- The controller's key is kept in a file only the service reads. It is in no message, on no screen and in no log.
+- Passwords and PINs are kept as Argon2id hashes; five wrong tries hold a name for fifteen minutes.
+- An administrator, the front desk and a satellite may each ask only what their work takes, and the unit checks it twice.
+- An administrator who is locked out is let back in on the unit itself, not over the network.
+- Every release is signed, and every archive carries the checksums of what is in it.
+- A flaw is reported in private: [SECURITY.md](SECURITY.md) says how.
+
+## Where it stands
+
+The usher is young and moves fast: [the releases](https://github.com/foonerd/unifi-evo-usher/releases) come with what each one brought, and [CHANGELOG.md](CHANGELOG.md) lists every version. Every release is built for `amd64` and `arm64` and proven before it is published: the tests pass, and the unit is installed and run as a service on a machine made for the proof, from the Debian package and from the RPM. Every change to the main branch is also run in a container, alone and behind each of four proxies.
+
+Not in it yet: a voucher printed on a label. The groundwork for label printers is in the repository, under [Printers](#printers).
+
+The ten translations were made for the usher and not every one has been read by someone whose language it is: a correction is welcome, and [Translating](https://github.com/foonerd/unifi-evo-usher/wiki/Translating) says how.
+
+## Supporting it
+
+unifi-evo-usher is free and open source, designed, built and maintained by one developer in his own time. If it has earned a place at your site, you can support its development through [GitHub Sponsors](https://github.com/sponsors/foonerd) or [Ko-fi](https://ko-fi.com/justanerd). Sponsorship is a thank-you, not a purchase: it buys no priority, no features and no support agreement.
+
+## For engineers
+
+What follows is the reference: what the usher is made of, what each part takes and answers, how a unit is built, proven and released.
 
 ## What it is built to be
 
