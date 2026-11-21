@@ -85,13 +85,21 @@ The usher is the fourth: a small service beside the controller that does one thi
 </tr>
 </table>
 
-## Made for
+## One usher, any size
 
-| Where | How it is used |
+<p align="center"><a href="https://raw.githubusercontent.com/wiki/foonerd/unifi-evo-usher/images/any-size.png"><img src="https://raw.githubusercontent.com/wiki/foonerd/unifi-evo-usher/images/any-size.png" width="900" alt="The same program in four sizes: one machine that is server and screen; a front desk and a screen by the door; a whole building with many desks and a screen on every floor, ward and entrance; and many tenants, each with screens under a logo of their own. Every screen is a browser, and one unit keeps up to 4096 of them."></a></p>
+
+The usher is one server, the unit, and as many screens as a place needs. A screen is a browser and nothing more: growing is a matter of opening a page and typing a code, not of installing anything, and the smallest place and the largest run the same program.
+
+| Where | How it is set up |
 | --- | --- |
-| A guest house, a cafe, a small practice | One small machine is the server and the screen. |
-| An office, a clinic, a school | Reception hands out day vouchers; a tablet by the door serves visitors on its own. |
-| A hotel, a campus, a hospital, a venue | Many desks and many screens on one unit, each screen with its own logo, voucher types and limit. In its proofs one unit holds two thousand connections at once. |
+| A guest house, a cafe, a small practice | One small machine is the unit and the screen: the counter, or the page with the one button, open on it. |
+| An office, a clinic, a school | The unit on a small server or a NAS; reception hands out day vouchers from its own PC; a tablet by the door serves visitors on its own. |
+| A hotel, a hospital, a campus, a venue | One unit; a front desk at every reception, each member of staff with a PIN of their own; a screen on every floor, ward and entrance, each held to so many vouchers an hour. |
+| An apartment building, a business centre, a ministry | One unit for the building's network; each tenant's or department's screens under its own logo, with its own voucher types and its own PIN: a day for visitors in the lobby, a week for contractors on the staff floor. |
+| Several sites | A unit at each UniFi site. |
+
+One unit keeps up to 4096 screens, and in its proofs holds two thousand connections at once. A screen is adopted from the page [Satellites](https://github.com/foonerd/unifi-evo-usher/wiki/Satellites) with the six-digit code it shows, and switched off or removed from the same page. Screens and desks beyond the unit's own network reach it through the site's proxy: [Behind a proxy](https://github.com/foonerd/unifi-evo-usher/wiki/Behind-a-proxy).
 
 ## How it works
 
