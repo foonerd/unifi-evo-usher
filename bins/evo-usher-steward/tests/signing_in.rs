@@ -208,10 +208,19 @@ fn a_person_signs_in_with_a_name_and_a_password() {
     // A wrong password and a name that is nobody's are answered alike,
     // word for word, and take as long: who is told "wrong" learns
     // nothing of who there is.
+    // Each is asked three times, and the quickest asking is the one
+    // that is taken: a machine that is busy with something else makes
+    // one asking slow, and not all three. Three wrong tries hold no
+    // name.
     let timed = |name: &str, password: &str| {
-        let started = Instant::now();
-        let said = steward.sign_in(name, password);
-        (said, started.elapsed())
+        (0..3)
+            .map(|_| {
+                let started = Instant::now();
+                let said = steward.sign_in(name, password);
+                (said, started.elapsed())
+            })
+            .min_by_key(|(_, took)| *took)
+            .expect("three askings")
     };
     let ((status, wrong), known) = timed("Anna", OTHER_PASSWORD);
     let ((other_status, nobody), unknown) = timed("Mallory", OTHER_PASSWORD);

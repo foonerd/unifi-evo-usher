@@ -561,12 +561,16 @@ async fn of_a_shelf(
     let at_the_desk = held_as_the_desk(who);
     let at_a_satellite = matches!(who, Asking::Satellite { .. });
     let (mut parts, body) = request.into_parts();
+    let version = parts.version;
     let bytes = axum::body::to_bytes(body, MOST_ASKED).await.map_err(|_| {
-        Box::new(signin::refusal(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "contract_violation",
-            "asked_too_long",
-            "What was sent is too long to be asked of a shelf.",
+        Box::new(signin::closing(
+            version,
+            signin::refusal(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "contract_violation",
+                "asked_too_long",
+                "What was sent is too long to be asked of a shelf.",
+            ),
         ))
     })?;
     let unread = || {
@@ -1270,10 +1274,23 @@ mod tests {
         let refused = of_a_shelf(request(&long), &administrator())
             .await
             .unwrap_err();
+        // It was not read to its end, so the connection it came on is
+        // closed, and over HTTP/1 the answer says so.
+        assert_eq!(
+            refused
+                .headers()
+                .get(header::CONNECTION)
+                .map(HeaderValue::as_bytes),
+            Some(&b"close"[..])
+        );
         assert_eq!(
             subclass_of(refused).await,
             (StatusCode::PAYLOAD_TOO_LARGE, "asked_too_long".to_string())
         );
+        let mut over_two = request(&long);
+        *over_two.version_mut() = axum::http::Version::HTTP_2;
+        let refused = of_a_shelf(over_two, &administrator()).await.unwrap_err();
+        assert_eq!(refused.headers().get(header::CONNECTION), None);
     }
 
     fn satellite() -> Asking {

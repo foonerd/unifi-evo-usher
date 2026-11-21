@@ -35,7 +35,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::body::Body;
 use axum::extract::{Request, State};
-use axum::http::{header, StatusCode};
+use axum::http::{header, HeaderValue, StatusCode, Version};
 use axum::response::Response;
 use axum::routing::{get, post};
 use axum::Router;
@@ -1284,11 +1284,15 @@ async fn carried_within<T: DeserializeOwned>(
     request: Request,
     most: usize,
 ) -> Result<T, Refused> {
+    let version = request.version();
     let bytes = axum::body::to_bytes(request.into_body(), most)
         .await
         .map_err(|_| {
-            not_what_it_takes(
-                "What was sent is too long to be what this takes.",
+            closing(
+                version,
+                not_what_it_takes(
+                    "What was sent is too long to be what this takes.",
+                ),
             )
         })?;
     serde_json::from_slice(&bytes).map_err(|e| {
@@ -1296,6 +1300,20 @@ async fn carried_within<T: DeserializeOwned>(
             "This is not what this takes: {e}"
         )))
     })
+}
+
+/// The answer to what was too long to be read to its end. What is left
+/// of it on the connection is no request, so the connection is closed
+/// once this is answered. Over HTTP/1 the answer says so: whoever asked
+/// would otherwise ask again on a connection that is going, and lose
+/// what they asked. HTTP/2 ends the one stream and says nothing here.
+pub fn closing(version: Version, mut answer: Response) -> Response {
+    if version < Version::HTTP_2 {
+        answer
+            .headers_mut()
+            .insert(header::CONNECTION, HeaderValue::from_static("close"));
+    }
+    answer
 }
 
 /// Who asks, as the gate found. A route that is not open is reached by
@@ -3396,6 +3414,26 @@ mod tests {
             Ok(adopted) => adopted,
             Err(_) => panic!("the screen is not adopted"),
         }
+    }
+
+    #[test]
+    fn what_was_too_long_to_read_is_answered_on_a_connection_that_closes() {
+        let answered = |version| {
+            closing(version, not_what_it_takes("too long"))
+                .headers()
+                .get(header::CONNECTION)
+                .cloned()
+        };
+        // Over HTTP/1 the answer says that the connection is closed.
+        for version in [Version::HTTP_10, Version::HTTP_11] {
+            assert_eq!(
+                answered(version),
+                Some(HeaderValue::from_static("close")),
+                "{version:?}"
+            );
+        }
+        // HTTP/2 ends the stream, and has no such word.
+        assert_eq!(answered(Version::HTTP_2), None);
     }
 
     /// The status and the code of a refusal, and what it says of minutes.

@@ -17,6 +17,7 @@ All notable changes to unifi-evo-usher are recorded here. The format follows Kee
 - A screen that is looked at again, or is back on the network, asks the unit at once and does not wait for its half minute
 - The counter refuses to hand out a type that is not enabled, whoever names it, as it refuses one that is not there; the page did not offer such a type, and the counter gave one to a request that named it
 - A count of none is said in Portuguese as Portugal says it, "0 vouchers": the browser was asked for the bare tag `pt`, which it takes for Brazil's, where none is said as one
+- What is too long to be read to its end is refused on a connection that is then closed, and over HTTP/1 the answer now says so with `Connection: close`: a client that kept the connection lost the next thing it asked on it
 - The guide to translating, the README and the manual ask whoever reads a language to put right a text that reads wrong in it, and say how
 - All of it in the eleven languages
 
