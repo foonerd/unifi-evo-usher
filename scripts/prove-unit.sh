@@ -506,7 +506,9 @@ kept="$(dirname "$SATELLITES")/satellite-logos/$satellite-$stamp.png"
 [ "$(usher satellite '' "$screen")" = 200 ] || fail "a satellite that was given a logo is signed out: $(cat "$work/answer")"
 jq -e --arg stamp "$stamp" '.logo == {stamp: $stamp, own: true}' "$work/answer" > /dev/null || fail "a satellite that was given a logo is told: $(cat "$work/answer")"
 [ "$(usher "satellite_logo?stamp=$stamp" '' "$screen")" = 200 ] || fail "a satellite is not given its logo: $(cat "$work/answer")"
-printf '%s' "$logo" | base64 -d | cmp -s - "$work/answer" || fail "the logo a satellite fetched is not the file it was given"
+# Told apart by their sums, which every machine a unit is proven on can
+# make: not every one has a program that compares two files.
+[ "$(printf '%s' "$logo" | base64 -d | sha256sum)" = "$(sha256sum < "$work/answer")" ] || fail "the logo a satellite fetched is not the file it was given"
 [ "$(usher "satellite_logo?id=$satellite" '' "$desk")" = 403 ] || fail "a person at the front desk is given a satellite's logo: $(cat "$work/answer")"
 [ "$(usher "satellite_logo?id=$satellite" '')" = 401 ] || fail "a caller who presents nothing is given a satellite's logo: $(cat "$work/answer")"
 # Unlocked again, with the default type and the site's logo: as it was.
