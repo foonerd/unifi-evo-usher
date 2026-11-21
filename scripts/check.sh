@@ -29,9 +29,19 @@ version=$(workspace_version)
 # say, and the check would then say that there is no section.
 notes=$(scripts/release-notes.sh "$version")
 [ -n "$notes" ] || { echo "check: CHANGELOG.md has no section for $version" >&2; exit 1; }
-# The front page runs the version it stands with: the one command names
-# the image of this version, and no other.
-grep -q -F "ghcr.io/foonerd/unifi-evo-usher:$version" README.md || { echo "check: the command on README.md's front page does not name the image of $version" >&2; exit 1; }
+# The one command on the front page names an image that is there to be
+# fetched. An image is published when a version is released, which is
+# after it is committed: so the command names this version, or one
+# before it that the changelog knows, and never one that is yet to come.
+named=$(grep -o -E 'ghcr\.io/foonerd/unifi-evo-usher:[0-9]+\.[0-9]+\.[0-9]+' README.md || true)
+named=${named%%$'\n'*}
+named=${named##*:}
+[ -n "$named" ] || { echo "check: the command on README.md's front page names no image of a version" >&2; exit 1; }
+if [ "$named" != "$version" ]; then
+  grep -q -F "## [$named]" CHANGELOG.md || { echo "check: the command on README.md's front page names $named, a version CHANGELOG.md does not know" >&2; exit 1; }
+  newest=$(printf '%s\n%s\n' "$named" "$version" | sort -V | tail -n 1)
+  [ "$newest" = "$version" ] || { echo "check: the command on README.md's front page names $named, which is after $version" >&2; exit 1; }
+fi
 
 echo "check: notices"
 scripts/notices.sh --check

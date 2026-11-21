@@ -185,6 +185,21 @@ To the unit, every caller is the proxy: it does not learn the address a caller h
 - *Its limit.* A satellite hands out twenty vouchers in any hour, or as many as its administrator sets, from 1 to 1000. The unit counts; a screen that has reached its number says so, and when to try again. The count is kept in memory, and starts anew when the unit is started again.
 - *Switching off, changing, removing.* On the page Satellites. A satellite that is switched off is signed out at once and its secret is refused until it is switched on again; the screen says that it is switched off. One that is removed is signed out at once and its secret is nobody's: the screen shows a code again.
 
+- *How many.* A unit keeps up to 4096 satellites. **Measured** on version 0.3.22, the unit in a container held to two processors of a desktop machine, as a demo, with the satellites played by `scripts/measure-screens.py`, which holds a connection for each and asks as a satellite's page asks:
+
+  | | 1000 screens | 4096 screens |
+  | --- | --- | --- |
+  | Adopting them all, one after another | 5 s | 30 s |
+  | All signing in at once, as after a power cut | 7 s | 23 s |
+  | A screen saying that it is there: half within, 99 in 100 within | 0.7 ms, 3.2 ms | 0.5 ms, 1.1 ms |
+  | A voucher at a press: half within, 99 in 100 within | 5.6 ms, 10.0 ms | 5.0 ms, 7.9 ms |
+  | The processor while they all ask | 1.7% of one core | 2.6% of one core |
+  | Memory | 610 MiB | 2.4 GiB |
+  | Every screen answered again after the unit is started again | 6 s | 10 s |
+  | Askings that failed | none | none |
+
+  Memory is what sizes a unit for a large place, not the processor: about 0.6 MiB for each screen that is connected. A unit for a thousand screens is given 1 GiB, and one at its limit 3 GiB. What this did not measure: a thousand browsers, which were one program; and a UniFi controller, which was the demo's, on the same machine, so that the time a controller takes to make a voucher is not in the figures.
+
 The satellites are kept in `/var/lib/evo/state/usher/satellites.json`, for the steward alone. Taking the file of the people away, the last resort for a forgotten password, leaves them as they are. **Proven** by a test that asks, as a satellite, every operation the steward lists, every request of every shelf and every route of the usher's own, by tests of a protected satellite, of its types and of its logo, by tests that work the screen, its keypad and the page Satellites in a browser, and by `scripts/prove-unit.sh` and `scripts/prove-proxy.sh`.
 
 **A logo, from any picture.** On the pages Site and Satellites a logo is given as any picture a browser shows, of whatever size: PNG, JPEG, WebP, GIF or SVG. The page shows it with a frame on it; what is inside the frame is kept. The frame is dragged to move it and sized by its corners and edges, with a mouse or a finger, and with the arrow keys, which move it, and size it with Shift held down; one button puts it round what is not empty edge, and another round the whole picture. What is in the frame is made small enough by the page before anything is sent: scaled to fit 1024 by 512 pixels, written as a PNG, and scaled further down for as long as the file is longer than 256 KiB. The unit checks what it is sent as it always did. Nothing is loaded from elsewhere for it. **Proven** by a test in a browser.
@@ -258,6 +273,48 @@ A unit that is updated from a version before the front desk signs everyone out o
 **The face after an update.** The unit sends every file of the face with `Cache-Control: no-cache`: a browser asks each time whether the file is still the one it has, and is answered `304` with nothing sent again where it is. A page that is opened after an update is made of the new files, with no cache to clear. **Proven** by a test, for the door, the shell's scripts, the files of the languages and the page of a satellite.
 
 **The unit's own bearer.** The unit keeps one bearer of its own, in `/var/lib/evo/state/https/bootstrap.token`, for its own account alone. Whoever can read the unit's files can read it, and is answered everything with it. It is how a program on the unit itself asks the steward.
+
+## What travels: a profile, and a unit that is moved
+
+A unit gives of itself one file, to an administrator, on the page Site. It is JSON, says which version of the file's shape it is, and has two parts.
+
+**A profile.** The part `settings` is in the clear: the voucher types with the default and what is not enabled, and the site's name, time zone, language and logo. No secret is in it, and nothing of one unit's own: no person, no key, no satellite. It is what a site is set up as, made on one unit and applied to another, or to many. `POST /usher/v1/export` with nothing asked gives it; "Export the settings" on the page Site keeps it as `usher-profile-<day>.json`.
+
+- **Applied by an administrator.** "Apply a profile" on the page Site, `POST /usher/v1/apply_profile`: the page first says what the file holds, and after it what became of it. Every setting is taken by its owner, by the request the pages ask it by, under the owner's own rules. Settings are added and set: a voucher type of a name the unit has is set to the file's, one it has not is added, the file's default is made the default, and the file's types stand in the file's order before the unit's others. Nothing is taken away. What an owner refuses is answered beside what was applied, under the owner's code, and the rest is applied all the same.
+- **Applied when a unit starts.** A unit that is started with `USHER_PROFILE` naming a file applies it before it answers anyone, so that the form a person comes in by already wears the site's name. In a container the file is given with it:
+
+  ```sh
+  docker run -d -p 8443:8443 -v usher:/var/lib/evo \
+    -v "$PWD/profile.json:/etc/evo/profile.json:ro" -e USHER_PROFILE=/etc/evo/profile.json \
+    ghcr.io/foonerd/unifi-evo-usher:<version>
+  ```
+
+  With the Compose file it is a file beside it, `compose.override.yaml`, which Compose reads with it, and the profile beside that (**run here**, on the image as `scripts/image.sh --here` makes it):
+
+  ```yaml
+  services:
+    usher:
+      environment:
+        USHER_PROFILE: /etc/evo/profile.json
+      volumes:
+        - ./profile.json:/etc/evo/profile.json:ro
+  ```
+
+  On an installed unit it is a line in a drop-in, as the service file shows. A file is applied once: the unit keeps what tells the file it applied from any other, so what an administrator changes afterwards stays through a restart. A file that is another is applied when the unit next starts. A file that is no profile changes nothing, the unit starts all the same, and the log says why.
+- **The satellites.** They are told of the site and the voucher types with what they ask next, within half a minute, and nobody visits a screen.
+
+**A unit that is moved.** Asked for everything, the file has a part `unit` as well, sealed under a passphrase: everything the unit keeps. "Export everything" on the page Site asks for the passphrase, twice, and for the administrator's own password once more, and keeps the file as `usher-unit-<day>.json`; `POST /usher/v1/export` takes `everything`, `passphrase` and `password`. The unit's keeper has no password to give, and moves no unit.
+
+- **What is in it.** The people with the hashes of their passwords and PINs; the satellites with the hashes of their secrets and PINs, and their logos; the controller's address, its certificate's fingerprint and the key to it; the wireless network chosen; the voucher types and the site; the vouchers set aside; the record of hand-outs; whether the unit is a demo; and the unit's own authority with its key, which is what a browser and a satellite believe the unit by.
+- **What is not.** The sessions: people sign in again, and a satellite exchanges the secret it holds for a new session by itself. The key the unit signs bearers with, and the unit's own bearer: the machine a unit is moved to has its own.
+- **How it is sealed.** With a key that Argon2id makes of the passphrase (64 MiB of memory, three passes, four lanes, a salt made for the file), and ChaCha20-Poly1305. The cost and the file's version are sealed with it: a file whose head was changed does not open. A passphrase is as long as a password is at the unit's level, at least. Whoever has the file and its passphrase has the unit: they are kept apart.
+- **How it is taken in.** By a unit nobody has set up, on the form it is set up by: "Set up from a file", `POST /usher/v1/set_up_from_file` with the file and its passphrase, and with the unit's code at the extended level. Whoever may set the unit up may do this, and nobody else. A wrong passphrase is refused with 403 `wrong_passphrase`, takes as long as the seal's cost, and five in a row hold the next for fifteen minutes, as wrong passwords are held. What the file holds is checked whole before any of it is written: every part is one the unit knows the place of and is what it is carried as, the people and the satellites read as the unit reads them, and there is an administrator among the people. A demo's file is taken in by a demo only, and a unit's by a unit only.
+- **What the unit then does.** It puts the files aside under its state directory, answers, and starts again by itself, in its own place: the same process under systemd, the same container under Docker, with nothing started again by either. Before anything opens them, the program puts each file where the unit keeps it; what the unit kept in such a place and the file does not carry is taken away. It is then the unit that was moved. A start that is cut short is done again at the next: what was put aside stays until every file stands in its place.
+- **What a satellite does.** Nothing is done at a screen. Where the unit is reached under the name it had, a satellite finds its session refused, exchanges its secret for a new one, and hands out vouchers as before; the browser it runs in believes the unit by the authority it believed it by, or by the site's certificate at the proxy.
+- **How long a file may be.** 64 MiB, which a unit with a long record and many logos is within. A unit that keeps more is moved by copying `/var/lib/evo`. A proxy before the unit has to pass a file of that length on: nginx passes one megabyte unless it is told more, and the example sets `client_max_body_size`.
+- **What refuses, and changes nothing.** A file that is no file of an usher's (`file_not_one`), one a later version made (`file_too_new`), one that is damaged (`file_damaged`), one with no unit in it (`file_holds_no_unit`), one with no administrator (`file_has_nobody`), a file of the other kind (`file_of_a_demo`, `file_of_a_unit`), and any file on a unit that is set up (`set_up_already`).
+
+**Proven** by tests against running stewards: a profile made on one and applied to another, with what is refused said and nothing taken away; a unit moved from one directory to another with a person at the front desk and a satellite under a logo of its own, which hands out a voucher on the unit the file was taken in by with the secret it holds; the refusals; a demo and a unit, each taken in by its own kind only; a profile at a unit's start, applied once. By a test in a browser: the two exports, a profile applied, and a unit set up from its file. By `scripts/prove-proxy.sh`, in its case `move`, for a unit moved from one volume to another in containers, which starts again in its container by itself; and in every case, for a file of two MiB reaching the unit through whatever stands before it. By `scripts/prove-unit.sh` for an installed unit, which starts again as the same process of its service.
 
 ## Certificates
 

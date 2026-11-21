@@ -174,8 +174,12 @@ pub fn setup(settings: Settings) -> evo::HttpsSetup {
                     .unwrap_or_else(|| ctx.state_dir.clone());
                 let usher =
                     Usher::open(settings, &state, ctx.dispatcher.clone())?;
-                // A demo is given its simulated controller before the
-                // listener answers anyone.
+                // A unit started with a profile it has not applied is
+                // given the profile's settings, and a demo its simulated
+                // controller, before the listener answers anyone. The
+                // profile goes first: a demo is given voucher types of
+                // its own only where it has none.
+                usher.begin_profile().await;
                 usher.begin_demo().await;
                 let gate = Gate {
                     validator: ctx.validator.clone(),
@@ -200,6 +204,42 @@ struct Gate {
     /// The prefix of the operations' paths, with no slash after it.
     api: String,
     usher: Arc<Usher>,
+}
+
+/// The most a request carries that is let go by for a caller who is
+/// refused for who they are, in bytes: whoever is not let in is not
+/// read at length.
+const MOST_LET_GO_BY: usize = 64 * 1024;
+
+/// Answer a request that is refused for who asks, before anything it
+/// carries was read. What it carries is let go by, unkept, so that the
+/// connection it came on is fit for the next thing asked on it. Where
+/// it carries more than is let go by, what is left of it is no request:
+/// the connection is closed once this is answered, and over HTTP/1 the
+/// answer says so. Whoever asked would otherwise ask again on a
+/// connection that is going, and lose what they asked.
+async fn refused_unread(request: Request, answer: Response) -> Response {
+    if !carries_something(&request) {
+        return answer;
+    }
+    let version = request.version();
+    if signin::let_go_by(request, MOST_LET_GO_BY).await {
+        answer
+    } else {
+        signin::closing(version, answer)
+    }
+}
+
+/// Whether a request carries something after its head: it says how
+/// long, or that it comes in pieces.
+fn carries_something(request: &Request) -> bool {
+    let headers = request.headers();
+    headers.contains_key(header::TRANSFER_ENCODING)
+        || headers
+            .get(header::CONTENT_LENGTH)
+            .and_then(|length| length.to_str().ok())
+            .and_then(|length| length.trim().parse::<u64>().ok())
+            .is_some_and(|length| length > 0)
 }
 
 /// What a path asks for.
@@ -230,7 +270,7 @@ async fn admit(
         .find_map(|shown| gate.asking(&shown.bearer).map(|who| (who, shown)));
     let Some((who, shown)) = found else {
         if !let_in_unsigned(request.method(), &asked) {
-            return refused();
+            return refused_unread(request, refused()).await;
         }
         // Who has not signed in presents nothing: a bearer that is no
         // session of the usher's is not shown to evo either.
@@ -243,12 +283,12 @@ async fn admit(
     // the least a person is given and not the most.
     let at_the_desk = held_as_the_desk(&who);
     if at_the_desk && !let_in_front_desk(request.method(), &asked) {
-        return signin::not_for_the_desk();
+        return refused_unread(request, signin::not_for_the_desk()).await;
     }
     // A satellite asks for the default voucher, and that it is there.
     let at_a_satellite = matches!(&who, Asking::Satellite { .. });
     if at_a_satellite && !let_in_satellite(request.method(), &asked) {
-        return signin::not_for_a_satellite();
+        return refused_unread(request, signin::not_for_a_satellite()).await;
     }
     // Where a shelf is asked, what is asked of which is read here, and
     // evo is given what was read. The operation counts as that one

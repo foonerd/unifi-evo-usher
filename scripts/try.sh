@@ -19,6 +19,10 @@
 # controller, with voucher types to hand out at once, and with vouchers
 # that open no network. A directory that was a demo's stays a demo's,
 # and one that was a unit's is not started as a demo.
+#
+# With USHER_PROFILE in the environment naming a profile's file, as the
+# page Site of an usher exports one, the unit applies the file when it
+# starts: once for each file.
 set -euo pipefail
 ROOT=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
@@ -89,6 +93,12 @@ fi
 case "${USHER_DEMO:-}" in
   1 | yes | on | true) echo "try: it runs as a demo: its controller is simulated, and the vouchers it hands out open no network" ;;
 esac
+if [ -n "${USHER_PROFILE:-}" ]; then
+  [ -r "$USHER_PROFILE" ] || { echo "try: there is no file $USHER_PROFILE to give the unit as its profile" >&2; exit 1; }
+  USHER_PROFILE=$(readlink -f "$USHER_PROFILE")
+  export USHER_PROFILE
+  echo "try: it is started with the profile $USHER_PROFILE, which it applies once"
+fi
 echo "try: Ctrl-C stops the steward"
 
 USHER_SECURITY="$LEVEL" \

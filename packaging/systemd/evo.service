@@ -48,6 +48,13 @@ Environment=EVO_HTTPS_STATIC_DIR=/opt/evo/ui
 # none given, it is English. Set in a drop-in, or here:
 #Environment=USHER_LANGUAGE=de
 
+# A profile the unit is started with: the settings of a site, exported
+# on the page Site of another unit, as a file the steward can read. The
+# unit applies a file once; one that is another is applied when the unit
+# next starts. It adds and sets, and takes nothing away. Set in a
+# drop-in, or here:
+#Environment=USHER_PROFILE=/etc/evo/profile.json
+
 # The code a unit of the extended level is set up with. The steward makes
 # one where the file is not there, and the directory is new at every
 # start: so is the code. It is read with `sudo cat /run/evo/unit-code`.

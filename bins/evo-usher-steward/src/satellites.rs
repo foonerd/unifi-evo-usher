@@ -460,6 +460,12 @@ pub struct Satellites {
     handed: HashMap<String, VecDeque<u64>>,
 }
 
+/// Whether bytes read as the satellites a unit keeps. It is asked of
+/// what a unit carries when it is moved, before any of it is written.
+pub fn reads(bytes: &[u8]) -> bool {
+    serde_json::from_slice::<Vec<Satellite>>(bytes).is_ok()
+}
+
 impl Satellites {
     /// Open the satellites kept in `dir`, none where none was kept yet.
     pub fn open(dir: &Path) -> io::Result<Self> {

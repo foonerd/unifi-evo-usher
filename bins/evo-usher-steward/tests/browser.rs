@@ -6327,3 +6327,345 @@ fn a_protected_screen_asks_for_its_pin_wears_its_logo_and_gives_its_types() {
     );
     assert_eq!(steward.stop(), Some(0));
 }
+
+/// Choose a file of text in a field for a file, as a person does.
+fn choose_text(browser: &mut Browser, field: &str, name: &str, text: &str) {
+    browser.act(&format!(
+        r##"
+        const given = new DataTransfer();
+        given.items.add(new File([{text}], {name}, {{ type: "application/json" }}));
+        const field = document.getElementById({field});
+        field.files = given.files;
+        field.dispatchEvent(new Event("change", {{ bubbles: true }}));
+        "##,
+        text = json!(text),
+        name = json!(name),
+        field = json!(field),
+    ));
+}
+
+/// What the part of the page Site that travels last said was done.
+fn travel_said(browser: &mut Browser, begins: &str) -> Value {
+    browser.wait(
+        begins,
+        &format!(
+            r##"(() => {{
+              const said = document.querySelector(".travel-said")?.textContent ?? "";
+              return said.startsWith({begins}) ? said : null;
+            }})()"##,
+            begins = json!(begins),
+        ),
+    )
+}
+
+#[test]
+fn settings_travel_as_a_profile_and_a_unit_is_set_up_from_its_file() {
+    let Some(mut browser) = Browser::open() else {
+        return;
+    };
+    browser.size(1280, 900);
+    let passphrase = "five small owls sing";
+
+    // The unit that is given away and moved: an administrator, two
+    // voucher types and a site's name.
+    let old_dir = short_dir();
+    let old = Steward::start(old_dir.path());
+    let anna = signed_in_already(&mut browser, &old);
+    let ask = |shelf: &str, request: &str, payload: Value| {
+        let (status, said) = old.ask_status(&anna, shelf, request, payload);
+        assert_eq!(status, 200, "{shelf} {request}: {said}");
+    };
+    for (name, minutes) in [("Day guest", 1440), ("Week", 10_080)] {
+        ask(
+            "issue.counter",
+            "put_type",
+            json!({ "name": name, "minutes": minutes, "guests": 1 }),
+        );
+    }
+    ask(
+        "issue.counter",
+        "set_default",
+        json!({ "name": "Day guest" }),
+    );
+    ask("site.settings", "set", json!({ "name": "Weaver's Hall" }));
+    browser.go(&format!("{}/", old.address()));
+    browser.wait(
+        "who is signed in",
+        r##"document.getElementById("who-name").textContent === "Anna""##,
+    );
+    go_to(&mut browser, "Site");
+    browser.wait(
+        "what travels, on the page of the site",
+        r##"onScreen(document.getElementById("export-profile")) && onScreen(document.getElementById("export-unit"))"##,
+    );
+    // What the page hands the browser to keep is looked at here.
+    browser.act(
+        r##"
+        window.kept = [];
+        const address = URL.createObjectURL.bind(URL);
+        URL.createObjectURL = (file) => {
+          file.text().then((text) => window.kept.push(text));
+          return address(file);
+        };
+        "##,
+    );
+
+    // The settings alone: a file with the day in its name, which holds
+    // the site and the voucher types and no unit.
+    browser.act(r##"document.getElementById("export-profile").click();"##);
+    let said = travel_said(
+        &mut browser,
+        "The settings are exported, as usher-profile-",
+    );
+    assert!(
+        said.as_str().unwrap().ends_with(".json."),
+        "the file is named: {said}"
+    );
+    let profile = browser.wait("the profile, kept", "window.kept[0] ?? null");
+    let profile: Value =
+        serde_json::from_str(profile.as_str().unwrap()).unwrap();
+    assert_eq!(profile["usher_file"], 1, "{profile}");
+    assert_eq!(profile["settings"]["site"]["name"], "Weaver's Hall");
+    assert!(profile.get("unit").is_none(), "{profile}");
+
+    // Everything, to move the unit: a passphrase typed twice and the
+    // administrator's own password; each is said where it is amiss.
+    browser.act(r##"document.getElementById("export-unit").click();"##);
+    browser.wait(
+        "the form everything is exported by",
+        r##"document.getElementById("export-unit-form") !== null"##,
+    );
+    let send =
+        r##"document.getElementById("export-unit-form").requestSubmit();"##;
+    browser.act(send);
+    said_in(&mut browser, "export-unit-form", "Type a passphrase.");
+    fill(
+        &mut browser,
+        json!({ "unit-passphrase": passphrase, "unit-passphrase-again": "five small owls sang" }),
+    );
+    browser.act(send);
+    said_in(
+        &mut browser,
+        "export-unit-form",
+        "The two passphrases are not the same. Type them again.",
+    );
+    fill(
+        &mut browser,
+        json!({ "unit-passphrase-again": passphrase, "unit-password": "three small owls sang" }),
+    );
+    // For the eye: the part of the page Site that travels, with the
+    // form a unit is exported by.
+    if let Some(to) = picture_of(Some("site-travel")) {
+        browser.act("window.scrollTo(0, 0);");
+        browser.picture(&to);
+    }
+    browser.act(send);
+    said_in(
+        &mut browser,
+        "export-unit-form",
+        "The password you have now is not that one.",
+    );
+    fill(&mut browser, json!({ "unit-password": PASSWORD }));
+    browser.act(send);
+    travel_said(
+        &mut browser,
+        "Everything is exported, sealed, as usher-unit-",
+    );
+    let unit = browser.wait("the unit, kept", "window.kept[1] ?? null");
+    let unit_text = unit.as_str().unwrap().to_string();
+    let unit: Value = serde_json::from_str(&unit_text).unwrap();
+    assert!(unit["unit"]["sealed_b64"].is_string(), "{unit}");
+    assert_eq!(
+        browser
+            .look(r##"return document.getElementById("export-unit-form");"##),
+        json!(null),
+        "the form is taken off the page"
+    );
+
+    // A profile is applied: the page says what the file holds before
+    // anything is done, and what became of it after.
+    let made_elsewhere = json!({
+        "usher_file": 1,
+        "settings": {
+            "site": { "name": "Market Hall" },
+            "voucher_types": {
+                "types": [
+                    { "name": "Month", "minutes": 43_200, "guests": 2 },
+                    { "name": "Nothing", "minutes": 0, "guests": 1 },
+                ],
+                "default": "Month",
+            },
+        },
+    })
+    .to_string();
+    browser.act(r##"document.getElementById("apply-profile").click();"##);
+    browser.wait(
+        "the form a profile is applied by",
+        r##"document.getElementById("apply-profile-form") !== null"##,
+    );
+    choose_text(
+        &mut browser,
+        "profile-file",
+        "notes.json",
+        "not a file of an usher's",
+    );
+    said_in(
+        &mut browser,
+        "apply-profile-form",
+        "That file could not be read as an usher's file.",
+    );
+    choose_text(
+        &mut browser,
+        "profile-file",
+        "profile.json",
+        &made_elsewhere,
+    );
+    let holds = browser.wait(
+        "what the file holds",
+        r##"(() => {
+          const lines = [...document.querySelectorAll("#apply-profile-form .travel-holds li")].map((line) => line.textContent);
+          return lines.length > 0 ? lines : null;
+        })()"##,
+    );
+    assert_eq!(
+        holds,
+        json!([
+            "the site's name, time zone and language",
+            "2 voucher types: Month, Nothing",
+            "the default type: Month",
+        ])
+    );
+    if let Some(to) = picture_of(Some("site-apply-profile")) {
+        browser.act("window.scrollTo(0, 0);");
+        browser.picture(&to);
+    }
+    browser.act(
+        r##"document.getElementById("apply-profile-form").requestSubmit();"##,
+    );
+    travel_said(
+        &mut browser,
+        "The profile is applied, but for what follows.",
+    );
+    assert_eq!(
+        browser.look(
+            r##"return [...document.querySelectorAll(".travel-refused li")].map((line) => line.textContent);"##
+        ),
+        json!(["The voucher type Nothing was not taken: A voucher lasts a minute at least."])
+    );
+    // The page shows the site and the types as they are now.
+    browser.wait(
+        "the site's name, as the profile set it",
+        r##"document.title.endsWith("Market Hall") && widget("usher.site")?.querySelector('input[name="name"]')?.value === "Market Hall""##,
+    );
+    go_to(&mut browser, "Voucher types");
+    browser.wait(
+        "the type the profile brought, and the default it set",
+        r##"(() => {
+          const said = widget("usher.types")?.innerText ?? "";
+          return said.includes("Month") && said.includes("Week") && said.includes("Day guest");
+        })()"##,
+    );
+
+    // A new unit is set up from the unit's file: the other way of the
+    // form a unit is set up by.
+    let new_dir = short_dir();
+    let mut new = Steward::start(new_dir.path());
+    browser.from(FROM_BEYOND);
+    browser.go(&format!("{}/", new.address()));
+    browser.wait(
+        "the form that sets an usher up",
+        r##"document.getElementById("entry")?.open === true && document.getElementById("set-up-form") !== null"##,
+    );
+    browser.act(r##"document.getElementById("set-up-from-file").click();"##);
+    browser.wait(
+        "the form a unit is set up from a file by",
+        r##"document.getElementById("from-file-form") !== null"##,
+    );
+    let take =
+        r##"document.getElementById("from-file-form").requestSubmit();"##;
+    browser.act(take);
+    said_in(&mut browser, "from-file-form", "Choose the unit's file.");
+    choose_text(
+        &mut browser,
+        "from-file-file",
+        "usher-unit.json",
+        &unit_text,
+    );
+    browser.act(take);
+    said_in(
+        &mut browser,
+        "from-file-form",
+        "Type the passphrase of the file.",
+    );
+    fill(
+        &mut browser,
+        json!({ "from-file-passphrase": "six small owls sing" }),
+    );
+    if let Some(to) = picture_of(Some("set-up-from-file")) {
+        browser.picture(&to);
+    }
+    browser.act(take);
+    said_in(
+        &mut browser,
+        "from-file-form",
+        "That is not the passphrase the file was sealed under, or the file was changed since.",
+    );
+    // Back leads to the form a unit is set up by, and from there here
+    // again.
+    browser.act(r##"document.getElementById("from-file-back").click();"##);
+    browser.wait(
+        "the form that sets an usher up, again",
+        r##"document.getElementById("set-up-form") !== null && document.getElementById("from-file-form") === null"##,
+    );
+    browser.act(r##"document.getElementById("set-up-from-file").click();"##);
+    browser.wait(
+        "the form a unit is set up from a file by, again",
+        r##"document.getElementById("from-file-form") !== null"##,
+    );
+    choose_text(
+        &mut browser,
+        "from-file-file",
+        "usher-unit.json",
+        &unit_text,
+    );
+    fill(&mut browser, json!({ "from-file-passphrase": passphrase }));
+    browser.act(take);
+    // The usher takes the file in and starts again as that unit; the
+    // page says so, and goes on by itself when it is back: the form to
+    // sign in, which says whose names to sign in with.
+    browser.wait(
+        "that the file is taken in, or the unit back already",
+        r##"document.getElementById("taken-in-form") !== null || document.getElementById("sign-in-form") !== null"##,
+    );
+    browser.wait(
+        "the form to sign in, once the unit is back",
+        r##"document.getElementById("sign-in-form") !== null && document.getElementById("sign-in-said").textContent === "The unit is here. Sign in with a name and a password of that unit.""##,
+    );
+    new.came_back();
+    fill(
+        &mut browser,
+        json!({ "sign-in-name": "Anna", "sign-in-password": PASSWORD }),
+    );
+    browser
+        .act(r##"document.getElementById("sign-in-form").requestSubmit();"##);
+    browser.wait(
+        "who is signed in on the unit that was moved",
+        r##"document.getElementById("entry").open === false && document.getElementById("who-name").textContent === "Anna""##,
+    );
+    // It is the unit as it was when it was exported: the site's name of
+    // then, and its voucher types.
+    browser.wait(
+        "the site's name, as the unit had it",
+        r##"document.title.endsWith("Weaver's Hall")"##,
+    );
+    go_to(&mut browser, "Voucher types");
+    browser.wait(
+        "the types the unit had",
+        r##"(() => {
+          const said = widget("usher.types")?.innerText ?? "";
+          return said.includes("Day guest") && said.includes("Week") && !said.includes("Month");
+        })()"##,
+    );
+    assert_eq!(old.stop(), Some(0));
+    assert_eq!(new.stop(), Some(0));
+}

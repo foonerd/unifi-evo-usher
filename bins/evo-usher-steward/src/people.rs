@@ -184,6 +184,20 @@ impl Person {
     }
 }
 
+/// Whether bytes read as the people a unit keeps, and whether somebody
+/// among them can do everything: nothing where they are no file of
+/// people. It is asked of what a unit carries when it is moved, before
+/// any of it is written: a unit taken in with nobody to sign in would
+/// be nobody's.
+pub fn read_as_kept(bytes: &[u8]) -> Option<bool> {
+    let people: Vec<Person> = serde_json::from_slice(bytes).ok()?;
+    Some(people.iter().any(|person| {
+        person.role == ADMINISTRATOR
+            && !person.name.trim().is_empty()
+            && !person.password.is_empty()
+    }))
+}
+
 /// What tells one hash of a password or a PIN from any other: its salt,
 /// which is made anew with every hash. Empty where what is given is no
 /// hash in PHC form.

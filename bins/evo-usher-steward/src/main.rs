@@ -6,8 +6,10 @@
 //! password for an administrator where it is asked with
 //! `--reset-password` on the unit itself, that nothing of it is a
 //! household's to lock, that signing in, with a name and a password
-//! the usher keeps, is the one way in, and that a unit started as a demo
-//! is given a simulated controller and is a demo for good.
+//! the usher keeps, is the one way in, that a unit started as a demo
+//! is given a simulated controller and is a demo for good, and that a
+//! unit which was moved here from another machine is put in place before
+//! the steward starts.
 
 #![forbid(unsafe_code)]
 
@@ -21,6 +23,7 @@ mod people;
 mod reset;
 mod satellites;
 mod signin;
+mod travel;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -112,6 +115,30 @@ async fn main() -> anyhow::Result<()> {
     if args.command.is_none() && level.asks_code() {
         units_code();
     }
+    // A unit that was moved here was put aside by the steward that took
+    // it in, which then ended to start again: its files are put in their
+    // places now, before evo opens any of them. A steward does not
+    // start half moved: where a file cannot be put in its place, the
+    // start ends, and the next one tries again.
+    let roots = roots(&args);
+    if args.command.is_none() {
+        match travel::put_in_place(&roots) {
+            Ok(Some(files)) => eprintln!(
+                "{PROGRAM}: the unit that was moved here is put in place, \
+                 {files} files of it; the steward starts as that unit"
+            ),
+            Ok(None) => {}
+            Err(e) => {
+                eprintln!(
+                    "{PROGRAM}: the unit that was moved here could not be \
+                     put in place: {e}. The next start tries again; to \
+                     start this unit as it was, remove {}",
+                    travel::aside(&roots).display()
+                );
+                std::process::exit(1);
+            }
+        }
+    }
     // Whether the unit is a demo is said when it is started too, and a
     // value that is mistyped stops the start: it is not taken for a
     // unit that is none. A demo's files are started as a demo only, and
@@ -131,11 +158,15 @@ async fn main() -> anyhow::Result<()> {
         socket: client_socket(&args),
         code: std::env::var_os(code::NAMED_BY).map(PathBuf::from),
         demo: is_demo,
+        plugins: roots.plugins,
+        profile: std::env::var_os(signin::PROFILE_NAMED_BY)
+            .filter(|named| !named.is_empty())
+            .map(PathBuf::from),
     };
     // A caller on the LAN who presents nothing is given no more than one
     // from beyond it: what lets guests on to the network asks for a
     // bearer, wherever the asking comes from.
-    evo::run(
+    let ended = evo::run(
         evo::RunOptions::new(args, admission())
             .with_lan_privilege(evo::LanPrivilege::Withheld)
             .with_household_groups(Arc::new(NoHousehold))
@@ -143,7 +174,33 @@ async fn main() -> anyhow::Result<()> {
             // face and the way to sign in.
             .with_https_setup(gate::setup(settings)),
     )
-    .await
+    .await;
+    // A steward that took a move in ended itself to start again, as the
+    // unit that was moved: the same program, in its own place.
+    if travel::starts_again() {
+        travel::again();
+    }
+    ended
+}
+
+/// Where the unit's files are kept, as evo will keep them: the state
+/// directory, and the root under which each plugin has its directory.
+/// A configuration that cannot be read stops evo's own start a moment
+/// later, in evo's words; until then evo's own places stand for it.
+fn roots(args: &evo::cli::Args) -> travel::Roots {
+    let read = match &args.config {
+        Some(path) => StewardConfig::load_from_required(path),
+        None => StewardConfig::load(),
+    };
+    let config = read.unwrap_or_default();
+    let state = std::env::var_os("EVO_HTTPS_STATE_DIR")
+        .map(PathBuf::from)
+        .or_else(|| config.persistence.path.parent().map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from("/var/lib/evo"));
+    travel::Roots {
+        state,
+        plugins: config.plugins.plugin_data_root,
+    }
 }
 
 /// The steward's client socket, as evo will bind it: named among the

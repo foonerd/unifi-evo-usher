@@ -7,8 +7,8 @@
 #
 #   scripts/prove-proxy.sh [<case>...]
 #
-# <case> is alone, extended, demo, nginx, apache, caddy or traefik; with
-# none named, all seven. The usher's image is unifi-evo-usher:<version> on this
+# <case> is alone, extended, demo, move, nginx, apache, caddy or traefik;
+# with none named, all eight. The usher's image is unifi-evo-usher:<version> on this
 # machine, as scripts/image.sh --here keeps it, or
 # $USHER_IMAGE:$USHER_VERSION.
 #
@@ -33,6 +33,20 @@
 # controller; it says that it is a demo; it is given no other
 # controller; and its volume is not started as a unit, as a unit's
 # volume is not started as a demo.
+#
+# Move: a unit is moved from one volume to another by its file, as a
+# unit is moved from one machine to another. The first gives everything
+# it keeps, sealed under a passphrase; the second, which nobody has set
+# up, takes the file in and starts again by itself, in the container it
+# runs in, as the first: the administrator signs in with the password
+# they had, the authority a browser believed the first by is the one
+# the second has, and a screen that was adopted by the first hands out
+# a voucher at the second with the secret it holds. A wrong passphrase
+# is refused and changes nothing.
+#
+# In every case a file of two MiB that is sent to be set up from reaches
+# the unit, which answers it: a unit's file is long, and what stands
+# before the unit passes it on.
 #
 # For each proxy: the unit is started and its authority taken from it;
 # the proxy is started with a certificate of an authority made for the
@@ -82,11 +96,11 @@ SET_LANGUAGE="en"
 # what the proof was started with.
 unset USHER_DEMO
 
-proxies=${*:-alone extended demo nginx apache caddy traefik}
+proxies=${*:-alone extended demo move nginx apache caddy traefik}
 # The Compose files of a case, the first the one the unit is in.
 files_of() {
   case "$1" in
-    alone | demo) echo packaging/docker/compose.yaml ;;
+    alone | demo | move) echo packaging/docker/compose.yaml ;;
     extended) echo packaging/docker/compose.yaml packaging/docker/extended.yaml ;;
     *) echo "packaging/proxy/$1/compose.yaml" ;;
   esac
@@ -128,6 +142,7 @@ for proxy in $proxies; do
   # demo the same unit told that it is one.
   [ "$proxy" != extended ] || continue
   [ "$proxy" != demo ] || continue
+  [ "$proxy" != move ] || continue
   [ "$(unit_of "$proxy")" = "$(unit_of alone)" ] || { echo "prove-proxy: the unit in $(files_of "$proxy") is not the unit of packaging/docker/compose.yaml" >&2; exit 1; }
   # A proxy is started only once the unit says it is up.
   [ "$proxy" = alone ] || [ "$(waits_for "$proxy")" = service_healthy ] || { echo "prove-proxy: the proxy in $(files_of "$proxy") does not wait for the unit to say it is up" >&2; exit 1; }
@@ -521,6 +536,17 @@ prove() {
   jq -e --arg name "$SET_NAME" --arg language "$SET_LANGUAGE" '.site == {name: $name, logo: null, language: $language, follows_browser: true}' "$dir/answer" > /dev/null \
     || fail "before anyone has signed in, the unit says of its site: $status $(cat "$dir/answer")"
   echo "  ok    the unit goes by the name, the time zone and the language it was started with; its administrator sets others, and anyone is told the name and the language"
+
+  # A unit's file is long. One of two MiB, sent to be set up from,
+  # reaches the unit through whatever stands before it, and is answered
+  # by the unit: it is set up already, and says so.
+  head -c 1500000 /dev/zero | base64 -w0 > "$dir/long"
+  jq -cn --rawfile long "$dir/long" '{file: {usher_file: 1, settings: {padding: $long}}, passphrase: "of no file"}' > "$dir/long.json"
+  status=$(ask /usher/v1/set_up_from_file -X POST -H 'Content-Type: application/json' --data-binary "@$dir/long.json")
+  [ "$status" = 409 ] || fail "a file of two MiB did not reach the unit: $status $(head -c 300 "$dir/answer")"
+  jq -e '.error.details.subclass == "set_up_already"' "$dir/answer" > /dev/null || fail "a file sent to a unit that is set up is answered: $(head -c 300 "$dir/answer")"
+  rm -f "$dir/long" "$dir/long.json"
+  echo "  ok    a file of two MiB that is sent to be set up from reaches the unit, which is set up already and says so"
 
   # The name and the password sign in, a wrong one does not, and a
   # session is refused once it is signed out of.
@@ -923,11 +949,147 @@ prove_demo() {
   project=""
 }
 
-for proxy in $proxies; do
-  if [ "$proxy" = demo ]; then
-    prove_demo
-  else
-    prove "$proxy"
+# A unit moved from one volume to another by its file.
+prove_move() {
+  proxy=move
+  local old="usher-proof-move-old" new="usher-proof-move-new"
+  started="$started $old $new"
+  local port dir bearer status shown secret screen tries logged began
+  local name=localhost authority passphrase="five small owls sing"
+  dir="$work/move"
+  mkdir -p "$dir"
+  authority="$dir/unit-ca.crt"
+  # Both are demos, so that a voucher can be handed out with no
+  # controller at hand: a demo's file is taken in by a demo.
+  export USHER_ADDRESS=127.0.0.1 USHER_DEMO=1
+  compose() { docker compose -p "$project" -f packaging/docker/compose.yaml "$@"; }
+  ask() {
+    local path="$1"
+    shift
+    curl -sS --max-time 30 -o "$dir/answer" -w '%{http_code}' \
+      --cacert "$authority" --resolve "$name:$port:127.0.0.1" \
+      "$@" "https://$name:$port$path" 2> "$dir/curl.err" || true
+  }
+  post() {
+    local path="$1" body="$2"
+    shift 2
+    ask "$path" -X POST -H 'Content-Type: application/json' -d "$body" "$@"
+  }
+  request() {
+    jq -cn --arg shelf "$1" --arg type "$2" --arg payload "$(printf '%s' "$3" | base64 -w0)" \
+      '{shelf: $shelf, request_type: $type, payload_b64: $payload}'
+  }
+  said_of() { jq -r '.payload_b64' "$dir/answer" | base64 -d; }
+  # Start the unit of a project, on a port of its own.
+  up() {
+    project="$1"
+    port=$(free_port)
+    export USHER_PORT="$port" USHER_NAME="$project"
+    compose up -d --wait --wait-timeout 60 usher > "$dir/up.log" 2>&1
+  }
+  # The unit's authority, as it is now, and the unit's word on itself.
+  face() {
+    tries=0
+    until compose cp usher:/var/lib/evo/state/https/ca.crt "$authority" > /dev/null 2>&1 \
+      && chmod 644 "$authority" && [ "$(ask /usher/v1/state)" = 200 ] && jq -e "$1" "$dir/answer" > /dev/null; do
+      tries=$((tries + 1))
+      [ "$tries" -lt 120 ] || fail "the unit does not say of itself that $1: $(cat "$dir/curl.err") $(head -c 300 "$dir/answer" 2> /dev/null)"
+      sleep 0.5
+    done
+  }
+
+  echo "prove-proxy: move"
+  up "$old" || { cat "$dir/up.log" >&2; fail "the unit that is moved does not come up"; }
+  face '.set_up == false'
+  status=$(post /usher/v1/set_up "$(jq -cn --arg name "$PERSON" --arg password "$PASSWORD" '{name: $name, password: $password}')")
+  [ "$status" = 200 ] || fail "the unit that is moved is not set up: $status $(cat "$dir/answer")"
+  bearer=$(jq -r '.token' "$dir/answer")
+  status=$(post /usher/v1/satellite_code '{}')
+  [ "$status" = 200 ] || fail "a screen is not given a code: $status $(cat "$dir/answer")"
+  shown=$(jq -r '.code' "$dir/answer")
+  secret=$(jq -r '.secret' "$dir/answer")
+  status=$(post /usher/v1/adopt_satellite "$(jq -cn --arg code "$shown" '{code: $code, name: "Lobby"}')" -H "Authorization: Bearer $bearer")
+  [ "$status" = 200 ] || fail "a screen is not adopted: $status $(cat "$dir/answer")"
+  # Its settings alone, and everything, sealed.
+  status=$(post /usher/v1/export '{}' -H "Authorization: Bearer $bearer")
+  [ "$status" = 200 ] || fail "the unit's settings are not given out: $status $(cat "$dir/answer")"
+  jq -e '.usher_file == 1 and (has("unit") | not) and (.settings.voucher_types.types | length) == 3' "$dir/answer" > /dev/null || fail "the unit's settings, as a file: $(head -c 300 "$dir/answer")"
+  cp "$dir/answer" "$dir/profile.json"
+  status=$(post /usher/v1/export "$(jq -cn --arg passphrase "$passphrase" '{everything: true, passphrase: $passphrase, password: "three small owls sang"}')" -H "Authorization: Bearer $bearer")
+  [ "$status" = 403 ] || fail "everything is given out for a wrong password: $status"
+  status=$(post /usher/v1/export "$(jq -cn --arg passphrase "$passphrase" --arg password "$PASSWORD" '{everything: true, passphrase: $passphrase, password: $password}')" -H "Authorization: Bearer $bearer")
+  [ "$status" = 200 ] || fail "everything the unit keeps is not given out: $status $(cat "$dir/answer")"
+  jq -e '.usher_file == 1 and (.unit.sealed_b64 | length) > 1000 and .unit.memory_kib == 65536 and .unit.passes == 3' "$dir/answer" > /dev/null || fail "the unit, as a file: $(head -c 300 "$dir/answer")"
+  cp "$dir/answer" "$dir/unit.json"
+  # Nothing of the unit's own stands in the file as it was: what is in
+  # the clear names nobody.
+  logged=$(jq -c '.settings' "$dir/unit.json")
+  if grep -q -F "$PERSON" <<< "$logged"; then
+    fail "the file names $PERSON in the clear"
   fi
+  cp "$authority" "$dir/old-ca.crt"
+  compose down > /dev/null 2>&1 || fail "the unit that is moved is not stopped"
+  echo "  ok    a unit gives its settings as a file with no unit in it, and everything it keeps, sealed, for its administrator's password and a passphrase"
+
+  # The machine it is moved to: a unit nobody has set up.
+  up "$new" || { cat "$dir/up.log" >&2; fail "the unit that is moved to does not come up"; }
+  face '.set_up == false and .demo == true'
+  began=$(docker inspect -f '{{.State.StartedAt}}' "$new")
+  jq -cn --slurpfile file "$dir/unit.json" '{file: $file[0], passphrase: "six small owls sing"}' > "$dir/taking.json"
+  status=$(ask /usher/v1/set_up_from_file -X POST -H 'Content-Type: application/json' --data-binary "@$dir/taking.json")
+  [ "$status" = 403 ] || fail "a file is taken in under a wrong passphrase: $status $(cat "$dir/answer")"
+  jq -e '.error.details.subclass == "wrong_passphrase"' "$dir/answer" > /dev/null || fail "a wrong passphrase is refused as: $(cat "$dir/answer")"
+  status=$(ask /usher/v1/state)
+  jq -e '.set_up == false' "$dir/answer" > /dev/null || fail "a file that was refused changed the unit: $status $(cat "$dir/answer")"
+  jq -cn --slurpfile file "$dir/unit.json" --arg passphrase "$passphrase" '{file: $file[0], passphrase: $passphrase}' > "$dir/taking.json"
+  status=$(ask /usher/v1/set_up_from_file -X POST -H 'Content-Type: application/json' --data-binary "@$dir/taking.json")
+  [ "$status" = 200 ] || fail "the unit's file is not taken in: $status $(cat "$dir/answer")"
+  jq -e '.taken_in == true' "$dir/answer" > /dev/null || fail "the unit's file is answered: $(cat "$dir/answer")"
+  # It starts again by itself as the unit of the file, and is believed
+  # from then on by that unit's authority.
+  face '.set_up == true and .demo == true'
+  [ "$(docker inspect -f '{{.State.StartedAt}} {{.RestartCount}}' "$new")" = "$began 0" ] || fail "the container was started again, where the program starts again in it by itself: $(docker inspect -f '{{.State.StartedAt}} {{.RestartCount}}' "$new"), begun $began"
+  [ "$(sha256sum < "$authority")" = "$(sha256sum < "$dir/old-ca.crt")" ] || fail "the unit that was moved has another authority than it had"
+  logged=$(compose logs usher 2> /dev/null || true)
+  grep -q 'the unit that was moved here is put in place' <<< "$logged" || fail "the log does not say that the unit was put in place: $(compose logs --tail 5 usher 2>&1)"
+  echo "  ok    a wrong passphrase is refused and changes nothing; with its passphrase the file is taken in, and the unit starts again by itself, in its container, under the authority of the unit that was moved"
+
+  # It is the unit that was moved: its administrator signs in, and the
+  # screen that was adopted hands out a voucher with the secret it has.
+  status=$(post /usher/v1/sign_in "$(jq -cn --arg name "$PERSON" --arg password "$PASSWORD" '{name: $name, password: $password}')")
+  [ "$status" = 200 ] || fail "the administrator of the unit that was moved does not sign in: $status $(cat "$dir/answer")"
+  status=$(ask /usher/v1/me -H "Authorization: Bearer $bearer")
+  [ "$status" = 401 ] || fail "a session of the machine it was moved from is answered: $status"
+  bearer=$(jq -r '.token' "$dir/answer")
+  status=$(post /usher/v1/satellite_sign_in "$(jq -cn --arg secret "$secret" '{secret: $secret}')")
+  [ "$status" = 200 ] || fail "the secret of a satellite of the unit that was moved is not exchanged: $status $(cat "$dir/answer")"
+  jq -e '.adopted == true and .name == "Lobby"' "$dir/answer" > /dev/null || fail "a satellite of the unit that was moved is answered: $(cat "$dir/answer")"
+  screen=$(jq -r '.token' "$dir/answer")
+  status=$(post /api/v1/request "$(request issue.counter hand_default '{}')" -H "Authorization: Bearer $screen")
+  [ "$status" = 200 ] || fail "a satellite of the unit that was moved hands out no voucher: $status $(cat "$dir/answer")"
+  said_of | jq -e '(.voucher.code | test("^[0-9]{10}$")) and .network == "Guests"' > /dev/null || fail "the voucher a satellite handed out after the move: $(said_of)"
+  echo "  ok    its administrator signs in with the password they had, and a screen that was adopted before the move hands out a voucher after it, with the secret it holds"
+
+  # And the settings, as a profile, are applied to it as to any unit.
+  status=$(post /usher/v1/sign_in "$(jq -cn --arg name "$PERSON" --arg password "$PASSWORD" '{name: $name, password: $password}')")
+  bearer=$(jq -r '.token' "$dir/answer")
+  jq -cn --slurpfile file "$dir/profile.json" '{file: $file[0]}' > "$dir/applying.json"
+  status=$(ask /usher/v1/apply_profile -X POST -H 'Content-Type: application/json' -H "Authorization: Bearer $bearer" --data-binary "@$dir/applying.json")
+  [ "$status" = 200 ] || fail "a profile is not applied: $status $(cat "$dir/answer")"
+  jq -e '(.applied.types | length) == 3 and (.applied.refused | length) == 0' "$dir/answer" > /dev/null || fail "of a profile that was applied the unit says: $(cat "$dir/answer")"
+  echo "  ok    the settings that were given out as a profile are applied, and nothing of them is refused"
+  compose down --volumes --remove-orphans > /dev/null 2>&1 || true
+  project="$old"
+  compose down --volumes --remove-orphans > /dev/null 2>&1 || true
+  unset USHER_DEMO
+  project=""
+}
+
+for proxy in $proxies; do
+  case "$proxy" in
+    demo) prove_demo ;;
+    move) prove_move ;;
+    *) prove "$proxy" ;;
+  esac
 done
 echo "[OK] prove-proxy: $proxies"

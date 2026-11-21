@@ -661,6 +661,57 @@ grep -q -F 'A password is 16 characters at least' "$work/said" || fail "told the
 [ "$(usher me '' "$bearer")" = 200 ] || fail "refused, the program signed the administrator out: $(cat "$work/answer")"
 echo "  ok    the same as the steward's own account; and told the extended level, the program holds a password to it"
 
+echo "prove-unit: a unit moved"
+# Everything the unit keeps is given out as one file, sealed under a
+# passphrase, for its administrator's password once more; its settings
+# alone are given out as a profile, with no unit in it. The unit's
+# people and its authority are then taken away, as on a machine that is
+# new, and the unit is set up from the file: it starts again by itself,
+# as the same process of the same service, and is the unit it was.
+PASSPHRASE="five small owls sing"
+grep -q '^#Environment=USHER_PROFILE=/etc/evo/profile.json$' "$(systemctl show -p FragmentPath --value evo.service)" || fail "the service file does not say how a unit is started with a profile"
+[ "$(usher export '{}' "$bearer")" = 200 ] || fail "the unit's settings are not given out: $(cat "$work/answer")"
+jq -e '.usher_file == 1 and (has("unit") | not) and (.settings | has("site") and has("voucher_types"))' "$work/answer" > /dev/null || fail "the unit's settings, as a file: $(cat "$work/answer")"
+[ "$(usher export "$(jq -cn --arg passphrase "$PASSPHRASE" '{everything: true, passphrase: $passphrase, password: "three small owls sang"}')" "$bearer")" = 403 ] || fail "everything is given out for a wrong password: $(cat "$work/answer")"
+[ "$(usher export "$(jq -cn --arg passphrase "$PASSPHRASE" --arg password "$PASSWORD" '{everything: true, passphrase: $passphrase, password: $password}')" "$bearer")" = 200 ] || fail "everything the unit keeps is not given out: $(cat "$work/answer")"
+jq -e '.usher_file == 1 and (.unit.sealed_b64 | length) > 1000 and .unit.memory_kib == 65536' "$work/answer" > /dev/null || fail "the unit, as a file: $(cat "$work/answer")"
+cp "$work/answer" "$work/unit.json"
+authority_was=$(sha256sum < "$AUTHORITY")
+systemctl stop evo.service
+rm "$PEOPLE" "$AUTHORITY" "$(dirname "$AUTHORITY")/ca.key"
+start start
+[ "$(usher state)" = 200 ] || fail "the unit does not say what state it is in: $(cat "$work/answer")"
+jq -e '.set_up == false' "$work/answer" > /dev/null || fail "its people taken away, the unit says of itself: $(cat "$work/answer")"
+[ "$(sha256sum < "$AUTHORITY")" != "$authority_was" ] || fail "its authority taken away, the unit made none of its own"
+pid=$(systemctl show -p MainPID --value evo.service)
+starts=$(systemctl show -p NRestarts --value evo.service)
+# The file is sent as a file: it is longer than a line of a command.
+taken_in() {
+  jq -cn --slurpfile file "$work/unit.json" --arg passphrase "$1" '{file: $file[0], passphrase: $passphrase}' > "$work/taking.json"
+  curl --silent --show-error --cacert "$AUTHORITY" --max-time 40 --output "$work/answer" --write-out '%{http_code}' \
+    --header "Content-Type: application/json" --data-binary "@$work/taking.json" "$FACE/usher/v1/set_up_from_file"
+}
+[ "$(taken_in "six small owls sing")" = 403 ] || fail "a file is taken in under a wrong passphrase: $(cat "$work/answer")"
+jq -e '.error.details.subclass == "wrong_passphrase"' "$work/answer" > /dev/null || fail "a wrong passphrase is refused as: $(cat "$work/answer")"
+[ "$(taken_in "$PASSPHRASE")" = 200 ] || fail "the unit's file is not taken in: $(cat "$work/answer")"
+tries=0
+until [ "$(usher state 2> /dev/null || true)" = 200 ] && jq -e '.set_up == true' "$work/answer" > /dev/null 2>&1; do
+  tries=$((tries + 1))
+  [ "$tries" -lt 120 ] || fail "the unit did not come back as the unit of the file"
+  sleep 0.5
+done
+[ "$(systemctl show -p MainPID --value evo.service) $(systemctl show -p NRestarts --value evo.service)" = "$pid $starts" ] || fail "the service was started again, where the program starts again by itself: process $(systemctl show -p MainPID --value evo.service) after $pid"
+[ "$(sha256sum < "$AUTHORITY")" = "$authority_was" ] || fail "the unit that was moved has another authority than it had"
+[ "$(stat -c '%U %G %a' "$PEOPLE")" = "evo evo 600" ] || fail "the people of the unit that was moved are kept as $(stat -c '%U %G %a' "$PEOPLE")"
+[ "$(usher sign_in "$(named "$NAME" "$PASSWORD")")" = 200 ] || fail "the administrator of the unit that was moved does not sign in: $(cat "$work/answer")"
+bearer=$(jq -r '.token' "$work/answer")
+[ "$(usher people '' "$bearer")" = 200 ] || fail "the people of the unit that was moved are not listed: $(cat "$work/answer")"
+jq -e '[.people[].name] | index("Ben") != null' "$work/answer" > /dev/null || fail "the person at the front desk did not come with the unit: $(cat "$work/answer")"
+journalctl -u evo.service --no-pager > "$work/journal"
+grep -q 'the unit that was moved here is put in place' "$work/journal" || fail "the log does not say that the unit was put in place"
+! grep -q -F "$PASSPHRASE" "$work/journal" || fail "the passphrase stands in the service's log"
+echo "  ok    the unit gives its settings as a profile, and everything it keeps as one sealed file; set up from that file on files with no people and another authority, it starts again by itself as the same process and is the unit it was"
+
 echo "prove-unit: the extended level"
 # Whoever has the unit's files takes the people away, and the unit asks
 # to be set up again. It is started at the extended level for that, as

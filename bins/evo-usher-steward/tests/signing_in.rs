@@ -244,6 +244,65 @@ fn a_person_signs_in_with_a_name_and_a_password() {
 }
 
 #[test]
+fn what_is_refused_unread_leaves_the_connection_fit_or_says_that_it_closes() {
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+    let anna = steward.set_up("Anna", PASSWORD);
+    let pin = steward.add_front_desk(&anna, "Ben");
+    let (status, said) = steward.sign_in("Ben", &pin);
+    assert_eq!(status, 200, "{said}");
+    let ben = Caller::on_the_lan().with(said["token"].as_str().unwrap());
+    let (secret, _) = steward.adopt(&anna, "Lobby");
+    let lobby = steward.as_satellite(&secret);
+
+    // Whoever is refused for who they are is refused before what they
+    // sent is read. What they sent is let go by, so that the connection
+    // is fit for the next thing asked on it: each is asked three times
+    // over, one after the other, and answered each time.
+    let carried = json!({ "name": "Mallory", "password": PASSWORD });
+    // What is longer than is let go by for a caller who is not let in
+    // is left where it is: the connection is closed, and the answer
+    // says so, for a client not to ask the next thing on it.
+    let long = json!({ "name": "Mallory", "password": "x".repeat(100_000) });
+    for (who, wanted) in [(&Caller::beyond(), 401), (&ben, 403), (&lobby, 403)]
+    {
+        for nth in 1..=3 {
+            assert_eq!(
+                steward.status_and_closing(
+                    "/usher/v1/add_person",
+                    Some(&carried),
+                    who
+                ),
+                (wanted, false),
+                "asked with something carried, time {nth}"
+            );
+        }
+        for nth in 1..=2 {
+            assert_eq!(
+                steward.status_and_closing(
+                    "/usher/v1/add_person",
+                    Some(&long),
+                    who
+                ),
+                (wanted, true),
+                "asked with more than is let go by, time {nth}"
+            );
+        }
+        // Asked with nothing carried, there is nothing to let go by.
+        assert_eq!(
+            steward.status_and_closing("/usher/v1/people", None, who),
+            (wanted, false)
+        );
+    }
+    // And whoever is let in is answered on a connection that stays.
+    assert_eq!(
+        steward.status_and_closing("/usher/v1/people", None, &anna),
+        (200, false)
+    );
+    assert_eq!(steward.stop(), Some(0));
+}
+
+#[test]
 fn five_wrong_tries_in_a_row_hold_a_name_and_say_nothing_of_who_there_is() {
     let dir = short_dir();
     let steward = Steward::start(dir.path());

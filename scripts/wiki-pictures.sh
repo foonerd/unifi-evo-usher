@@ -71,6 +71,9 @@ face-satellites-adopt-protected.png:satellites-adopt-protected.png
 face-satellite-types.png:satellite-types.png
 face-satellite-keypad.png:satellite-keypad.png
 face-demo-counter.png:demo-counter.png
+face-site-travel.png:site-travel.png
+face-site-apply-profile.png:site-apply-profile.png
+face-set-up-from-file.png:set-up-from-file.png
 "
 for pair in $pictures; do
   from=${pair%%:*}

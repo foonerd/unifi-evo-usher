@@ -347,6 +347,23 @@ export async function setUp(name, password, code) {
 }
 
 /**
+ * Set a new unit up from the file of a unit that was moved. The unit
+ * starts again as that unit; nobody is signed in by it.
+ *
+ * @param {unknown} file the file, as it was exported
+ * @param {string} passphrase what the file was sealed under
+ * @param {string | null} code the unit's code, where the unit asks it
+ * @returns {Promise<{ taken_in: boolean }>}
+ * @throws {Refusal}
+ */
+export function setUpFromFile(file, passphrase, code) {
+  /** @type {Record<string, unknown>} */
+  const carried = { file, passphrase };
+  if (code !== null) carried.code = code;
+  return ask("/usher/v1/set_up_from_file", "POST", carried, false);
+}
+
+/**
  * Sign in with a name and a password.
  *
  * @param {string} name

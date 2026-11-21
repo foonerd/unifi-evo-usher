@@ -21,6 +21,7 @@ import { name as brandName, wearBrand } from "./brand.js";
 import { ADMINISTRATOR, FRONT_DESK, fragmentOf, pageOf, paginate } from "./pages.js";
 import { advice, amiss, people } from "./people.js";
 import { satellites } from "./satellites.js";
+import { travel } from "./travel.js";
 import * as site from "./site.js";
 import { themeAddress } from "./theme.js";
 import { offer as offerLanguages, ready, refusal, say, sayOf } from "./words.js";
@@ -177,6 +178,13 @@ function setUp(unit) {
     part("set-up-form").addEventListener("input", () => {
       said.textContent = "";
     });
+    // A unit that was moved is set up from its file: the other form.
+    // The unit is looked at again after it, whichever way it went.
+    part("set-up-from-file").addEventListener("click", async () => {
+      if (asking) return;
+      await fromFile(unit);
+      done(false);
+    });
     part("set-up-form").addEventListener("submit", async (event) => {
       event.preventDefault();
       if (asking) return;
@@ -273,6 +281,95 @@ function signIn(keeps) {
       } finally {
         asking = false;
       }
+    });
+  });
+}
+
+/**
+ * Set a new unit up from the file of a unit that was moved: the file,
+ * the passphrase it was sealed under, and the unit's code where the unit
+ * asks it. The usher takes the file in and starts again as that unit;
+ * the dialog says so and waits until it is back.
+ *
+ * @param {{ level: string }} unit
+ * @returns {Promise<void>} once the unit is back as the unit of the
+ *   file, or the form was left
+ */
+function fromFile(unit) {
+  return new Promise((done) => {
+    formFrom("from-file");
+    const file = field("from-file-file");
+    const passphrase = field("from-file-passphrase");
+    const code = field("from-file-code");
+    const said = part("from-file-said");
+    const asksCode = unit.level === "extended";
+    part("from-file-code-part").hidden = !asksCode;
+    file.focus();
+    let asking = false;
+    part("from-file-form").addEventListener("input", () => {
+      said.textContent = "";
+    });
+    part("from-file-back").addEventListener("click", () => {
+      if (!asking) done();
+    });
+    part("from-file-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (asking) return;
+      said.textContent = "";
+      const picked = file.files?.[0];
+      if (!picked) {
+        said.textContent = say("entry.choose_file");
+        file.focus();
+        return;
+      }
+      if (passphrase.value === "") {
+        said.textContent = say("entry.type_passphrase");
+        passphrase.focus();
+        return;
+      }
+      if (asksCode && code.value.trim() === "") {
+        said.textContent = say("entry.type_code");
+        code.focus();
+        return;
+      }
+      let carried;
+      try {
+        carried = JSON.parse(await picked.text());
+      } catch {
+        said.textContent = say("travel.not_a_file");
+        file.focus();
+        return;
+      }
+      asking = true;
+      try {
+        await steward.setUpFromFile(carried, passphrase.value, asksCode ? code.value.trim() : null);
+      } catch (why) {
+        asking = false;
+        const reason = why instanceof steward.Refusal ? why.reason : null;
+        if (reason === "set_up_already" || reason === "people_unread") {
+          entryNote = wordsOf(why);
+          done();
+          return;
+        }
+        if (reason !== "file_taken_in") {
+          said.textContent = wordsOf(why);
+          (reason === "wrong_code" ? code : reason === "wrong_passphrase" ? passphrase : file).focus();
+          return;
+        }
+      }
+      // The usher starts again as the unit of the file. It is asked
+      // every moment or two, and is back once it says that it is set up.
+      formFrom("taken-in");
+      for (;;) {
+        await new Promise((later) => setTimeout(later, 1500));
+        try {
+          if ((await steward.state()).set_up === true) break;
+        } catch {
+          // It is starting again, and does not answer yet.
+        }
+      }
+      entryNote = say("entry.moved_here");
+      done();
     });
   });
 }
@@ -455,6 +552,7 @@ function clearScreen() {
   shelves.replaceChildren();
   peoplePage.clear();
   satellitesPage.clear();
+  travelPage.clear();
   document.title = brandName();
 }
 
@@ -706,6 +804,26 @@ const peoplePane = document.createElement("div");
 peoplePane.className = "shelf";
 const peoplePage = people(peoplePane, { usher: askUsher, me: () => signedIn });
 
+/**
+ * And what travels, which stands on the page of the site, under what the
+ * site's shelf draws there: an administrator's too.
+ */
+const SITE = "site";
+const travelPane = document.createElement("div");
+travelPane.className = "shelf";
+const travelPage = travel(travelPane, {
+  usher: askUsher,
+  me: () => signedIn,
+  // A profile set the site and the voucher types: what shows them is
+  // drawn anew, from what the unit has now.
+  changed: () => {
+    for (const standing of mounted.values()) standing.unmount();
+    mounted.clear();
+    drawnAs = "";
+    look();
+  },
+});
+
 /** And the satellites' page, kept the same way. */
 const satellitesPane = document.createElement("div");
 satellitesPane.className = "shelf";
@@ -822,6 +940,10 @@ function draw(snapshot) {
       }
       section.append(part);
     });
+    if (page.id === SITE && role === ADMINISTRATOR) {
+      section.append(travelPane);
+      travelPage.look();
+    }
     drawn.push(section);
   }
 

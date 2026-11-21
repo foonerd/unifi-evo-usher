@@ -591,6 +591,7 @@ discovery_enabled = false
             .env_remove("USHER_TIME_ZONE")
             .env_remove("USHER_LANGUAGE")
             .env_remove("USHER_DEMO")
+            .env_remove("USHER_PROFILE")
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         if face {
@@ -651,6 +652,78 @@ discovery_enabled = false
             sleep(Duration::from_millis(100));
         }
         steward
+    }
+
+    /// The steward took a unit in from a file, and starts again as that
+    /// unit, in its own place: wait until what was put aside is put in
+    /// place and it answers as a unit that is set up, and believe it
+    /// from then on by the authority it has now, which is the one of the
+    /// unit that was moved.
+    pub fn came_back(&mut self) {
+        let aside = self.dir.join("state/usher/taken-in");
+        let authority = self.dir.join("state/https/ca.crt");
+        let until = Instant::now() + Duration::from_secs(90);
+        loop {
+            if let Some(status) = self.child.try_wait().unwrap() {
+                panic!("the steward ended, and did not start again: {status}");
+            }
+            if !aside.exists() && self.socket.exists() {
+                if let Ok(pem) = fs::read(&authority) {
+                    let rules = believing(&pem);
+                    let web = web_with(&rules);
+                    let set_up = web
+                        .get(format!("{}/usher/v1/state", self.address()))
+                        .send()
+                        .ok()
+                        .and_then(|answer| answer.json::<Value>().ok())
+                        .is_some_and(|state| state["set_up"] == true);
+                    if set_up {
+                        self.web = web;
+                        self.rules = Arc::new(rules);
+                        break;
+                    }
+                }
+            }
+            assert!(
+                Instant::now() < until,
+                "the steward did not come back as the unit that was moved"
+            );
+            sleep(Duration::from_millis(100));
+        }
+        let until = Instant::now() + Duration::from_secs(30);
+        while self.call(&json!({"op": "list_active_custodies"})).is_none() {
+            assert!(Instant::now() < until, "the steward's socket is silent");
+            sleep(Duration::from_millis(100));
+        }
+    }
+
+    /// Ask a path with something carried or with nothing, and say the
+    /// status and whether the answer says that the connection it came
+    /// on is closed.
+    pub fn status_and_closing(
+        &self,
+        path: &str,
+        body: Option<&Value>,
+        who: &Caller,
+    ) -> (u16, bool) {
+        let address = format!("{}{path}", self.address());
+        let mut asked = match body {
+            Some(body) => self.web.post(address).json(body),
+            None => self.web.get(address),
+        };
+        if let Some(bearer) = &who.bearer {
+            asked = asked.bearer_auth(bearer);
+        }
+        if let Some(from) = who.from {
+            asked = asked.header("X-Forwarded-For", from);
+        }
+        let answer = asked.send().expect("the steward answers over HTTPS");
+        let closing = answer
+            .headers()
+            .get("connection")
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.eq_ignore_ascii_case("close"));
+        (answer.status().as_u16(), closing)
     }
 
     /// Where the steward's HTTPS listener stands.

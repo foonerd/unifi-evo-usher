@@ -21,6 +21,10 @@
 # controller, with voucher types to hand out at once, and with vouchers
 # that open no network. A directory that was a demo's stays a demo's,
 # and one that was a unit's is not started as a demo.
+#
+# With USHER_PROFILE in the environment naming a profile's file, as the
+# page Site of an usher exports one, the unit is given the file and
+# applies it when it starts: once for each file.
 set -euo pipefail
 ROOT=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
@@ -70,6 +74,14 @@ fi
 case "${USHER_DEMO:-}" in
   1 | yes | on | true) echo "try-image: it runs as a demo: its controller is simulated, and the vouchers it hands out open no network" ;;
 esac
+# A profile is given to the unit as a file it can read, under the name
+# the unit is told.
+profile=()
+if [ -n "${USHER_PROFILE:-}" ]; then
+  [ -r "$USHER_PROFILE" ] || { echo "try-image: there is no file $USHER_PROFILE to give the unit as its profile" >&2; exit 1; }
+  profile=(--volume "$(readlink -f "$USHER_PROFILE"):/etc/evo/profile.json:ro" --env USHER_PROFILE=/etc/evo/profile.json)
+  echo "try-image: it is started with the profile $USHER_PROFILE, which it applies once"
+fi
 echo "try-image: Ctrl-C stops the container"
 
 docker run --rm --name "usher-try-$PORT" \
@@ -80,6 +92,7 @@ docker run --rm --name "usher-try-$PORT" \
   --env USHER_DEMO \
   --volume "$DIR/kept:/var/lib/evo" \
   "${extended[@]}" \
+  "${profile[@]}" \
   --volume "$DIR/passwd:/etc/passwd:ro" \
   --tmpfs "/run/evo:mode=0755,uid=$(id -u),gid=$(id -g)" \
   "$image"

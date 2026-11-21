@@ -55,6 +55,7 @@ use tokio::net::UnixStream;
 use crate::demo::Demo;
 use crate::people::{self, Level, People, ADMINISTRATOR, FRONT_DESK};
 use crate::satellites::{self, Known, Satellites, SATELLITE};
+use crate::travel;
 
 /// Where the usher's own routes begin, beside evo's.
 pub const PREFIX: &str = "/usher/v1";
@@ -63,19 +64,28 @@ pub const PREFIX: &str = "/usher/v1";
 /// unit is in, setting it up while it has nobody, and signing in; and,
 /// for a screen that is or is to be a satellite, a code to be adopted by
 /// and the exchange of its secret for a session.
-pub const OPEN: [&str; 5] = [
+pub const OPEN: [&str; 6] = [
     "state",
     "set_up",
+    "set_up_from_file",
     "sign_in",
     "satellite_code",
     "satellite_sign_in",
 ];
 
+/// The variable that names the file of a profile a unit is started
+/// with: the settings of a site, made on another unit, which this one
+/// applies once.
+pub const PROFILE_NAMED_BY: &str = "USHER_PROFILE";
+
 /// Every route the usher has of its own.
 #[cfg(test)]
-pub const ROUTES: [&str; 20] = [
+pub const ROUTES: [&str; 23] = [
     "state",
     "set_up",
+    "set_up_from_file",
+    "export",
+    "apply_profile",
     "sign_in",
     "sign_out",
     "me",
@@ -213,6 +223,14 @@ const AS_NOBODY: &str = "org.evoframework.usher.unsigned";
 
 /// What is tried where the unit's code is asked.
 const THE_CODE: &str = "\u{0}the unit's code";
+
+/// What is tried where the passphrase of a file is asked: no person's
+/// name.
+const THE_FILE: &str = "\u{0}a file's passphrase";
+
+/// How long the program goes on after it answered that a file was taken
+/// in, before it starts again: long enough for the answer to arrive.
+const BEFORE_STARTING_AGAIN: Duration = Duration::from_millis(600);
 
 /// What is tried where a satellite's PIN is asked: no person's name, and
 /// one for each satellite.
@@ -491,6 +509,12 @@ pub struct Settings {
     pub code: Option<PathBuf>,
     /// Whether the unit is a demo: its controller is simulated.
     pub demo: bool,
+    /// The root under which each plugin keeps its files: a unit that is
+    /// moved carries them.
+    pub plugins: PathBuf,
+    /// The file of a profile the unit is started with, where it is
+    /// started with one.
+    pub profile: Option<PathBuf>,
 }
 
 /// What was last read of the site for the satellites.
@@ -536,6 +560,16 @@ pub struct Usher {
     keepers: tokio::sync::Mutex<Option<(String, u64)>>,
     /// What a demo holds, where the unit is one.
     demo: Option<Demo>,
+    /// Where the unit's files are kept: what a unit carries when it is
+    /// moved is gathered from them, and what it takes in is put aside
+    /// under them.
+    roots: travel::Roots,
+    /// The file of a profile the unit is started with.
+    profile: Option<PathBuf>,
+    /// One file is read at a time to set the unit up from: a unit's
+    /// file is long, and whoever reaches a unit nobody has set up may
+    /// send one.
+    taking_in: tokio::sync::Semaphore,
 }
 
 impl Usher {
@@ -584,7 +618,136 @@ impl Usher {
             shelves,
             keepers: tokio::sync::Mutex::new(None),
             demo: settings.demo.then(Demo::default),
+            roots: travel::Roots {
+                state: state.to_path_buf(),
+                plugins: settings.plugins,
+            },
+            profile: settings.profile,
+            taking_in: tokio::sync::Semaphore::new(1),
         }))
+    }
+
+    /// Apply the profile the unit is started with, where it is started
+    /// with one it has not applied before: the settings of a site, made
+    /// on another unit. The same file is applied once, so that what an
+    /// administrator changes afterwards stays through a restart; a file
+    /// that is another is applied when the unit next starts. A file
+    /// that is no profile changes nothing, and the log says why; what
+    /// an owner refuses of one is said there too.
+    pub async fn begin_profile(&self) {
+        let Some(path) = &self.profile else {
+            return;
+        };
+        let named = path.display();
+        let file = match fs::read(path) {
+            Ok(file) if file.len() <= travel::MOST_PROFILE => file,
+            Ok(_) => {
+                tracing::error!(
+                    "the profile {named} is not applied: it is too long \
+                     to be one"
+                );
+                return;
+            }
+            Err(e) => {
+                tracing::error!("the profile {named} is not applied: {e}");
+                return;
+            }
+        };
+        let stamp = travel::stamp_of(&file);
+        if travel::applied_stamp(&self.roots).as_deref() == Some(&stamp) {
+            return;
+        }
+        let read = serde_json::from_slice::<Value>(&file)
+            .map_err(|e| e.to_string())
+            .and_then(|file| {
+                travel::read(&file).map_err(|why| why.words.clone())
+            });
+        let carried = match read {
+            Ok(carried) => carried,
+            Err(why) => {
+                tracing::error!("the profile {named} is not applied: {why}");
+                return;
+            }
+        };
+        match travel::apply(&self.shelves, &carried.settings).await {
+            Ok(applied) => {
+                for refused in &applied.refused {
+                    tracing::warn!(
+                        what = refused.what,
+                        name = refused.name.as_deref().unwrap_or(""),
+                        "of the profile {named}, a setting was not taken: {}",
+                        refused.words
+                    );
+                }
+                tracing::info!(
+                    types = applied.types.len(),
+                    site = applied.site,
+                    "the profile {named} is applied"
+                );
+                if let Err(e) = travel::keep_applied_stamp(&self.roots, &stamp)
+                {
+                    tracing::warn!(
+                        "that the profile {named} was applied could not \
+                         be kept, and it is applied again at the next \
+                         start: {e}"
+                    );
+                }
+                self.offer_changed().await;
+                self.site_changed().await;
+            }
+            Err(why) => {
+                tracing::error!("the profile {named} is not applied: {why}")
+            }
+        }
+    }
+
+    /// Hold what was given as the unit's code to the code, where the
+    /// level asks for one to set the unit up by: the refusal, where it
+    /// is not the code, there is none, or wrong ones were given too
+    /// often; nothing where it is the code or none is asked.
+    fn code_given(&self, given: Option<&str>) -> Option<Response> {
+        if !self.level.asks_code() {
+            return None;
+        }
+        let now = now_ms();
+        if let Some(left) = self
+            .tries
+            .lock()
+            .expect("the tries' lock")
+            .held(THE_CODE, now, "")
+        {
+            return Some(held(left));
+        }
+        let units = self
+            .code
+            .as_ref()
+            .and_then(|file| fs::read_to_string(file).ok())
+            .map(|code| code.trim().to_string())
+            .filter(|code| !code.is_empty());
+        let Some(units) = units else {
+            return Some(refusal(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "unavailable",
+                "no_code",
+                "This usher has no code to be set up with. It is given one when it is started.",
+            ));
+        };
+        let given = given.unwrap_or("").trim();
+        let same: bool = units.as_bytes().ct_eq(given.as_bytes()).into();
+        if !same {
+            self.tries
+                .lock()
+                .expect("the tries' lock")
+                .wrong(THE_CODE, now, "");
+            return Some(refusal(
+                StatusCode::FORBIDDEN,
+                "permission_denied",
+                "wrong_code",
+                "That is not the unit's code. It is read on the unit itself.",
+            ));
+        }
+        self.tries.lock().expect("the tries' lock").right(THE_CODE);
+        None
     }
 
     /// Whether the unit is a demo: its controller is simulated, and the
@@ -1332,6 +1495,31 @@ async fn carried_within<T: DeserializeOwned>(
     })
 }
 
+/// Let what a request carries go by, piece by piece, keeping none of
+/// it: for a request that is refused whatever it carries, so that the
+/// connection it came on is left as it was and whatever stands before
+/// the unit hears the refusal. Says whether it went by whole; what is
+/// longer than `most`, or breaks off, did not.
+pub async fn let_go_by(request: Request, most: usize) -> bool {
+    use axum::body::HttpBody as _;
+    let mut body = std::pin::pin!(request.into_body());
+    let mut gone_by = 0usize;
+    loop {
+        let piece =
+            std::future::poll_fn(|cx| body.as_mut().poll_frame(cx)).await;
+        match piece {
+            None => return true,
+            Some(Ok(frame)) => {
+                gone_by += frame.data_ref().map_or(0, |data| data.len());
+                if gone_by > most {
+                    return false;
+                }
+            }
+            Some(Err(_)) => return false,
+        }
+    }
+}
+
 /// The answer to what was too long to be read to its end. What is left
 /// of it on the connection is no request, so the connection is closed
 /// once this is answered. Over HTTP/1 the answer says so: whoever asked
@@ -1617,46 +1805,8 @@ async fn set_up(State(usher): State<Arc<Usher>>, request: Request) -> Response {
             "This usher is set up already. Sign in.",
         );
     }
-    if usher.level.asks_code() {
-        let now = now_ms();
-        if let Some(left) = usher
-            .tries
-            .lock()
-            .expect("the tries' lock")
-            .held(THE_CODE, now, "")
-        {
-            return held(left);
-        }
-        let units = usher
-            .code
-            .as_ref()
-            .and_then(|file| fs::read_to_string(file).ok())
-            .map(|code| code.trim().to_string())
-            .filter(|code| !code.is_empty());
-        let Some(units) = units else {
-            return refusal(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "unavailable",
-                "no_code",
-                "This usher has no code to be set up with. It is given one when it is started.",
-            );
-        };
-        let given = asked.code.as_deref().unwrap_or("").trim();
-        let same: bool = units.as_bytes().ct_eq(given.as_bytes()).into();
-        if !same {
-            usher
-                .tries
-                .lock()
-                .expect("the tries' lock")
-                .wrong(THE_CODE, now, "");
-            return refusal(
-                StatusCode::FORBIDDEN,
-                "permission_denied",
-                "wrong_code",
-                "That is not the unit's code. It is read on the unit itself.",
-            );
-        }
-        usher.tries.lock().expect("the tries' lock").right(THE_CODE);
+    if let Some(refused) = usher.code_given(asked.code.as_deref()) {
+        return refused;
     }
     let name = match people::name_held(&asked.name) {
         Ok(name) => name,
@@ -1695,6 +1845,11 @@ async fn set_up(State(usher): State<Arc<Usher>>, request: Request) -> Response {
                 "set_up_already",
                 "This usher is set up already. Sign in.",
             );
+        }
+        // And a unit that has taken a file in is the unit of that file
+        // as soon as it has started again: nobody is added beside it.
+        if travel::waits(&usher.roots) {
+            return file_taken_in();
         }
         if let Err(e) = people.add(&name, ADMINISTRATOR, hash, now_ms()) {
             return unkept(e);
@@ -2910,11 +3065,447 @@ async fn remove_satellite(
     }
 }
 
+/// The answer to whoever sets a unit up while a file it took in waits
+/// for the program to start again.
+fn file_taken_in() -> Response {
+    refusal(
+        StatusCode::CONFLICT,
+        "permission_denied",
+        "file_taken_in",
+        "A file was taken in, and the usher is starting again as the unit \
+         of that file. Sign in when it is back.",
+    )
+}
+
+/// The refusal of a file, under its reason's code.
+fn file_refused(status: StatusCode, why: &Why) -> Response {
+    refusal_with(status, "contract_violation", why)
+}
+
+/// What is asked for of the unit, to travel: its settings alone, or
+/// everything.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Exporting {
+    /// Whether everything is asked for, to move the unit.
+    #[serde(default)]
+    everything: bool,
+    /// The passphrase everything is sealed under.
+    #[serde(default)]
+    passphrase: Option<String>,
+    /// The administrator's own password, once more.
+    #[serde(default)]
+    password: Option<String>,
+}
+
+/// An administrator is given the unit's file. With nothing more said it
+/// is a profile: what the site is set up as, in the clear, with no
+/// secret and nothing of this unit's own. With everything asked for it
+/// is the unit, to be moved: the administrator gives their password
+/// once more and a passphrase, under which everything the unit keeps is
+/// sealed. The file is the answer; nothing of it is kept here, and the
+/// passphrase stands in no log.
+async fn export(State(usher): State<Arc<Usher>>, request: Request) -> Response {
+    let who = match an_administrator_asking(&request) {
+        Ok(who) => who,
+        Err(refused) => return *refused,
+    };
+    let asked: Exporting = match carried(request).await {
+        Ok(asked) => asked,
+        Err(refused) => return *refused,
+    };
+    let settings = match travel::settings_of(&usher.shelves).await {
+        Ok(settings) => settings,
+        Err(why) => {
+            tracing::warn!("the settings could not be read to travel: {why}");
+            return refusal(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "unavailable",
+                "settings_not_read",
+                "The settings could not be read. Try again in a moment.",
+            );
+        }
+    };
+    let mut carried = travel::Carried {
+        usher_file: travel::VERSION,
+        made_by: env!("CARGO_PKG_VERSION").to_string(),
+        made_ms: now_ms(),
+        settings,
+        unit: None,
+    };
+    if asked.everything {
+        // Everything the unit keeps leaves it by this: whoever asks is
+        // asked for their password again, as for a change of it.
+        let Asking::Person { name, .. } = &who else {
+            return not_as_asked(&why(
+                "unit_has_no_password",
+                "The unit's keeper has no password here: sign in as an \
+                 administrator to move the unit.",
+            ));
+        };
+        let now = now_ms();
+        let under = usher.stamp_of(name);
+        if let Some(left) = usher
+            .tries
+            .lock()
+            .expect("the tries' lock")
+            .held(name, now, &under)
+        {
+            return held(left);
+        }
+        let password = asked.password.unwrap_or_default();
+        if !usher.is_password_of(name, &password).await {
+            usher.tries.lock().expect("the tries' lock").wrong(
+                name,
+                now_ms(),
+                &under,
+            );
+            return refusal(
+                StatusCode::FORBIDDEN,
+                "permission_denied",
+                "wrong_password",
+                "The password you have now is not that one.",
+            );
+        }
+        let passphrase = asked.passphrase.unwrap_or_default();
+        if let Err(why) = travel::passphrase_held(&passphrase, usher.level) {
+            return not_as_asked(&why);
+        }
+        let roots = usher.roots.clone();
+        let demo = usher.is_demo();
+        let _turn = usher.checking.acquire().await;
+        let sealed = tokio::task::spawn_blocking(move || {
+            let unit = travel::gather(&roots, demo)
+                .map_err(|e| format!("the unit's files: {e}"))?;
+            let plain = serde_json::to_vec(&unit).map_err(|e| e.to_string())?;
+            if plain.len() > travel::MOST / 2 {
+                return Ok(None);
+            }
+            travel::seal(&plain, &passphrase).map(Some)
+        })
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()));
+        match sealed {
+            Ok(Some(sealed)) => carried.unit = Some(sealed),
+            Ok(None) => {
+                return file_refused(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    &why(
+                        "unit_too_long",
+                        "What this unit keeps is too long for one file. \
+                         Move it by copying its files, as the manual \
+                         says.",
+                    ),
+                )
+            }
+            Err(why) => {
+                tracing::error!("the unit could not be gathered: {why}");
+                return refusal(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal",
+                    "unit_not_gathered",
+                    "What the unit keeps could not be gathered. The log \
+                     says why.",
+                );
+            }
+        }
+        tracing::info!(
+            person = %name,
+            "everything the unit keeps was given out, sealed, to be moved"
+        );
+    }
+    match serde_json::to_value(&carried) {
+        Ok(file) => answer(StatusCode::OK, &file),
+        Err(e) => {
+            tracing::error!("the file could not be written: {e}");
+            refusal(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal",
+                "unit_not_gathered",
+                "The file could not be made. The log says why.",
+            )
+        }
+    }
+}
+
+/// A file whose settings are to be applied, or looked at first.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Applying {
+    /// The file, as it was exported.
+    file: Value,
+    /// Whether it is only to be said what the file holds.
+    #[serde(default)]
+    look: bool,
+}
+
+/// An administrator applies a profile: the settings of a file, each
+/// taken by its owner under the owner's own rules. Settings are added
+/// and set, nothing is taken away, and what an owner refused is
+/// answered beside what was applied. A file's sealed part, where it has
+/// one, is not looked at here. With `look` it is said what the file
+/// holds, and nothing is applied.
+async fn apply_profile(
+    State(usher): State<Arc<Usher>>,
+    request: Request,
+) -> Response {
+    if let Err(refused) = an_administrator_asking(&request) {
+        return *refused;
+    }
+    let asked: Applying =
+        match carried_within(request, travel::MOST_PROFILE + 16 * 1024).await {
+            Ok(asked) => asked,
+            Err(refused) => return *refused,
+        };
+    let carried = match travel::read(&asked.file) {
+        Ok(carried) => carried,
+        Err(why) => return file_refused(StatusCode::BAD_REQUEST, &why),
+    };
+    if asked.look {
+        return match travel::settings_held(&carried.settings) {
+            Ok(holds) => answer(
+                StatusCode::OK,
+                &json!({
+                    "holds": holds,
+                    "made_by": carried.made_by,
+                    "made_ms": carried.made_ms,
+                    "unit": carried.unit.is_some(),
+                }),
+            ),
+            Err(why) => file_refused(StatusCode::BAD_REQUEST, &why),
+        };
+    }
+    match travel::apply(&usher.shelves, &carried.settings).await {
+        Ok(applied) => {
+            // The satellites are told of a new site and new types with
+            // what they ask next.
+            usher.offer_changed().await;
+            usher.site_changed().await;
+            tracing::info!(
+                types = applied.types.len(),
+                site = applied.site,
+                refused = applied.refused.len(),
+                "a profile was applied"
+            );
+            match serde_json::to_value(&applied) {
+                Ok(applied) => {
+                    answer(StatusCode::OK, &json!({ "applied": applied }))
+                }
+                Err(_) => answer(StatusCode::OK, &json!({ "applied": {} })),
+            }
+        }
+        Err(why) => file_refused(StatusCode::BAD_REQUEST, &why),
+    }
+}
+
+/// A file a unit is set up from, with what opens it.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TakingIn {
+    /// The file, as it was exported with everything.
+    file: Value,
+    /// The passphrase it was sealed under.
+    passphrase: String,
+    /// The unit's code, where the level asks for one to set it up by.
+    #[serde(default)]
+    code: Option<String>,
+}
+
+/// A unit nobody has set up is set up from a file: the unit that was
+/// moved. Whoever may set the unit up may do this, and nobody else: it
+/// is open while the unit has nobody, and takes the unit's code where
+/// setting up takes it.
+///
+/// The file's sealed part is opened with its passphrase; a wrong one is
+/// answered as a wrong password is, takes as long as the seal's cost,
+/// and five in a row are held as wrong passwords are. What it holds is
+/// checked whole before any of it is written, and a demo's is taken in
+/// by a demo only, a unit's by a unit only. It is then put aside, and
+/// the program starts again as the unit of the file; nothing is written
+/// over what runs. A file that is refused changes nothing.
+async fn set_up_from_file(
+    State(usher): State<Arc<Usher>>,
+    request: Request,
+) -> Response {
+    // A unit that is set up, or has taken a file in, takes no file in:
+    // what was sent is let go by unkept, and then refused. Nothing of
+    // it is held, however long it is.
+    let refused = if let Some(refused) = usher.unread() {
+        Some(refused)
+    } else if !usher.people().is_empty() {
+        Some(refusal(
+            StatusCode::CONFLICT,
+            "permission_denied",
+            "set_up_already",
+            "This usher is set up already. Sign in.",
+        ))
+    } else if travel::waits(&usher.roots) {
+        Some(file_taken_in())
+    } else {
+        None
+    };
+    if let Some(refused) = refused {
+        let version = request.version();
+        return if let_go_by(request, travel::MOST + 64 * 1024).await {
+            refused
+        } else {
+            closing(version, refused)
+        };
+    }
+    // One file at a time: a unit's file is long.
+    let _one = usher.taking_in.acquire().await;
+    let asked: TakingIn =
+        match carried_within(request, travel::MOST + 64 * 1024).await {
+            Ok(asked) => asked,
+            Err(refused) => return *refused,
+        };
+    if let Some(refused) = usher.code_given(asked.code.as_deref()) {
+        return refused;
+    }
+    let carried = match travel::read(&asked.file) {
+        Ok(carried) => carried,
+        Err(why) => return file_refused(StatusCode::BAD_REQUEST, &why),
+    };
+    let Some(sealed) = carried.unit else {
+        return file_refused(
+            StatusCode::BAD_REQUEST,
+            &why(
+                "file_holds_no_unit",
+                "That file holds settings alone, and sets no unit up. Set \
+                 the unit up with a name and a password, and apply the \
+                 file on the page Site.",
+            ),
+        );
+    };
+    let now = now_ms();
+    if let Some(left) = usher
+        .tries
+        .lock()
+        .expect("the tries' lock")
+        .held(THE_FILE, now, "")
+    {
+        return held(left);
+    }
+    let passphrase = asked.passphrase;
+    let opened = {
+        let _turn = usher.checking.acquire().await;
+        tokio::task::spawn_blocking(move || travel::open(&sealed, &passphrase))
+            .await
+            .unwrap_or(Err(travel::Unopened::Otherwise))
+    };
+    let plain = match opened {
+        Ok(plain) => plain,
+        Err(travel::Unopened::Passphrase) => {
+            usher.tries.lock().expect("the tries' lock").wrong(
+                THE_FILE,
+                now_ms(),
+                "",
+            );
+            return refusal(
+                StatusCode::FORBIDDEN,
+                "permission_denied",
+                "wrong_passphrase",
+                "That is not the passphrase the file was sealed under, or \
+                 the file was changed since.",
+            );
+        }
+        Err(travel::Unopened::Otherwise) => {
+            return file_refused(
+                StatusCode::BAD_REQUEST,
+                &travel::damaged("its sealed part"),
+            )
+        }
+    };
+    usher.tries.lock().expect("the tries' lock").right(THE_FILE);
+    let unit: travel::Unit = match serde_json::from_slice(&plain) {
+        Ok(unit) => unit,
+        Err(_) => {
+            return file_refused(
+                StatusCode::BAD_REQUEST,
+                &travel::damaged("its sealed part"),
+            )
+        }
+    };
+    if unit.demo != usher.is_demo() {
+        let why = if unit.demo {
+            why(
+                "file_of_a_demo",
+                "That file is a demo's, and a demo does not become a \
+                 unit. It is taken in by a unit that was started as a \
+                 demo.",
+            )
+        } else {
+            why(
+                "file_of_a_unit",
+                "That file is a unit's, and a unit does not become a \
+                 demo. It is taken in by a unit that was not started as \
+                 a demo.",
+            )
+        };
+        return file_refused(StatusCode::CONFLICT, &why);
+    }
+    let held = match travel::check(&unit) {
+        Ok(held) => held,
+        Err(why) => return file_refused(StatusCode::BAD_REQUEST, &why),
+    };
+    let files = held.len();
+    {
+        // Under the people's lock, as setting up by a name is: of two
+        // who set the unit up at once, one does.
+        let people = usher.people();
+        if people.unread().is_some() {
+            return people_unread();
+        }
+        if !people.is_empty() {
+            return refusal(
+                StatusCode::CONFLICT,
+                "permission_denied",
+                "set_up_already",
+                "This usher is set up already. Sign in.",
+            );
+        }
+        if travel::waits(&usher.roots) {
+            return file_taken_in();
+        }
+        if let Err(e) = travel::put_aside(&usher.roots, &held) {
+            tracing::error!(
+                "a file that was taken in could not be put aside: {e}"
+            );
+            return refusal(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal",
+                "file_not_kept",
+                "The file could not be kept on this unit. The log says why.",
+            );
+        }
+    }
+    tracing::warn!(
+        files,
+        "a unit was taken in from a file; the usher starts again as that \
+         unit"
+    );
+    // The answer goes out first; then the program ends in order and
+    // starts again, and puts the unit's files in their places before
+    // anything opens them.
+    tokio::spawn(async {
+        tokio::time::sleep(BEFORE_STARTING_AGAIN).await;
+        travel::start_again();
+    });
+    answer(
+        StatusCode::OK,
+        &json!({ "taken_in": true, "files": files, "starts_again": true }),
+    )
+}
+
+/// The usher's own routes, to stand beside evo's behind the gate.
 pub fn routes(usher: Arc<Usher>) -> Router {
     let at = |route: &str| format!("{PREFIX}/{route}");
     Router::new()
         .route(&at("state"), get(state))
         .route(&at("set_up"), post(set_up))
+        .route(&at("set_up_from_file"), post(set_up_from_file))
+        .route(&at("export"), post(export))
+        .route(&at("apply_profile"), post(apply_profile))
         .route(&at("sign_in"), post(sign_in))
         .route(&at("sign_out"), post(sign_out))
         .route(&at("me"), get(me))
@@ -3180,6 +3771,8 @@ mod tests {
             "adopt_satellite" => adopt_satellite(usher, request).await,
             "set_satellite" => set_satellite(usher, request).await,
             "remove_satellite" => remove_satellite(usher, request).await,
+            "export" => export(usher, request).await,
+            "apply_profile" => apply_profile(usher, request).await,
             other => panic!("{other} is no route that is tried here"),
         };
         let status = answer.status();
@@ -3204,6 +3797,8 @@ mod tests {
                 socket: dir.path().join("evo.sock"),
                 code: None,
                 demo: false,
+                plugins: dir.path().join("plugins"),
+                profile: None,
             },
             dir.path(),
             Arc::new(NoShelves),
@@ -3261,6 +3856,24 @@ mod tests {
                 }),
             ),
             ("remove_satellite", json!({ "id": lobby.id })),
+            // What travels is an administrator's too: the settings, the
+            // whole unit, and a profile to apply.
+            ("export", json!({})),
+            (
+                "export",
+                json!({
+                    "everything": true,
+                    "passphrase": "five small owls sing",
+                    "password": "three small owls sing",
+                }),
+            ),
+            (
+                "apply_profile",
+                json!({ "file": {
+                    "usher_file": 1,
+                    "settings": { "site": { "name": "Market Hall" } },
+                } }),
+            ),
         ];
         let person = |name: &str, role: &str| Asking::Person {
             name: name.to_string(),
@@ -3366,6 +3979,10 @@ mod tests {
                 .await;
                 let wanted = if carried.is_null() {
                     (StatusCode::OK, "")
+                } else if *route == "export" {
+                    // Asked with nothing it is asked for the settings,
+                    // which no shelf here tells: the route was at work.
+                    (StatusCode::SERVICE_UNAVAILABLE, "settings_not_read")
                 } else {
                     (StatusCode::BAD_REQUEST, "not_as_asked")
                 };
@@ -3441,6 +4058,8 @@ mod tests {
                 socket: dir.join("evo.sock"),
                 code: None,
                 demo: false,
+                plugins: dir.join("plugins"),
+                profile: None,
             },
             dir,
             shelves,

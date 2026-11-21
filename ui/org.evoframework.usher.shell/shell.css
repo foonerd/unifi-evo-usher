@@ -727,6 +727,67 @@ dialog .hint {
   font-variant-numeric: tabular-nums;
 }
 
+/* What travels, on the page of the site: a profile and a move, each a
+   part with its own heading, laid out as the people's page is. */
+.travel > .hint,
+.travel-part > .hint {
+  margin: 0 0 var(--evo-gap);
+  max-width: 60rem;
+}
+
+.travel > h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.125rem;
+}
+
+.travel-part {
+  padding: var(--evo-gap) 0 0;
+  margin-top: var(--evo-gap);
+  border-top: 1px solid var(--evo-hairline);
+}
+
+.travel-part h4 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.travel-said {
+  margin: 0 0 0.75rem;
+  font-weight: 600;
+}
+
+.travel-said:empty,
+.travel-refused:empty {
+  display: none;
+}
+
+.travel-said:focus {
+  outline: none;
+}
+
+.travel-refused,
+.travel-holds ul {
+  margin: 0 0 0.75rem;
+  padding-left: 1.25rem;
+}
+
+.travel-holds p {
+  margin: 0.75rem 0 0.25rem;
+  font-weight: 600;
+}
+
+.travel-form form {
+  max-width: 32rem;
+  margin-top: var(--evo-gap);
+  padding-top: var(--evo-gap);
+  border-top: 1px solid var(--evo-hairline);
+}
+
+.travel-form h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.125rem;
+}
+
 /* What changes when it is pointed at or pressed fades into it, briefly,
    for a reader who has not asked for stillness. Nothing slides. */
 @media (prefers-reduced-motion: no-preference) {

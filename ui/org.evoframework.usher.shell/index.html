@@ -54,8 +54,36 @@
     <p class="said" id="set-up-said" role="alert"></p>
     <div class="row">
       <button type="submit" data-say="entry.set_up"></button>
+      <button type="button" id="set-up-from-file" class="quiet" data-say="entry.from_file"></button>
     </div>
   </form>
+</template>
+
+<template id="from-file">
+  <form id="from-file-form" novalidate>
+    <h2 id="entry-title" data-say="entry.from_file_title"></h2>
+    <p data-say="entry.from_file_intro"></p>
+    <label for="from-file-file" data-say="entry.file"></label>
+    <input id="from-file-file" name="file" type="file" class="usher-file" accept="application/json,.json" required>
+    <label for="from-file-passphrase" data-say="entry.file_passphrase"></label>
+    <input id="from-file-passphrase" name="passphrase" type="password" autocomplete="off" maxlength="128" required>
+    <div id="from-file-code-part" hidden>
+      <label for="from-file-code" data-say="entry.unit_code"></label>
+      <input id="from-file-code" name="code" type="text" autocomplete="one-time-code" autocapitalize="off" spellcheck="false">
+      <p class="hint" data-say="entry.unit_code_hint"></p>
+    </div>
+    <p class="said" id="from-file-said" role="alert"></p>
+    <div class="row">
+      <button type="submit" data-say="entry.take_in"></button>
+      <button type="button" id="from-file-back" class="quiet" data-say="entry.back"></button>
+    </div>
+  </form>
+</template>
+
+<template id="taken-in">
+  <div id="taken-in-form">
+    <p class="said" id="entry-title" role="status" data-say="entry.taken_in"></p>
+  </div>
 </template>
 
 <template id="sign-in">
