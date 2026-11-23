@@ -44,6 +44,7 @@ face-counter-days.png:counter-choice.png
 face-guest.png:guest.png
 face-vouchers.png:vouchers.png
 face-vouchers-assigned.png:vouchers-assigned.png
+face-vouchers-narrow.png:vouchers-narrow.png
 face-narrow.png:narrow.png
 face-site-set.png:site.png
 face-site-worn.png:site-worn.png

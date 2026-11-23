@@ -592,6 +592,43 @@ fn a_new_usher_is_set_up_and_its_controller_set_from_the_screen() {
         assert_eq!(&code[5..6], "-", "{code}");
     }
 
+    // What is done with a voucher is in view however narrow the screen
+    // and however wide the list: the list is moved sideways in its box,
+    // and the row's buttons stay at the box's edge, where they are
+    // seen without the list being moved. They leave the list more than
+    // half of the box: on a narrow screen they stand under one another.
+    browser.size(520, 900);
+    let in_view = browser.look(
+        r#"
+        const box = widget("usher.vouchers").querySelector(".usher-scroll");
+        const within = box.getBoundingClientRect();
+        const buttons = [...box.querySelectorAll('tbody tr button[aria-label^="Revoke"]')]
+          .map((button) => button.getBoundingClientRect());
+        const last = [...box.querySelectorAll("tbody tr td:last-child")]
+          .map((cell) => cell.getBoundingClientRect().width);
+        return {
+          wider: box.scrollWidth > box.clientWidth,
+          moved: box.scrollLeft,
+          buttons: buttons.length,
+          seen: buttons.every((at) =>
+            at.width > 0 && at.left >= within.left - 1 && at.right <= within.right + 1
+            && at.right <= document.documentElement.clientWidth + 1),
+          room: Math.max(...last) < within.width / 2,
+        };
+        "#,
+    );
+    assert_eq!(
+        in_view,
+        json!({ "wider": true, "moved": 0, "buttons": 2, "seen": true, "room": true }),
+        "the list is wider than its box, has not been moved, every Revoke \
+         is in view, and the buttons leave the list more than half the box"
+    );
+    // For the eye: the list on a narrow screen, as it stands unmoved.
+    if let Some(to) = picture_of(Some("vouchers-narrow")) {
+        browser.picture(&to);
+    }
+    browser.size(1280, 900);
+
     // One is revoked from the screen, after the operator has said so
     // twice, and is gone from the controller.
     browser.act(

@@ -26,6 +26,9 @@
   /* The usher's own: glass, its states, and its measures. */
   --evo-hairline: color-mix(in oklab, var(--foreground) 12%, transparent);
   --evo-glass: color-mix(in oklab, var(--card) 78%, transparent);
+  /* Glass as it looks on the page, for what has to cover what is moved
+     under it: nothing shows through. */
+  --evo-pane: color-mix(in srgb, var(--card) 78%, var(--background));
   --evo-lit: color-mix(in oklab, var(--primary) 18%, transparent);
   --evo-pressed: color-mix(in oklab, var(--foreground) 16%, transparent);
   --evo-gap: 1rem;

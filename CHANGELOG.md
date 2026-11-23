@@ -2,6 +2,14 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## [0.3.27] - 2026-11-23
+
+- What is done with a voucher stays in view. In the list of the controller's vouchers the buttons of a row stay at the edge of the list's box however wide the list is, and what is moved under them fades at that edge. Before, a list that was wider than its box had to be moved sideways before Revoke was seen, and nothing said that it was there. The list of voucher types keeps its buttons in view in the same way
+- The limits of a voucher are broken into lines where they are long, and no longer make the list wider than the screen it is on
+- On a narrow screen the buttons of a row stand under one another, and take two fifths of the list's box at most where they fit in that
+- What a satellite asks of a unit, and what it is answered, is written down as a contract for whoever writes a program that is adopted as one: `docs/satellite.md`
+- No text of the face changed: the eleven languages stand as they stood
+
 ## [0.3.26] - 2026-11-23
 
 - A page calls its line joined once the steward has said that what happens is told on it, and not when it has only asked: what the counter said between the two reached nobody, and a page that was looked at then took a new voucher type up half a minute later, by asking, where it takes it up at once

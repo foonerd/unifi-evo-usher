@@ -408,7 +408,7 @@ export function vouchers(element, context) {
       ),
       el("td", {}, at(voucher.created)),
       el("td", {}, lasts(voucher.minutes)),
-      el("td", {}, limits(voucher)),
+      el("td", { class: "usher-wraps" }, limits(voucher)),
       el("td", {}, String(voucher.note ?? "")),
       option,
     );

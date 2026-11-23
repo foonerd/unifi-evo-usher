@@ -126,6 +126,39 @@
 
 .usher-scroll {
   overflow-x: auto;
+  /* What can be done with a row is measured against this box. */
+  container-type: inline-size;
+}
+
+/* What can be done with a row stays in view. A list that is wider than
+   its box is moved sideways under its last cell, which stays at the
+   box's edge on the ground a pane has, and what is moved under it
+   fades at that edge: a button is never out of sight because a column
+   before it grew wide. */
+.usher-scroll th:last-child,
+.usher-scroll td:last-child {
+  position: sticky;
+  right: 0;
+  padding-right: 0;
+  padding-left: 1rem;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--evo-pane, var(--card, Canvas)) 1rem
+  );
+}
+
+/* The buttons take two fifths of the box at most, and stand under one
+   another where that is too narrow for them side by side. */
+.usher-scroll td:last-child .usher-options {
+  flex-wrap: wrap;
+  width: max-content;
+  max-width: max(40cqw, 9rem);
+  margin-left: auto;
+}
+
+.usher-scroll td:last-child .usher-options > * {
+  flex: 1 1 auto;
 }
 
 /* A list in rows: its headings small, a hairline under each row. */
@@ -159,6 +192,12 @@
 [data-widget^="usher."] td:nth-child(6),
 [data-widget^="usher."] td.usher-wraps {
   white-space: normal;
+}
+
+/* A cell that is broken into lines is never pressed narrower than a
+   short line, so that a row does not grow tall word by word. */
+[data-widget^="usher."] td.usher-wraps {
+  min-width: 11rem;
 }
 
 .usher-code {
