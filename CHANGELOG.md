@@ -2,6 +2,14 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## [0.3.26] - 2026-11-23
+
+- A page calls its line joined once the steward has said that what happens is told on it, and not when it has only asked: what the counter said between the two reached nobody, and a page that was looked at then took a new voucher type up half a minute later, by asking, where it takes it up at once
+- A page lets the line of whoever was signed in before go the moment another person signs in or the person signs out, and asks for a line for whoever is signed in now at once. Before, it kept the old line, and called it joined, for up to half a second
+- A page takes what the site is from the answer that was asked for last. More than one part of a page asks; an answer that was asked for earlier and came later put back what had changed in between, so that the bar could wear a logo that had just been removed until the page next asked
+- All three showed on a machine with four processors, as the ones a release is built on are, and on neither one processor nor many: the release of 0.3.25 was not built for it, and 0.3.25 is in this release
+- No text of the face changed: the eleven languages stand as they stood
+
 ## [0.3.25] - 2026-11-23
 
 - Wrong tries that are sent at the same moment are counted as wrong tries in a row are. A try at a password, a PIN, the unit's code or the passphrase of a file is refused or counted before anything is checked, under one lock, so five are checked and the name is held for the rest, however many arrive together. Before, every try that arrived before the fifth wrong one was written down was checked: of forty sent together all forty were, so tries sent at once outran the hold, and a short PIN could be guessed far sooner than five tries in a quarter of an hour allow. A unit that anyone it is not meant for can reach is updated

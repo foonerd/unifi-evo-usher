@@ -65,11 +65,39 @@ export function learnOpen(told) {
 }
 
 /**
- * Take what the site's shelf answers who has signed in.
+ * How many times the site's shelf was asked what the site is, and the
+ * mark of the asking whose answer was last taken. More than one part
+ * of a page asks, and an answer can come after one that was asked for
+ * later.
+ */
+let askings = 0;
+let taken = 0;
+
+/**
+ * Say that the site's shelf is asked now.
+ *
+ * @returns {number} the mark of this asking, for `learn`
+ */
+export function asking() {
+  askings += 1;
+  return askings;
+}
+
+/**
+ * Take what the site's shelf answers who has signed in. An answer that
+ * is given with the mark of its asking is taken unless one that was
+ * asked for later has been taken already: an answer that was asked for
+ * earlier and comes later would put back what has changed in between,
+ * a logo that was removed among it.
  *
  * @param {unknown} told the answer to `get`
+ * @param {number} [of] the mark of the asking this answers
  */
-export function learn(told) {
+export function learn(told, of) {
+  if (of !== undefined) {
+    if (of < taken) return;
+    taken = of;
+  }
   const zone = /** @type {any} */ (told)?.time_zone;
   keep({
     name: nameOf(told),

@@ -912,4 +912,32 @@ hold(
 );
 hold("what is no error", words.refusal("said plainly"), "said plainly");
 
+// The site is asked for by more than one part of a page. An answer is
+// taken unless one that was asked for later has been taken already: an
+// answer that was asked for earlier and comes later puts nothing back
+// that has changed since.
+const site = await import("/org.evoframework.usher.shell/site.js");
+const earlier = site.asking();
+const later = site.asking();
+site.learn({ name: "As it is now", logo: null, time_zone: null }, later);
+site.learn(
+  { name: "As it was", logo: { png_b64: "AAAA" }, time_zone: "Europe/Warsaw" },
+  earlier,
+);
+hold(
+  "an answer that was asked for earlier and comes later is not taken",
+  [site.known().name, site.known().logo, site.known().timeZone],
+  ["As it is now", null, null],
+);
+// Answers that come in the order they were asked for are each taken,
+// also while a later asking is still under way.
+const first = site.asking();
+const second = site.asking();
+site.learn({ name: "Asked first" }, first);
+hold("an answer is taken while a later asking is under way", site.known().name, "Asked first");
+site.learn({ name: "Asked second" }, second);
+hold("and the later one after it", site.known().name, "Asked second");
+site.learn({ name: "Told as it is" });
+hold("what is told with no asking named is taken", site.known().name, "Told as it is");
+
 return failed;

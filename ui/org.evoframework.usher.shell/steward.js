@@ -77,13 +77,22 @@ function hold(token, kept = false) {
       // A browser that keeps nothing has nothing to forget.
     }
   }
-  if (token === null) return;
-  try {
-    store(kept ? "localStorage" : "sessionStorage")?.setItem(BEARER, token);
-  } catch {
-    // A browser that keeps nothing signs in again when it is opened again.
+  if (token !== null) {
+    try {
+      store(kept ? "localStorage" : "sessionStorage")?.setItem(BEARER, token);
+    } catch {
+      // A browser that keeps nothing signs in again when it is opened again.
+    }
   }
+  for (const tell of [...sessionWatched]) tell();
 }
+
+/**
+ * Those told the moment this page holds another session than it held,
+ * or none: the line of whoever was signed in is let go then, and not a
+ * while after. @type {Set<() => void>}
+ */
+const sessionWatched = new Set();
 
 /**
  * The HTTP method the steward answers an operation on: its REST routes
@@ -477,14 +486,23 @@ export function watch(onHappening, onLine, hears = () => true) {
           payload: {},
         }),
       );
-      lineStands("joined");
-      onLine(true);
     };
     joining.onmessage = (message) => {
       let frame;
       try {
         frame = JSON.parse(message.data);
       } catch {
+        return;
+      }
+      // The line is joined once the steward says that what happens is
+      // told on it from now on, and not before: what happened between
+      // the opening of the line and that word was told to nobody, and a
+      // page that called itself joined by then would wait for it.
+      if (frame?.frame_type === "subscription_ack" && frame.subscription_id === "happenings") {
+        if (joining === line) {
+          lineStands("joined");
+          onLine(true);
+        }
         return;
       }
       if (frame?.frame_type !== "subscription_event") return;
@@ -514,8 +532,8 @@ export function watch(onHappening, onLine, hears = () => true) {
   // let go at once, and taken up with the new one. Its closing is not
   // waited for: the far end may take its time to answer a closing, and
   // until it had, whoever signed in next had no line of their own.
-  const sameSession = setInterval(() => {
-    if (line === null || bearer() === joinedWith) return;
+  const letGo = () => {
+    if (line === null || bearer() === joinedWith) return false;
     const old = line;
     old.onopen = null;
     old.onmessage = null;
@@ -527,6 +545,22 @@ export function watch(onHappening, onLine, hears = () => true) {
       // A line that cannot be closed is one that is gone already.
     }
     lineStands("none");
+    return true;
+  };
+  // This page is told the moment it holds another session, or none: the
+  // line of whoever was signed in before is not called joined for a
+  // moment longer, and a line is asked for at once for whoever is
+  // signed in now. What the page is not told of, a session kept on the
+  // device that another window ended, is found by looking, as before.
+  const anotherSession = () => {
+    if (ended) return;
+    if (line !== null && !letGo()) return;
+    clearTimeout(again);
+    join();
+  };
+  sessionWatched.add(anotherSession);
+  const sameSession = setInterval(() => {
+    if (!letGo()) return;
     clearTimeout(again);
     join();
   }, 500);
@@ -536,6 +570,7 @@ export function watch(onHappening, onLine, hears = () => true) {
     ended = true;
     clearTimeout(again);
     clearInterval(sameSession);
+    sessionWatched.delete(anotherSession);
     line?.close();
     lineStands("none");
   };

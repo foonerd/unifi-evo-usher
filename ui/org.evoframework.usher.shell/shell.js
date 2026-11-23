@@ -618,8 +618,12 @@ const asked = {
  * usher's own name and mark, and each browser's own time.
  */
 async function lookAtSite() {
+  // The page asks when it is drawn, when its line is joined and when a
+  // part of it changed the site: an answer that comes after one that
+  // was asked for later is not taken.
+  const of = site.asking();
   try {
-    site.learn(await asked.request(site.SHELF, "get", {}));
+    site.learn(await asked.request(site.SHELF, "get", {}), of);
   } catch (why) {
     console.warn("shell: the site:", why);
   }
