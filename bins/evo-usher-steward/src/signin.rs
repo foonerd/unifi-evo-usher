@@ -3089,9 +3089,6 @@ fn pin_typed() -> Value {
     })
 }
 
-/// A screen that is no satellite yet is given a code to show and a
-/// secret to keep. Anyone may ask: a code adopts nothing until an
-/// administrator types it.
 /// What a request carries that has nothing to say: an empty object,
 /// sent as JSON. A screen asks for a code with it, so that asking for
 /// one is what no page of another site can have a browser do unasked.
@@ -3099,6 +3096,9 @@ fn pin_typed() -> Value {
 #[serde(deny_unknown_fields)]
 struct Nothing {}
 
+/// A screen that is no satellite yet is given a code to show and a
+/// secret to keep. Anyone may ask: a code adopts nothing until an
+/// administrator types it.
 async fn satellite_code(
     State(usher): State<Arc<Usher>>,
     request: Request,

@@ -15,9 +15,9 @@
 # A unit with no proxy before it is asked on its own machine, as
 # https://localhost:<port>, and believed by its own authority, named
 # with --cacert (/var/lib/evo/state/https/ca.crt on the unit): its own
-# certificate names it localhost and nothing else. With --insecure
-# nobody is asked who the unit is, which the check says in what it
-# prints: for a first look, on a network that is trusted.
+# certificate names it localhost and 127.0.0.1 and nothing else. With
+# --insecure nobody is asked who the unit is, which the check says in
+# what it prints: for a first look, on a network that is trusted.
 #
 # It changes nothing but this: one voucher of the default type is handed
 # out in the administrator's name and revoked at once, so that the whole

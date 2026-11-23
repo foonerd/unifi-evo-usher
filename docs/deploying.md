@@ -367,7 +367,7 @@ A unit gives of itself one file, to an administrator, on the page Site. It is JS
 
 **The site's own certificate served by the unit itself, with no proxy.** Not in this version: the steward takes its certificate from its own authority or from ACME, and has no setting for a certificate and key in files.
 
-**The unit's own authority.** For a unit that is reached as `localhost`, or by programs that are given `unit-ca.crt` and told the name: this is how a proxy believes it.
+**The unit's own authority.** For a unit that is reached as `localhost`, or by programs that are given `unit-ca.crt` and told the name: this is how a proxy believes it. A program that is adopted as a satellite asks a unit the same way; `docs/satellite.md` is everything such a program asks and is answered, and says what a program in Python 3.13 or later does about the unit's own certificate.
 
 ## On a Synology
 
@@ -412,7 +412,7 @@ It asks for an administrator's name and password on the terminal and does not sh
 
 It ends with `0` where nothing failed, and with `1` and the count where something did. The one thing it changes: the voucher it hands out is written into the record of hand-outs, in the name of whoever ran the check, and is revoked on the controller at once. `--no-voucher` leaves that out, and the check says that the way to the controller was not walked.
 
-The unit is believed as a browser believes it: by the certificate the site's proxy shows. A unit with no proxy before it is asked on its own machine, as `https://localhost:8443` with `--cacert unit-ca.crt`: its own certificate names it `localhost` and nothing else. `--insecure` asks nobody who the unit is, and the check says so.
+The unit is believed as a browser believes it: by the certificate the site's proxy shows. A unit with no proxy before it is asked on its own machine, as `https://localhost:8443` with `--cacert unit-ca.crt`: its own certificate names it `localhost` and `127.0.0.1` and nothing else. `--insecure` asks nobody who the unit is, and the check says so.
 
 **Proven** by tests that run the script against a unit with a simulated controller that is ready, against one with nothing set, and against a demo. What no script can check is checked by a person on the day: a phone joins the guests' network with a voucher that was handed out, and every satellite gives one at its button.
 
