@@ -441,7 +441,7 @@ mod tests {
             let code = match &refused {
                 Refused::AsAsked(why) | Refused::ForNow(why) => why.code,
             };
-            let PluginError::WithSubclass {
+            let PluginError::WithValues {
                 class: under,
                 subclass,
                 ..
@@ -451,6 +451,28 @@ mod tests {
             };
             assert_eq!((under, subclass.as_str()), (class, code));
         }
+        // The values a refusal speaks of travel beside its code, each
+        // under its name: a screen says them in its own language.
+        let mut site =
+            Site::open(tempfile::tempdir().unwrap().path(), First::default())
+                .unwrap();
+        let long = "n".repeat(NAME_CHARACTERS + 3);
+        let refused = asked(
+            &mut site,
+            "set",
+            json!({ "name": long }).to_string().as_bytes(),
+        )
+        .unwrap_err();
+        assert_eq!(
+            PluginError::from(refused).coded_details(),
+            Some(json!({
+                "subclass": "site_name_too_long",
+                "values": {
+                    "most": NAME_CHARACTERS,
+                    "has": NAME_CHARACTERS + 3,
+                },
+            }))
+        );
     }
 
     /// The requests, as a caller sends them: the site through a restart,
@@ -628,10 +650,14 @@ mod tests {
         );
     }
 
-    /// Reading asks for nothing; every request that changes the site
-    /// asks for the capability an administrator's session carries.
+    /// Reading asks for the capability the session of whoever hands
+    /// out vouchers carries; every request that changes the site asks
+    /// for the one an administrator's session carries. No request asks
+    /// for none: one that did would be answered only to a bearer good
+    /// for asking any plugin anything.
     #[test]
-    fn reading_asks_nothing_and_every_change_asks_an_administrator() {
+    fn reading_asks_what_a_front_desk_holds_and_every_change_asks_an_administrator(
+    ) {
         let manifest: toml::Table = MANIFEST_TOML.parse().unwrap();
         let respondent = &manifest["capabilities"]["respondent"];
         let asks = respondent["verb_capabilities"].as_table().unwrap();
@@ -648,7 +674,8 @@ mod tests {
         for (request, asked) in asks {
             let kind = asked["kind"].as_str().unwrap();
             if request == "get" {
-                assert_eq!(kind, "none");
+                assert_eq!(kind, "read");
+                assert_eq!(asked["scope"].as_str(), Some("voucher_issue"));
             } else {
                 assert_eq!(kind, "write", "{request}");
                 assert_eq!(

@@ -17,10 +17,14 @@ fn the_stock_is_kept_through_the_steward_and_across_a_restart() {
     ]);
 
     let steward = Steward::start(dir.path());
+    // How many are held is told whoever hands out vouchers, and no
+    // program on the machine that has shown no capability: no request
+    // of the usher's is answered to one.
+    let refused = steward.local("stock.reserve", "count", json!({}));
+    assert_eq!(refused["error"]["class"], "permission_denied", "{refused}");
     assert_eq!(
-        steward.local("stock.reserve", "count", json!({})),
-        json!({"held": {}}),
-        "how many are held is no secret"
+        steward.ask("stock.reserve", "count", json!({})),
+        json!({"held": {}})
     );
     assert_eq!(
         steward.ask(
@@ -90,11 +94,12 @@ fn the_site_is_kept_through_the_steward_and_across_a_restart() {
             "logo_width": 1024, "logo_height": 512,
         },
     });
-    // What a site is called and looks like is no secret: a program on
-    // the machine that has shown no capability reads it. It changes
-    // nothing.
-    assert_eq!(steward.local("site.settings", "get", json!({})), new);
+    // What a site is called and looks like is told anyone by the
+    // usher, where its forms are opened. Its shelf answers whoever
+    // hands out vouchers, and no program on the machine that has shown
+    // no capability: such a one reads nothing and changes nothing.
     for (request, payload) in [
+        ("get", json!({})),
         ("set", json!({ "name": "Mallory's", "time_zone": null })),
         ("put_logo", json!({ "png_b64": carried(&logo) })),
         ("remove_logo", json!({})),
@@ -318,6 +323,64 @@ fn what_no_plugin_stocks_is_refused_by_the_steward() {
     assert_eq!(steward.stop(), Some(0));
 }
 
+/// A unit is worked through its listener and no other way. One that is
+/// not told where to listen, or cannot listen there, does not start:
+/// the program ends, says why, and leaves nothing running that nobody
+/// could reach.
+#[test]
+fn a_steward_that_cannot_open_its_listener_does_not_start() {
+    let listener = "EVO_HTTPS_LISTEN_ADDR";
+    // An address another program listens at already.
+    let taken = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let taken_at = taken.local_addr().unwrap().to_string();
+    for (how, without, given) in [
+        ("told no address", &[listener][..], &[][..]),
+        (
+            "told an address that is none",
+            &[][..],
+            &[(listener, "nowhere")][..],
+        ),
+        (
+            "told an address that is taken",
+            &[][..],
+            &[(listener, taken_at.as_str())][..],
+        ),
+    ] {
+        let dir = short_dir();
+        let (ended, said) =
+            Steward::refused_to_start_without(dir.path(), without, given);
+        // It ended, by itself, and not well: a service's keeper sees a
+        // start that failed, and starts it again or says so.
+        let code = ended.unwrap_or_else(|| {
+            panic!("{how}: the steward went on running: {said}")
+        });
+        assert_ne!(code, 0, "{how}: {said}");
+        assert!(
+            said.contains(listener) || said.contains("HTTPS"),
+            "{how}: it does not say what it could not open: {said}"
+        );
+        // Nothing of it is left to ask: its socket was never opened.
+        assert!(
+            !dir.path().join("evo.sock").exists(),
+            "{how}: a steward nobody could reach was started"
+        );
+    }
+    drop(taken);
+
+    // The files of a unit that could not listen are a unit's all the
+    // same: told where, it starts on them.
+    let dir = short_dir();
+    let (ended, _) =
+        Steward::refused_to_start_without(dir.path(), &[listener], &[]);
+    assert_ne!(ended, Some(0));
+    let steward = Steward::start(dir.path());
+    assert_eq!(
+        steward.ask("access.controller", "info", json!({})),
+        json!({"set": false})
+    );
+    assert_eq!(steward.stop(), Some(0));
+}
+
 #[test]
 fn a_voucher_goes_from_the_controller_into_the_stock_and_out_to_a_guest() {
     // A simulated controller, served by a runtime of its own while the
@@ -519,16 +582,38 @@ fn a_guest_is_handed_a_voucher_minted_for_the_asking() {
         refused["error"]["message"], "minutes must be within 1..=1000000",
         "{refused}"
     );
-    // The code says which shelf refused; the words are that shelf's.
+    // The counter asked the controller's shelf, and gives its refusal
+    // on as the controller's plugin gave it: under that plugin's own
+    // code, with the value it speaks of beside it, in its class. Whoever
+    // asked the counter reads what they would have read asking the
+    // controller's shelf themselves.
+    assert_eq!(refused["error"]["class"], "contract_violation", "{refused}");
     assert_eq!(
-        refused["error"]["details"]["subclass"], "controller_as_asked",
+        refused["error"]["details"],
+        json!({ "subclass": "terms_outside", "values": { "term": "minutes" } }),
         "{refused}"
     );
+    let asked_directly = steward.ask(
+        "access.controller",
+        "mint",
+        json!({
+            "site": simulated.site(), "note": "For ever",
+            "minutes": 100_000_000, "count": 1,
+        }),
+    );
+    assert_eq!(asked_directly["error"], refused["error"]);
+    // A refusal of the counter's own carries the value it speaks of
+    // the same way: beside its code, under its name.
     let unknown = hand(&steward, "Week guest");
     assert!(
         unknown["error"]["message"]
             .as_str()
             .is_some_and(|why| why.contains("'Week guest'")),
+        "{unknown}"
+    );
+    assert_eq!(
+        unknown["error"]["details"],
+        json!({ "subclass": "no_such_type", "values": { "name": "Week guest" } }),
         "{unknown}"
     );
     assert_eq!(steward.stop(), Some(0));

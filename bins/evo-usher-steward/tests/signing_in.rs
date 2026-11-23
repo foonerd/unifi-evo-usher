@@ -153,17 +153,50 @@ fn a_new_unit_is_set_up_by_whoever_opens_it_first() {
     assert_eq!(mode(&steward.people_file()), 0o600);
     assert_eq!(mode(steward.people_file().parent().unwrap()), 0o700);
 
-    // A session is the usher's own: evo keeps no record of it, and it is
-    // good for the usher and not for evo's own bearers.
+    // evo keeps a record of every bearer it makes, and says what made
+    // each: the unit's own, made when the unit first started, and the
+    // one session there is, which the usher had made when Anna was let
+    // in, under the session's own id.
     let keeper = Caller::here().with(&steward.operator());
     let (_, listed) = steward.op("list_bearer_tokens", json!({}), &keeper);
-    let names: Vec<&str> = listed["records"]
+    let made: Vec<(&str, &str, &str)> = listed["records"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|record| record["name"].as_str().unwrap())
+        .map(|record| {
+            (
+                record["name"].as_str().unwrap(),
+                record["source"].as_str().unwrap_or(""),
+                record["created_reason"].as_str().unwrap_or(""),
+            )
+        })
         .collect();
-    assert_eq!(names, ["bootstrap"], "{listed}");
+    assert_eq!(made.len(), 2, "{listed}");
+    assert_eq!(
+        (made[0].0, made[0].1),
+        ("bootstrap", "bootstrap"),
+        "{listed}"
+    );
+    assert_eq!(
+        made[1],
+        (
+            "local socket mint",
+            "minted",
+            "a session of the usher's, for a person who signed in"
+        ),
+        "{listed}"
+    );
+    let annas = steward
+        .record_of(anna.bearer.as_deref().unwrap())
+        .expect("evo's record of Anna's session");
+    assert_eq!(annas["source"], "minted", "{annas}");
+    assert!(annas["revoked_at_ms"].is_null(), "{annas}");
+    // No bearer of any kind is on the record itself.
+    assert!(
+        !listed.to_string().contains(anna.bearer.as_deref().unwrap()),
+        "{listed}"
+    );
+    // A session is good for the usher and not for evo's own bearers.
     for operation in ["list_bearer_tokens", "create_bearer_token"] {
         let (status, said) = steward.op(
             operation,
@@ -475,6 +508,40 @@ fn signing_out_a_new_password_and_removing_a_person_end_their_sessions_at_once()
         "{said}"
     );
     assert!(in_still(&anna));
+
+    // evo is told of every session that ended, by its id, and takes its
+    // bearer no more by itself: the one signed out of, the ones a new
+    // password ended, and the one of the person who was removed. The
+    // usher's gate refused each from the moment it ended; evo's own
+    // record says it was taken back, and why.
+    for (ended, who) in [
+        (&at_home, "signed out"),
+        (&elsewhere, "a password changed elsewhere"),
+        (&at_the_desk, "a password set by an administrator"),
+        (&ben, "removed"),
+    ] {
+        assert_eq!(
+            steward.taken_back(ended.bearer.as_deref().unwrap()),
+            "a session of the usher's that ended",
+            "{who}"
+        );
+    }
+    // A session that stands is not taken back.
+    let annas = steward
+        .record_of(anna.bearer.as_deref().unwrap())
+        .expect("evo's record of Anna's session");
+    assert!(annas["revoked_at_ms"].is_null(), "{annas}");
+    assert_eq!(steward.stop(), Some(0));
+
+    // Taken back, a bearer stays so through a restart, at evo as at the
+    // usher.
+    let steward = Steward::start(dir.path());
+    let record = steward
+        .record_of(at_home.bearer.as_deref().unwrap())
+        .expect("evo's record of the session signed out of");
+    assert!(!record["revoked_at_ms"].is_null(), "{record}");
+    assert_eq!(steward.usher("GET", "me", None, &at_home).0, 401);
+    assert_eq!(steward.usher("GET", "me", None, &anna).0, 200);
     assert_eq!(steward.stop(), Some(0));
 }
 
@@ -1017,19 +1084,72 @@ fn anyone_is_told_the_sites_name_logo_and_language_and_nothing_else_of_it() {
     assert_eq!(steward.stop(), Some(0));
 }
 
+/// The happening a frame of a line carries, where it carries one.
+fn happening_of(frame: &Value) -> Option<&Value> {
+    if frame["frame_type"] != "subscription_event" {
+        return None;
+    }
+    let event = &frame["event"];
+    let happening = if event["happening"].is_object() {
+        &event["happening"]
+    } else {
+        event
+    };
+    happening["type"].is_string().then_some(happening)
+}
+
+/// Whether a frame says that the counter's offer changed.
+fn says_the_offer_changed(frame: &Value) -> bool {
+    happening_of(frame).is_some_and(|happening| {
+        happening["type"] == "plugin_event"
+            && happening["plugin"] == "org.evoframework.usher.counter"
+            && happening["event_type"] == "offer_changed"
+    })
+}
+
+/// Every happening heard on a line up to the one that says the
+/// counter's offer changed, that one among them, by its type.
+fn heard_until_the_offer_changed(line: &mut common::Line) -> Vec<String> {
+    let mut heard = Vec::new();
+    loop {
+        let frame = line
+            .hear(|frame| happening_of(frame).is_some())
+            .unwrap_or_else(|| {
+                panic!(
+                    "that the offer changed was not heard; heard \
+                     {heard:?}"
+                )
+            });
+        heard.push(
+            happening_of(&frame).unwrap()["type"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+        );
+        if says_the_offer_changed(&frame) {
+            return heard;
+        }
+    }
+}
+
 #[test]
-fn a_line_hears_what_happens_and_is_no_way_to_ask() {
+fn a_line_hears_what_its_role_may_read_and_is_no_way_to_ask() {
     let dir = short_dir();
     let steward = Steward::start(dir.path());
     let anna = steward.set_up("Anna", PASSWORD);
     let bearer = anna.bearer.clone().unwrap();
+    let pin = steward.add_front_desk(&anna, "Ben");
+    let bens = steward.sign_in("Ben", &pin).1["token"]
+        .as_str()
+        .expect("Ben's session")
+        .to_string();
     let keeper = Caller::here().with(&steward.operator());
     let subscribe = json!({
         "frame_type": "subscribe", "subscription_id": "happenings",
         "op": "subscribe_happenings", "payload": {},
     });
     let of_a_plugin = json!({
-        "shelf": "issue.counter", "request_type": "types",
+        "shelf": "issue.counter", "request_type": "offered",
         "payload_b64": common::encoded(&json!({})),
     });
 
@@ -1038,47 +1158,147 @@ fn a_line_hears_what_happens_and_is_no_way_to_ask() {
     // line answered on another.
     let mut line = steward.line(&bearer, true).expect("a line");
     assert_eq!(line.named, Some(format!("evo.bearer.{bearer}")));
-    line.send(&subscribe);
-    assert!(
-        line.hear(|frame| frame["frame_type"] == "subscription_ack")
-            .is_some(),
-        "the line is let hear what happens"
-    );
-    // What happens on the steward is heard on it.
+    let mut desks = steward.line(&bens, true).expect("a front desk's line");
+    assert_eq!(desks.named, Some(format!("evo.bearer.{bens}")));
+    for (who, line) in [("Anna", &mut line), ("Ben", &mut desks)] {
+        line.send(&subscribe);
+        assert!(
+            line.hear(|frame| frame["frame_type"] == "subscription_ack")
+                .is_some(),
+            "{who}'s line is let hear what happens"
+        );
+    }
+
+    // The unit's keeper opens a line with the unit's own bearer, which
+    // evo made to read everything a unit has.
+    let mut keepers = steward
+        .line(&steward.operator(), false)
+        .expect("the keeper's line");
+    keepers.send(&subscribe);
+    assert!(keepers
+        .hear(|frame| frame["frame_type"] == "subscription_ack")
+        .is_some());
+
+    // Something happens on the unit that is none of the counter's: a
+    // setting of evo's own is changed, by whoever keeps the unit. Then
+    // the counter's offer changes.
     let (status, raised) = steward.op(
         "household_protection_set",
         json!({"level": "strict", "lend": true}),
         &keeper,
     );
     assert_eq!(status, 200, "{raised}");
-    let heard = line.hear(|frame| {
-        frame["frame_type"] == "subscription_event"
-            || frame["frame_type"] == "happening"
-    });
-    assert!(heard.is_some(), "what happened was not heard");
+    let week = json!({ "name": "Week", "minutes": 10080 });
+    let (status, put) =
+        steward.ask_status(&anna, "issue.counter", "put_type", week);
+    assert_eq!(status, 200, "{put}");
+
+    // evo tells a line what its bearer reads, and no more. The line of
+    // the unit's own bearer hears both, in the order they happened.
+    assert_eq!(
+        heard_until_the_offer_changed(&mut keepers),
+        ["household_protection_changed", "plugin_event"],
+        "the unit's own bearer reads everything"
+    );
+    // A person's line hears that the offer changed, and nothing of
+    // what happened before it: an administrator's reads the plugins
+    // and what the counter says, a front desk's what the counter says
+    // alone, and neither reads evo's own settings.
+    for (who, line) in [("Anna", &mut line), ("Ben", &mut desks)] {
+        assert_eq!(
+            heard_until_the_offer_changed(line),
+            ["plugin_event"],
+            "{who} hears the counter, and none of the rest"
+        );
+    }
+
+    // Every change to the offer is said, each once; a voucher type read
+    // says nothing.
+    for (request, payload) in [
+        ("enable_type", json!({ "name": "Week", "enabled": false })),
+        ("enable_type", json!({ "name": "Week", "enabled": true })),
+        ("set_default", json!({ "name": "Week" })),
+        ("order_types", json!({ "names": ["Week"] })),
+    ] {
+        let (status, said) =
+            steward.ask_status(&anna, "issue.counter", request, payload);
+        assert_eq!(status, 200, "{request}: {said}");
+        assert_eq!(
+            heard_until_the_offer_changed(&mut desks),
+            ["plugin_event"],
+            "{request}"
+        );
+    }
+    for request in ["types", "offered", "handed"] {
+        let (status, said) =
+            steward.ask_status(&anna, "issue.counter", request, json!({}));
+        assert_eq!(status, 200, "{request}: {said}");
+    }
+    // A change that is refused changes nothing, and says nothing: the
+    // next thing heard is the change after it.
+    let (status, _) = steward.ask_status(
+        &anna,
+        "issue.counter",
+        "set_default",
+        json!({ "name": "No such type" }),
+    );
+    assert_eq!(status, 400);
+    let (status, _) = steward.ask_status(
+        &anna,
+        "issue.counter",
+        "drop_type",
+        json!({ "name": "No such type" }),
+    );
+    assert_eq!(status, 200);
+    assert_eq!(heard_until_the_offer_changed(&mut desks), ["plugin_event"]);
+    assert!(
+        desks
+            .hear_for(std::time::Duration::from_millis(700), |frame| {
+                happening_of(frame).is_some()
+            })
+            .is_none(),
+        "what was read, and what was refused, said nothing"
+    );
 
     // The line is for hearing. What the same session is answered over
     // HTTPS it is not answered on the line: evo judges a line's bearer
     // once, and a line left open is not to be a way to work the unit.
+    // A line's bearer reads, and is good for nothing else.
     assert_eq!(types(&steward, &anna).0, 200);
-    for (id, op, payload) in [
-        (1, "request", of_a_plugin.clone()),
-        (2, "describe_ui_stockings", json!({})),
-        (
-            3,
-            "create_bearer_token",
-            json!({ "name": "x", "reason": "y", "scopes": [] }),
-        ),
-        (
-            4,
-            "household_protection_set",
-            json!({"level": "off", "lend": true}),
-        ),
-    ] {
-        let outcome = line.ask(id, op, payload);
-        assert_eq!(outcome["outcome"], "err", "{op}: {outcome}");
-        assert_eq!(outcome["code"], "permission_denied", "{op}: {outcome}");
+    for (who, line) in [("Anna", &mut line), ("Ben", &mut desks)] {
+        for (id, op, payload) in [
+            (1, "request", of_a_plugin.clone()),
+            (
+                2,
+                "create_bearer_token",
+                json!({ "name": "x", "reason": "y", "scopes": [] }),
+            ),
+            (
+                3,
+                "household_protection_set",
+                json!({"level": "off", "lend": true}),
+            ),
+            (4, "list_bearer_tokens", json!({})),
+            (
+                5,
+                "course_correct",
+                json!({ "shelf": "issue.counter", "correction_type": "x", "payload_b64": "" }),
+            ),
+        ] {
+            let outcome = line.ask(id, op, payload);
+            assert_eq!(outcome["outcome"], "err", "{who}: {op}: {outcome}");
+            assert_eq!(
+                outcome["code"], "permission_denied",
+                "{who}: {op}: {outcome}"
+            );
+        }
     }
+    // What is stocked is evo's to tell who reads the plugins: an
+    // administrator's line is told, a front desk's is not.
+    let outcome = line.ask(6, "describe_ui_stockings", json!({}));
+    assert_eq!(outcome["outcome"], "ok", "{outcome}");
+    let outcome = desks.ask(6, "describe_ui_stockings", json!({}));
+    assert_eq!(outcome["code"], "permission_denied", "{outcome}");
 
     // A program opens the line with its session in a header, and is
     // held to the same.
@@ -1087,13 +1307,54 @@ fn a_line_hears_what_happens_and_is_no_way_to_ask() {
     let outcome = by_header.ask(1, "request", of_a_plugin.clone());
     assert_eq!(outcome["code"], "permission_denied", "{outcome}");
 
+    // The bearer of a line is evo's making for the usher, and is on
+    // evo's list as that: named a line, good for a minute, and reading
+    // what its person's role reads.
+    let lines: Vec<Value> = steward
+        .bearers()
+        .into_iter()
+        .filter(|record| record["name"] == "a line of the usher's")
+        .collect();
+    assert_eq!(lines.len(), 3, "{lines:?}");
+    let reads = |record: &Value| -> Vec<(String, String)> {
+        record["scopes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|scope| {
+                (
+                    scope["kind"].as_str().unwrap().to_string(),
+                    scope["scope"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect()
+    };
+    let read = |scope: &str| ("read".to_string(), scope.to_string());
+    for record in &lines {
+        assert_eq!(record["source"], "created", "{record}");
+        let lasts = record["expires_at_ms"].as_u64().unwrap()
+            - record["created_at_ms"].as_u64().unwrap();
+        assert_eq!(lasts, 60_000, "{record}");
+    }
+    let mut read_by: Vec<Vec<(String, String)>> =
+        lines.iter().map(reads).collect();
+    read_by.sort();
+    assert_eq!(
+        read_by,
+        [
+            vec![read("plugins"), read("voucher_issue")],
+            vec![read("plugins"), read("voucher_issue")],
+            vec![read("voucher_issue")],
+        ]
+    );
+
     // Signed out, no line is opened on the session any more; and on
     // the one that was open before, nothing is asked of a plugin.
     let (status, _) = steward.usher("POST", "sign_out", Some(json!({})), &anna);
     assert_eq!(status, 200);
     assert_eq!(steward.line(&bearer, true).err(), Some(401));
     assert_eq!(steward.line(&bearer, false).err(), Some(401));
-    let outcome = line.ask(5, "request", of_a_plugin);
+    let outcome = line.ask(7, "request", of_a_plugin);
     assert_eq!(outcome["code"], "permission_denied", "{outcome}");
 
     // No line is opened by who has not signed in, nor on a bearer that
@@ -1109,6 +1370,245 @@ fn a_line_hears_what_happens_and_is_no_way_to_ask() {
         assert_eq!(steward.line(no_session, true).err(), Some(401));
         assert_eq!(steward.line(no_session, false).err(), Some(401));
     }
+    assert_eq!(steward.stop(), Some(0));
+}
+
+/// A unit that is updated from a version whose sessions were made in
+/// another shape: everyone it knows signs in once more, a screen comes
+/// back by itself, and what the unit keeps is what it kept.
+#[test]
+fn after_an_update_everyone_signs_in_once_more_and_the_unit_is_as_it_was() {
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+    let anna = steward.set_up("Anna", PASSWORD);
+    let pin = steward.add_front_desk(&anna, "Ben");
+    let ben = Caller::beyond()
+        .with(steward.sign_in("Ben", &pin).1["token"].as_str().unwrap());
+    let (secret, _) = steward.adopt(&anna, "Lobby");
+    let lobby = steward.as_satellite(&secret);
+    let day = json!({
+        "name": "Day guest", "minutes": 1440, "guests": 1,
+        "megabytes": null, "down_kbps": null, "up_kbps": null,
+    });
+    for (shelf, request, payload) in [
+        ("issue.counter", "put_type", day.clone()),
+        (
+            "site.settings",
+            "set",
+            json!({ "name": "Weaver's Hall", "time_zone": "Europe/Warsaw" }),
+        ),
+    ] {
+        let (status, said) = steward.ask_status(&anna, shelf, request, payload);
+        assert_eq!(status, 200, "{shelf} {request}: {said}");
+    }
+    let in_still = |steward: &Steward, who: &Caller, route: &str| {
+        steward.usher("GET", route, None, who).0
+    };
+    assert_eq!(in_still(&steward, &anna, "me"), 200);
+    assert_eq!(in_still(&steward, &ben, "me"), 200);
+    assert_eq!(in_still(&steward, &lobby, "satellite"), 200);
+    assert_eq!(steward.stop(), Some(0));
+
+    // The sessions as the version before wrote them down: with no word
+    // of the shape their bearers were made in.
+    let kept_at = dir.path().join("state/usher/sessions.json");
+    let mut kept: Value =
+        serde_json::from_str(&fs::read_to_string(&kept_at).unwrap()).unwrap();
+    let sessions = kept.as_array_mut().expect("the sessions");
+    assert_eq!(sessions.len(), 3, "{sessions:?}");
+    for session in sessions.iter_mut() {
+        assert!(
+            session.as_object_mut().unwrap().remove("made").is_some(),
+            "a session says in which shape its bearer was made"
+        );
+    }
+    fs::write(&kept_at, kept.to_string()).unwrap();
+
+    // Started as the version of today, the unit takes none of them:
+    // not a person's, not a screen's.
+    let steward = Steward::start(dir.path());
+    assert_eq!(in_still(&steward, &anna, "me"), 401);
+    assert_eq!(in_still(&steward, &ben, "me"), 401);
+    assert_eq!(in_still(&steward, &lobby, "satellite"), 401);
+    assert_eq!(types(&steward, &anna).0, 401);
+    // And evo is told of each, and takes its bearer no more by itself.
+    for ended in [&anna, &ben, &lobby] {
+        assert_eq!(
+            steward.taken_back(ended.bearer.as_deref().unwrap()),
+            "a session of the usher's that ended"
+        );
+    }
+
+    // The people are who they were, under what they signed in with;
+    // the screen comes back by the secret it keeps, with nobody doing
+    // anything; and what the unit kept, it keeps.
+    let anna = steward.signed_in("Anna", PASSWORD);
+    let ben = Caller::beyond()
+        .with(steward.sign_in("Ben", &pin).1["token"].as_str().unwrap());
+    let lobby = steward.as_satellite(&secret);
+    assert_eq!(
+        steward.usher("GET", "satellite", None, &lobby).1["name"],
+        "Lobby"
+    );
+    assert_eq!(
+        steward
+            .ask_status(&anna, "issue.counter", "types", json!({}))
+            .1["types"],
+        json!([day])
+    );
+    assert_eq!(
+        steward
+            .ask_status(&ben, "site.settings", "get", json!({}))
+            .1["name"],
+        "Weaver's Hall"
+    );
+    assert_eq!(
+        steward.usher("GET", "people", None, &anna).1["people"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        steward.usher("GET", "satellites", None, &anna).1["satellites"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    // Once: the sessions of today are kept through every start after.
+    assert_eq!(steward.stop(), Some(0));
+    let steward = Steward::start(dir.path());
+    assert_eq!(in_still(&steward, &anna, "me"), 200);
+    assert_eq!(in_still(&steward, &ben, "me"), 200);
+    assert_eq!(in_still(&steward, &lobby, "satellite"), 200);
+    assert_eq!(steward.stop(), Some(0));
+}
+
+/// evo's records of the bearers the usher had made for the unit's
+/// keeper to ask a shelf with.
+fn made_for_the_keeper(steward: &Steward) -> Vec<Value> {
+    steward
+        .bearers()
+        .into_iter()
+        .filter(|record| {
+            record["created_reason"]
+                == "the unit's keeper asking a shelf, through the usher"
+        })
+        .collect()
+}
+
+#[test]
+fn the_keeper_asks_with_the_units_own_bearer_where_that_is_good_for_it() {
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+    let anna = steward.set_up("Anna", PASSWORD);
+    let ask = |steward: &Steward| {
+        // What a person at the front desk is offered is read under a
+        // capability the counter declares; so is what the site is
+        // called, and what an administrator alone reads.
+        [
+            steward.ask("issue.counter", "offered", json!({})),
+            steward.ask("site.settings", "get", json!({})),
+            steward.ask("issue.counter", "types", json!({})),
+        ]
+    };
+    let answered =
+        |said: &[Value; 3]| said.iter().all(|said| said.get("error").is_none());
+
+    // A unit that first starts now: evo makes its own bearer good for
+    // what the usher's plugins declare, beside what evo itself has.
+    // The keeper asks a shelf with it, and the usher makes none.
+    let units = steward.operator();
+    let holds = Steward::good_for(&units);
+    for scope in [
+        "request",
+        "plugins",
+        "network_admin",
+        "voucher_issue",
+        "voucher_default",
+        "voucher_named",
+    ] {
+        assert!(holds.iter().any(|held| held == scope), "{scope}: {holds:?}");
+    }
+    let said = ask(&steward);
+    assert!(answered(&said), "{said:?}");
+    assert!(made_for_the_keeper(&steward).is_empty());
+
+    // A unit that first started before evo gave its bearer what the
+    // plugins declare keeps the bearer it was given then: good for what
+    // evo itself has, and for nothing of the usher's plugins. Here one
+    // is made as that one was, and put where the unit's own is kept.
+    let of_evos_own: Vec<&str> = holds
+        .iter()
+        .map(String::as_str)
+        .filter(|scope| !scope.starts_with("voucher_"))
+        .collect();
+    let from_before = steward.minted(&of_evos_own);
+    assert!(!Steward::good_for(&from_before)
+        .iter()
+        .any(|scope| scope.starts_with("voucher_")));
+    let kept_at = dir.path().join("state/https/bootstrap.token");
+    fs::write(&kept_at, &from_before).unwrap();
+    assert_eq!(steward.operator(), from_before);
+    // Its keeper asks a shelf all the same: with a bearer the usher
+    // makes for it, good for what an administrator's is, which evo has
+    // on its list as that.
+    let said = ask(&steward);
+    assert!(answered(&said), "{said:?}");
+    let made = made_for_the_keeper(&steward);
+    assert_eq!(made.len(), 1, "one is made, and used until it is spent");
+    let mut names: Vec<&str> = made[0]["scopes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|scope| scope["scope"].as_str().unwrap())
+        .collect();
+    names.sort_unstable();
+    names.dedup();
+    assert_eq!(
+        names,
+        ["network_admin", "plugins", "request", "voucher_issue"],
+        "{made:?}"
+    );
+    assert_eq!(made[0]["source"], "minted", "{made:?}");
+    // What is no shelf's is asked with the unit's own bearer, as it
+    // always was: evo judges it by what it holds.
+    let keeper = Caller::here().with(&from_before);
+    assert_eq!(steward.op("list_bearer_tokens", json!({}), &keeper).0, 200);
+    assert_eq!(steward.usher("GET", "me", None, &keeper).1["unit"], true);
+
+    // The unit's own bearer put back, the keeper asks with it again,
+    // and no other is made.
+    fs::write(&kept_at, &units).unwrap();
+    let said = ask(&steward);
+    assert!(answered(&said), "{said:?}");
+    assert_eq!(made_for_the_keeper(&steward).len(), 1);
+    assert_eq!(steward.stop(), Some(0));
+
+    // A unit leaves that state where whoever keeps it has evo make its
+    // signing key anew, with the steward stopped: the unit's own bearer
+    // is made anew at the next start, good for what the plugins
+    // declare, and every bearer from before is taken no more.
+    fs::write(&kept_at, &from_before).unwrap();
+    let (ended, said) =
+        Steward::program_on(dir.path(), &["auth", "rotate-token-key"]);
+    assert_eq!(ended, Some(0), "{said}");
+    let steward = Steward::start(dir.path());
+    let anew = steward.operator();
+    assert_ne!(anew, from_before);
+    assert_ne!(anew, units);
+    assert!(Steward::good_for(&anew)
+        .iter()
+        .any(|scope| scope == "voucher_issue"));
+    let said = ask(&steward);
+    assert!(answered(&said), "{said:?}");
+    assert!(made_for_the_keeper(&steward).is_empty());
+    // Everyone signs in once more: the people are who they were.
+    assert_eq!(steward.usher("GET", "me", None, &anna).0, 401);
+    let anna = steward.signed_in("Anna", PASSWORD);
+    assert_eq!(types(&steward, &anna).0, 200);
     assert_eq!(steward.stop(), Some(0));
 }
 
@@ -1265,30 +1765,25 @@ fn the_front_desk_signs_in_with_a_pin_and_hands_vouchers_out() {
     assert_eq!(me["role"], "front_desk", "{me}");
     assert_eq!(me["unit"], false, "{me}");
 
-    // The session is good, at evo, for asking the plugins and for
-    // issuing a voucher, and for nothing that sets a unit up or hears
-    // what happens on it: evo itself refuses it the rest.
-    let good_for = |bearer: &str| -> Vec<String> {
-        let mut scopes: Vec<String> =
-            evo_auth_bearer::BearerToken::decode(bearer)
-                .expect("a bearer of evo's")
-                .capabilities
-                .capabilities()
-                .iter()
-                .map(|capability| capability.scope().to_string())
-                .collect();
-        scopes.sort();
-        scopes.dedup();
-        scopes
-    };
-    assert_eq!(good_for(&bearer), ["plugins", "voucher_issue"]);
+    // The session is good, at evo, for asking a shelf and for issuing
+    // a voucher, and for nothing else: not for the plugins as such, not
+    // for what sets a unit up. evo itself refuses it the rest. An
+    // administrator's is good for the plugins and for setting up as
+    // well.
+    assert_eq!(Steward::good_for(&bearer), ["request", "voucher_issue"]);
     assert_eq!(
-        good_for(anna.bearer.as_deref().unwrap()),
-        ["network_admin", "plugins", "subjects", "voucher_issue"]
+        Steward::good_for(anna.bearer.as_deref().unwrap()),
+        [
+            "network_admin",
+            "plugins",
+            "request",
+            "subjects",
+            "voucher_issue"
+        ]
     );
 
     // The counter's page: the types on offer, how many are set aside,
-    // what the site is called, what is stocked, and a voucher.
+    // what the site is called, what is stocked for it, and a voucher.
     let (status, offered) =
         steward.ask_status(&ben, "issue.counter", "offered", json!({}));
     assert_eq!(status, 200, "{offered}");
@@ -1300,9 +1795,42 @@ fn the_front_desk_signs_in_with_a_pin_and_hands_vouchers_out() {
             steward.ask_status(&ben, shelf, request, json!({}));
         assert_eq!(status, 200, "{shelf} {request}: {said}");
     }
-    let (status, stocked) =
-        steward.op("describe_ui_stockings", json!({}), &ben);
+    // What is stocked is told them by the usher, and of it the
+    // counter's page alone: the one shelf, the counter on it, and the
+    // kind it is drawn with. Of the rest of the face they are told
+    // nothing, and evo's own word on what is stocked is not theirs to
+    // ask.
+    let (status, stocked) = steward.usher("GET", "stocked", None, &ben);
     assert_eq!(status, 200, "{stocked}");
+    let of = |part: &str, named: &str| -> Vec<String> {
+        stocked[part]
+            .as_array()
+            .unwrap_or_else(|| panic!("no {part}: {stocked}"))
+            .iter()
+            .map(|one| one[named].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(of("shelves", "id"), ["issue.counter"], "{stocked}");
+    assert_eq!(of("entries", "ui_shelf"), ["issue.counter"], "{stocked}");
+    assert_eq!(of("entries", "widget"), ["usher.counter"], "{stocked}");
+    assert_eq!(
+        of("entries", "plugin"),
+        ["org.evoframework.usher.counter"],
+        "{stocked}"
+    );
+    assert_eq!(of("widget_kinds", "id"), ["usher.counter"], "{stocked}");
+    let (status, said) = steward.op("describe_ui_stockings", json!({}), &ben);
+    assert_eq!(
+        (status, subclass(&said)),
+        (403, "not_for_front_desk"),
+        "{said}"
+    );
+    // An administrator's shell asks evo, and is told everything; the
+    // usher's own route tells anyone the same little.
+    let (status, all) = steward.op("describe_ui_stockings", json!({}), &anna);
+    assert_eq!(status, 200, "{all}");
+    assert!(all["entries"].as_array().unwrap().len() > 1, "{all}");
+    assert_eq!(steward.usher("GET", "stocked", None, &anna).1, stocked);
     let (status, handed) = steward.ask_status(
         &ben,
         "issue.counter",
@@ -1461,9 +1989,12 @@ fn the_front_desk_signs_in_with_a_pin_and_hands_vouchers_out() {
     );
 
     // And of the steward's own operations, every one evo lists, read or
-    // written, but what the door and the shell read and the asking of a
-    // shelf, which is held to the counter's page above.
-    let may = ["describe_active_ui_selection", "describe_ui_stockings"];
+    // written, but the asking of a shelf, which is held to the counter's
+    // page above. The gate refuses them by name. The one operation it
+    // lets anyone ask, which the door asks with nothing presented, evo
+    // itself refuses a session that is not good for the plugins: the
+    // gate and evo hold each other.
+    let open = "describe_active_ui_selection";
     for operation in evo::projection_schema::canonical_schema()
         .iter()
         .map(|operation| operation.id.as_str().to_string())
@@ -1476,9 +2007,19 @@ fn the_front_desk_signs_in_with_a_pin_and_hands_vouchers_out() {
                 &[],
                 &ben,
             );
-            if may.contains(&operation.as_str()) {
-                assert_ne!(status, 403, "{method} {operation}: {said}");
-                assert_ne!(status, 401, "{method} {operation}: {said}");
+            if operation == open {
+                assert!(
+                    !said.contains("not_for_front_desk"),
+                    "{method} {operation}: {said}"
+                );
+                // evo's own refusal, which says nothing beside it.
+                if method == "GET" {
+                    assert_eq!(
+                        (status, said.as_str()),
+                        (403, ""),
+                        "{method} {operation}"
+                    );
+                }
             } else if operation == "request" && method == "POST" {
                 // What names no shelf asks none.
                 assert_eq!(status, 400, "{method} {operation}: {said}");
@@ -1491,10 +2032,17 @@ fn the_front_desk_signs_in_with_a_pin_and_hands_vouchers_out() {
             }
         }
     }
-    // The line of what happens is not opened to them: they would hear
-    // on it what they may not ask.
-    assert_eq!(steward.line(&bearer, true).err(), Some(403));
-    assert_eq!(steward.line(&bearer, false).err(), Some(403));
+    // With nothing presented it is answered, to them as to anyone.
+    assert_eq!(
+        steward.op(open, json!({}), &Caller::beyond()).0,
+        200,
+        "the door's one question"
+    );
+    // The line their page hears on is opened to them, however a
+    // browser or a program names its session; what is heard on it, and
+    // what is not, is held elsewhere.
+    assert!(steward.line(&bearer, true).is_ok());
+    assert!(steward.line(&bearer, false).is_ok());
     assert!(steward.line(anna.bearer.as_deref().unwrap(), true).is_ok());
     // The face's files are read, as by anyone, and nothing is written.
     assert_eq!(steward.put_to("GET", "/", None, &[], &ben).0, 200);

@@ -303,6 +303,7 @@
   "refusal.signs_in_with_pin": "{name} meldet sich mit einer PIN an, nicht mit einem Passwort. Ein Administrator erstellt stattdessen eine neue PIN.",
   "refusal.site_name_not_plain": "Der Name eines Standorts ist einfacher Text in einer Zeile.",
   "refusal.site_name_too_long": "Der Name eines Standorts hat höchstens {most} Zeichen; dieser hat {has}.",
+  "refusal.stocked_not_read": "Was auf dieser Seite steht, konnte nicht gelesen werden. Versuchen Sie es gleich noch einmal.",
   "refusal.terms_outside": "Der Controller nimmt keinen Voucher zu diesen Bedingungen an. ({words})",
   "refusal.time_zone_not_one": "{time_zone} ist nicht der Name einer Zeitzone. Man schreibt eine als Europe/Warsaw.",
   "refusal.too_many_satellites": "Mehr Satelliten können nicht geführt werden: höchstens {most}.",

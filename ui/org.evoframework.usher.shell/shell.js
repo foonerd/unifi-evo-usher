@@ -9,9 +9,15 @@
 //
 // Who is signed in has a role. An administrator is offered every page,
 // and hears what happens on the unit as it happens. A person at the
-// front desk is offered the counter alone, is let hear nothing, and so
-// has a page that asks the usher again from time to time. What the
-// usher would refuse them is not offered.
+// front desk is offered the counter alone, and hears what the counter
+// says of its offer and nothing else of the unit; their page asks the
+// usher again from time to time as well, so that a line that is down
+// costs them nothing. What the usher would refuse them is not offered,
+// and what is stocked for their one page is told them by the usher.
+//
+// What a plugin says happened to it is its widgets' to hear: the shell
+// hands it on to whatever is drawn, as an event on the document, and
+// reads nothing in it.
 //
 // Everything it says, it says in the language the face speaks: the
 // words are read before anything is drawn.
@@ -102,8 +108,18 @@ const signOutButton = /** @type {HTMLButtonElement} */ (document.getElementById(
 /** Who is signed in; null while nobody is. @type {Who | null} */
 let signedIn = null;
 
-/** Whether whoever is signed in is let hear what happens on the unit. */
-const hears = () => signedIn !== null && signedIn.role !== FRONT_DESK;
+/**
+ * Whether whoever is signed in is let hear what happens on the unit:
+ * each person is, and hears what their role may read.
+ */
+const hears = () => signedIn !== null;
+
+/**
+ * The event on the document a plugin's own event is handed on as. Its
+ * `detail` holds the plugin's name, the event's type as the plugin
+ * names it, and what it carries.
+ */
+const PLUGIN_EVENT = "usher:plugin-event";
 
 /**
  * Which sitting this is: one more each time a person signs out. What was
@@ -497,8 +513,8 @@ async function whoIsIn() {
     await peoplePage.look();
     await satellitesPage.look();
   } else {
-    // No line is joined for them: that the usher answered is all there
-    // is to say of it.
+    // Their page asks by itself, whether its line is up or not: that
+    // the usher answered is what there is to say of it.
     lineSays(true);
   }
 }
@@ -976,26 +992,35 @@ function wear(theme) {
 // A theme whose stylesheet is not there to load leaves the usher's own.
 themeLink.addEventListener("error", () => wear(null));
 
-/** Ask the steward which theme is active, and draw in it. */
+/**
+ * Ask the steward which theme is active, and draw in it. It is asked
+ * as the door asks which shell is active, with nothing presented: the
+ * answer is the same whoever asks.
+ */
 async function loadTheme() {
   try {
-    wear((await steward.op("describe_active_ui_selection"))?.theme);
+    wear((await steward.unsigned("describe_active_ui_selection"))?.theme);
   } catch (why) {
     console.warn("shell: the active theme:", why);
   }
 }
 
 /**
- * Ask the steward what is stocked, and draw it. The steward tells who
- * has signed in only: nobody has, or the session has ended, and whoever
- * is at the browser is asked in first.
+ * Ask what is stocked, and draw it. An administrator asks the steward,
+ * which says everything that is stocked. Anyone else asks the usher,
+ * which says what is stocked for the counter's page and nothing more.
+ * Either tells who has signed in only: nobody has, or the session has
+ * ended, and whoever is at the browser is asked in first.
  */
 async function look() {
   // Nothing is asked for a person who is signing out.
   if (leaving) return false;
   const at = sitting;
   try {
-    const stocked = await steward.op("describe_ui_stockings");
+    const stocked =
+      signedIn?.role === ADMINISTRATOR
+        ? await steward.op("describe_ui_stockings")
+        : await steward.usher("stocked");
     // The place is known before anything is drawn that shows a time.
     await lookAtSite();
     // What was asked in a sitting that has ended is not drawn.
@@ -1020,6 +1045,14 @@ function happened(happening) {
   } else if (happening.type === "ui_active_theme_changed") {
     // Another theme is active, or none: the same screen, in it.
     wear(/** @type {any} */ (happening).current);
+  } else if (happening.type === "plugin_event") {
+    // What a plugin says happened to it: handed on to what is drawn.
+    const said = /** @type {any} */ (happening);
+    document.dispatchEvent(
+      new CustomEvent(PLUGIN_EVENT, {
+        detail: { plugin: said.plugin, event_type: said.event_type, payload: said.payload },
+      }),
+    );
   } else if (happening.type.startsWith("ui_") || happening.type.startsWith("plugin_")) {
     look();
   }
@@ -1038,23 +1071,30 @@ function lineSays(reached) {
 
 /** @param {boolean} joined */
 function lineIs(joined) {
+  // The page of a person at the front desk asks by itself as well: a
+  // line that drops is nothing lost to them while the usher answers,
+  // and whether it does is said where it is asked.
+  if (!joined && signedIn?.role === FRONT_DESK) return;
   lineSays(joined);
   // What was missed while the line was down is looked at afresh.
   if (joined) look();
 }
 
 /**
- * How often a page that hears nothing asks the usher again, in
- * milliseconds.
+ * How often the page of a person at the front desk asks the usher
+ * again, in milliseconds.
  */
 const ASKS_AGAIN_MS = 30000;
 
 /**
- * Ask the usher again, for a person who is let hear nothing of what
- * happens: whether it still answers, whether they are still signed in,
- * and what there is to draw. Where a session is held and the usher did
- * not answer who holds it, that is asked again first: until it is
- * known, no line is joined and nothing is drawn.
+ * Ask the usher again, for a person at the front desk: whether it
+ * still answers, whether they are still signed in, and what there is
+ * to draw. Their line brings what the counter says as it says it; the
+ * asking stands behind the line, and is all there is where a line
+ * cannot be had. An administrator's page goes by its line alone. Where
+ * a session is held and the usher did not answer who holds it, that is
+ * asked again first: until it is known, no line is joined and nothing
+ * is drawn.
  */
 async function askAgain() {
   if (leaving || entering) return;
@@ -1064,14 +1104,15 @@ async function askAgain() {
     await look();
     return;
   }
-  if (hears()) return;
+  if (signedIn.role !== FRONT_DESK) return;
   try {
     await askUsher("me");
   } catch {
     lineSays(false);
     return;
   }
-  lineIs(true);
+  lineSays(true);
+  await look();
 }
 
 // The languages to choose from, in the bar and before the fields of the
@@ -1101,8 +1142,8 @@ if (steward.bearer()) await whoIsIn();
 await look();
 if (signedIn === null) await whoIsIn();
 steward.watch(happened, lineIs, hears);
-// A page that hears nothing asks instead: now and then, and when it is
-// looked at again.
+// The page of a person at the front desk asks as well: now and then,
+// and when it is looked at again.
 setInterval(askAgain, ASKS_AGAIN_MS);
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") askAgain();

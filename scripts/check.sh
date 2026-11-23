@@ -35,6 +35,21 @@ notes=$(scripts/release-notes.sh "$version")
 # version the workspace has come to.
 grep -q -F "ghcr.io/foonerd/unifi-evo-usher:latest" README.md || { echo "check: the command on README.md's front page does not name ghcr.io/foonerd/unifi-evo-usher:latest" >&2; exit 1; }
 
+echo "check: the evo-core the lock names"
+# The usher stands on a tag of evo-core's, and the lock names the commit
+# the tag stood on when the lock was made. The tag v0.1.13.2 was laid on
+# another commit before the one it stands on now: the lock is held to
+# the one it stands on now, every package of evo-core's at it and none
+# at any other, so that no build is made on the commit the tag left.
+EVO_CORE_TAG=v0.1.13.2
+EVO_CORE_COMMIT=d1962a2ccdf579d2c35621ca9331b27554d0198b
+of_evo_core=$(grep -F 'github.com/foonerd/evo-core.git' Cargo.lock || true)
+[ -n "$of_evo_core" ] || { echo "check: Cargo.lock names no package of evo-core's" >&2; exit 1; }
+elsewhere=$(printf '%s\n' "$of_evo_core" | grep -v -F "evo-core.git?tag=$EVO_CORE_TAG#$EVO_CORE_COMMIT\"" || true)
+[ -z "$elsewhere" ] || { echo "check: Cargo.lock names evo-core elsewhere than at $EVO_CORE_TAG, commit $EVO_CORE_COMMIT:" >&2; printf '%s\n' "$elsewhere" | sort -u >&2; exit 1; }
+grep -q -F "tag = \"$EVO_CORE_TAG\"" Cargo.toml || { echo "check: Cargo.toml does not name evo-core's tag $EVO_CORE_TAG" >&2; exit 1; }
+echo "  evo-core $EVO_CORE_TAG at $EVO_CORE_COMMIT, $(printf '%s\n' "$of_evo_core" | wc -l) packages"
+
 echo "check: notices"
 scripts/notices.sh --check
 

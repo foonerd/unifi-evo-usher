@@ -6,7 +6,8 @@
 //! password for an administrator where it is asked with
 //! `--reset-password` on the unit itself, that nothing of it is a
 //! household's to lock, that signing in, with a name and a password
-//! the usher keeps, is the one way in, that a unit started as a demo
+//! the usher keeps, is the one way in, that a unit which cannot open its
+//! listener does not start, that a unit started as a demo
 //! is given a simulated controller and is a demo for good, and that a
 //! unit which was moved here from another machine is put in place before
 //! the steward starts.
@@ -169,6 +170,11 @@ async fn main() -> anyhow::Result<()> {
     let ended = evo::run(
         evo::RunOptions::new(args, admission())
             .with_lan_privilege(evo::LanPrivilege::Withheld)
+            // An usher is worked through its listener and no other way:
+            // a steward that is not told where to listen, or cannot
+            // listen there, does not start. It ends, and says why,
+            // where a service's keeper sees it.
+            .with_https_requirement(evo::HttpsRequirement::Required)
             .with_household_groups(Arc::new(NoHousehold))
             // And whoever has not signed in is let no further than the
             // face and the way to sign in.

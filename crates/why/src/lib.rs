@@ -7,10 +7,10 @@
 //! a log and for a caller that is no screen.
 //!
 //! A plugin's refusal travels as evo carries one: the code as the
-//! refusal's subclass, the words as its message. evo's refusal of a
-//! plugin has no place for values, so a plugin's values stay in its
-//! words; the usher's own routes, which write their answers themselves,
-//! carry them beside the code.
+//! refusal's subclass, the words as its message, and the values beside
+//! the code, each under its name. The usher's own routes, which write
+//! their answers themselves, carry the three the same way: a screen
+//! reads a refusal one way, whoever gave it.
 
 #![forbid(unsafe_code)]
 
@@ -64,10 +64,11 @@ impl Why {
     /// The refusal as a plugin gives it to the steward, under a class of
     /// evo's.
     pub fn of_class(self, class: ErrorClass) -> PluginError {
-        PluginError::WithSubclass {
+        PluginError::WithValues {
             class,
             subclass: self.code.to_string(),
             message: self.words,
+            values: self.values.into_iter().collect(),
         }
     }
 }
@@ -92,17 +93,34 @@ mod tests {
             (refused.clone().as_asked(), ErrorClass::ContractViolation),
             (refused.clone().for_now(), ErrorClass::Transient),
         ] {
-            let PluginError::WithSubclass {
+            // On the wire evo puts the code and the values side by
+            // side, as the usher's own routes do.
+            assert_eq!(
+                told.coded_details(),
+                Some(serde_json::json!({
+                    "subclass": "no_such_type",
+                    "values": { "name": "Day" },
+                }))
+            );
+            let PluginError::WithValues {
                 class: under,
                 subclass,
                 message,
+                values,
             } = told
             else {
-                panic!("not a refusal with a code");
+                panic!("not a refusal with a code and its values");
             };
             assert_eq!(under, class);
             assert_eq!(subclass, "no_such_type");
             assert_eq!(message, "There is no voucher type Day.");
+            assert_eq!(values["name"], "Day");
         }
+        // A refusal that speaks of no value carries none.
+        let bare = why("no_default_type", "No voucher type is the default.");
+        assert_eq!(
+            bare.as_asked().coded_details(),
+            Some(serde_json::json!({ "subclass": "no_default_type" }))
+        );
     }
 }

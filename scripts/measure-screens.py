@@ -22,6 +22,12 @@ taken until every screen is answered once more. It prints how long each
 kind of asking took, and what the container used, as docker stats says
 it.
 
+Every connection is asked on the moment it is opened, as a screen asks
+as soon as it is joined: a unit closes a connection that asks nothing
+within ten seconds, and lets sixty-four of those wait at once, the rest
+in turn. A screen that joins in a crowd waits its turn, and the time it
+took is counted from when it began to ask.
+
 docs/deploying.md has what this measured. It needs Python 3 and docker,
 and nothing else. The unit's certificate is not checked: this measures a
 unit on the loopback address, and is no client to copy.

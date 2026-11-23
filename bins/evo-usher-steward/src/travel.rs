@@ -41,13 +41,14 @@ use argon2::password_hash::rand_core::{OsRng, RngCore as _};
 use argon2::{Algorithm, Argon2, Params, Version};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
-use evo_auth_bearer::{Capability, CapabilitySet};
 use evo_projection_core::WireOpId;
-use evo_runtime_http::{DispatchError, Dispatcher, Principal};
+use evo_runtime_http::{DispatchError, Dispatcher};
 use evo_usher_why::{why, Why};
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+
+use crate::signin::{asking_as, ISSUING};
 
 /// The version of the file's shape this program writes and reads. A
 /// file of a later one is not taken in: it may hold what this program
@@ -875,10 +876,7 @@ async fn ask(
 ) -> Result<Value, (String, String)> {
     let operation = WireOpId::new(ASK_A_SHELF)
         .map_err(|e| (String::new(), format!("no shelf can be asked: {e}")))?;
-    let who = Principal::new(
-        AS_THE_FILE,
-        CapabilitySet::new([Capability::step_up(SETTING_UP)]),
-    );
+    let who = asking_as(AS_THE_FILE, &[SETTING_UP, ISSUING]);
     let asked = json!({
         "shelf": shelf,
         "request_type": request_type,
@@ -1706,6 +1704,8 @@ mod tests {
         refuses: &'static [&'static str],
         types: Vec<&'static str>,
     }
+
+    use evo_runtime_http::Principal;
 
     #[async_trait::async_trait]
     impl Dispatcher for Owners {

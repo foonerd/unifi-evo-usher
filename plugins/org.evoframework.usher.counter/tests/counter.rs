@@ -4,6 +4,7 @@
 
 use std::sync::{Arc, Mutex};
 
+use evo_plugin_sdk::error_taxonomy::ErrorClass;
 use evo_usher_counter::{
     Asked, Counter, Refusal, Shelves, CONTROLLER, NETWORKS, RESERVE,
 };
@@ -122,6 +123,17 @@ fn kept_from(request_type: &str) -> Refusal {
     Refusal::Named {
         name: "household_policy_locked".to_string(),
         why: format!("verb {request_type:?} is the owner's"),
+    }
+}
+
+/// What the plugin on another shelf refused under a code of its own,
+/// with a value it speaks of, as the counter is given it.
+fn passed_on(words: &str) -> Refusal {
+    Refusal::Passed {
+        class: ErrorClass::ContractViolation,
+        code: "said_by_a_plugin".to_string(),
+        words: words.to_string(),
+        values: [("term".to_string(), json!("minutes"))].into(),
     }
 }
 
@@ -756,12 +768,37 @@ async fn a_reserve_the_caller_is_kept_from_is_not_minted_around() {
 }
 
 #[tokio::test]
+async fn a_reserve_whose_plugin_refuses_is_minted_around() {
+    let dir = tempfile::tempdir().unwrap();
+    let stand = Arc::new(Stand::working());
+    // The reserve's own plugin refuses, under a code of its own: it is
+    // a reserve that gave no voucher, and not one the caller is kept
+    // from. A voucher is minted, as where the reserve does not answer.
+    *stand.held.lock().unwrap() = Err(passed_on("the reserve was not kept"));
+    let counter = Counter::open(dir.path(), Some(stand.clone())).unwrap();
+    ask(&counter, "put_type", house_guests()).await.unwrap();
+    let handed = ask(&counter, "hand", json!({ "type": "House guests" }))
+        .await
+        .unwrap();
+    assert_eq!(handed["held"], false, "{handed}");
+    assert_eq!(
+        stand.asked(),
+        pairs(&[
+            (NETWORKS, "chosen"),
+            (RESERVE, "take"),
+            (CONTROLLER, "mint")
+        ])
+    );
+}
+
+#[tokio::test]
 async fn what_the_minting_shelf_refuses_is_refused_as_it_was() {
     let dir = tempfile::tempdir().unwrap();
     for refusal in [
         Refusal::ForNow(why("said_in_a_test", "the controller did not answer")),
         Refusal::AsAsked(why("said_in_a_test", "minutes: at most 1000000")),
         kept_from("mint"),
+        passed_on("minutes must be within 1..=1000000"),
     ] {
         let stand = Arc::new(Stand::new(guests(), Err(refusal.clone())));
         let counter = Counter::open(dir.path(), Some(stand)).unwrap();

@@ -1,6 +1,7 @@
 //! The counter itself: the voucher types on offer, and the handing out of
 //! a voucher of one of them.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::future::Future;
 use std::io;
@@ -9,6 +10,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use evo_plugin_sdk::error_taxonomy::ErrorClass;
 use evo_usher_why::{why, Why};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
@@ -46,6 +48,21 @@ pub enum Refusal {
         name: String,
         /// What the steward said.
         why: String,
+    },
+    /// The plugin on another shelf refused what the counter asked of
+    /// it, under a code of its own: whoever asks the counter is told
+    /// what that plugin said as it said it, the code, the values it
+    /// speaks of and its words, as they would be asking that shelf
+    /// themselves.
+    Passed {
+        /// Whether it may succeed if asked again, in evo's terms.
+        class: ErrorClass,
+        /// The code the plugin gave its refusal under.
+        code: String,
+        /// The plugin's words, in English.
+        words: String,
+        /// The values the words speak of, each under its name.
+        values: BTreeMap<String, Value>,
     },
 }
 

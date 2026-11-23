@@ -311,6 +311,7 @@
   "refusal.signs_in_with_pin": "{name} входит с PIN-кодом, а не с паролем. Вместо этого администратор создаёт новый PIN-код.",
   "refusal.site_name_not_plain": "Название сайта — простой текст в одну строку.",
   "refusal.site_name_too_long": "Название сайта — не длиннее {most} символов; в этом — {has}.",
+  "refusal.stocked_not_read": "Не удалось прочитать то, что показывает эта страница. Попробуйте ещё раз чуть позже.",
   "refusal.terms_outside": "Контроллер не принимает ваучер на таких условиях. ({words})",
   "refusal.time_zone_not_one": "{time_zone} — не название часового пояса. Часовой пояс пишется, например, так: Europe/Warsaw.",
   "refusal.too_many_satellites": "Больше терминалов добавить нельзя: предел — {most}.",

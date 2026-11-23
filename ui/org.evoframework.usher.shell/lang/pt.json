@@ -303,6 +303,7 @@
   "refusal.signs_in_with_pin": "{name} inicia sessão com um PIN, não com uma palavra-passe. Em vez disso, um administrador cria um novo PIN.",
   "refusal.site_name_not_plain": "O nome de um local é texto simples numa só linha.",
   "refusal.site_name_too_long": "O nome de um local tem, no máximo, {most} caracteres; este tem {has}.",
+  "refusal.stocked_not_read": "Não foi possível ler o que está nesta página. Tente novamente daqui a pouco.",
   "refusal.terms_outside": "O controlador não aceita um voucher nestas condições. ({words})",
   "refusal.time_zone_not_one": "{time_zone} não é o nome de um fuso horário. Um fuso horário escreve-se como Europe/Warsaw.",
   "refusal.too_many_satellites": "Não é possível guardar mais satélites: {most} no máximo.",

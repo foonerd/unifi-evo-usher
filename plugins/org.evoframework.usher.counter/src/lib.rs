@@ -79,10 +79,18 @@
 //!   and `"satellite"` where it was handed out at a satellite; with no
 //!   `ids`, the newest hundred, the newest first.
 //!
-//! A refusal is given under a code, as its subclass, beside its words:
-//! the code is what a screen finds words of its own language by. What
-//! another shelf refused reaches the counter in that shelf's words alone,
-//! and is given on under a code that says which shelf it was.
+//! A refusal is given under a code, as its subclass, beside its words
+//! and the values they speak of: the code is what a screen finds words
+//! of its own language by. What the plugin on another shelf refused
+//! under a code of its own is given on as it was given: the same code,
+//! the same values, the same words. What reaches the counter with no
+//! code is given on under one that says which shelf it was.
+//!
+//! When what a front desk is offered is not what it was, because a type
+//! was defined, deleted, enabled, disabled, made the default or put in
+//! another place, or a voucher was assigned, the counter says so: it
+//! emits the event `offer_changed`, which carries nothing. A page that
+//! shows the offer asks for it again when it hears the event.
 
 #![forbid(unsafe_code)]
 
@@ -94,9 +102,10 @@ use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 use evo_plugin_sdk::contract::{
-    BuildInfo, HealthReport, LoadContext, Plugin, PluginDescription,
-    PluginError, PluginIdentity, Request, Respondent, Response,
-    RuntimeCapabilities, ShelfDispatchError, ShelfRequestDispatcher,
+    BuildInfo, CodedDispatchError, HappeningEmitter, HealthReport, LoadContext,
+    Plugin, PluginDescription, PluginError, PluginIdentity, Request,
+    Respondent, Response, RuntimeCapabilities, ShelfDispatchError,
+    ShelfRequestDispatcher,
 };
 use evo_plugin_sdk::error_taxonomy::ErrorClass;
 use evo_plugin_sdk::Manifest;
@@ -128,6 +137,23 @@ pub const REQUESTS: [&str; 12] = [
     "handed",
 ];
 
+/// The event the counter emits when what a front desk is offered is not
+/// what it was. It carries nothing: whoever hears it asks for the offer.
+pub const OFFER_CHANGED: &str = "offer_changed";
+
+/// The requests after which what a front desk is offered may be another:
+/// the ones that change the types, and the one that assigns a voucher,
+/// which may bring a type with it and adds to what is set aside. A
+/// voucher handed out is none of them: the offer stands as it was.
+pub const CHANGING_THE_OFFER: [&str; 6] = [
+    "put_type",
+    "drop_type",
+    "enable_type",
+    "set_default",
+    "order_types",
+    "assign",
+];
+
 /// The plugin's manifest.
 pub const MANIFEST_TOML: &str = include_str!("../manifest.toml");
 
@@ -154,17 +180,41 @@ fn own_words(detail: String) -> String {
 
 /// What asking `shelf` came to, where it came to nothing, for whoever
 /// asked the counter.
-fn refusal_of(shelf: &str, refused: ShelfDispatchError) -> Refusal {
-    // The steward hands a plugin another shelf's words and not the code
-    // they were given under: the code here says which shelf refused, and
-    // whether for now or as asked.
+fn refusal_of(shelf: &str, refused: CodedDispatchError) -> Refusal {
+    let CodedDispatchError {
+        kind,
+        class,
+        subclass,
+        values,
+        ..
+    } = refused;
+    // What the shelf's plugin itself refused, under a code of its own,
+    // is given on as it was given: the code, the values and the words.
+    let kind = match (kind, class, subclass) {
+        (
+            ShelfDispatchError::Transient { detail }
+            | ShelfDispatchError::Permanent { detail },
+            Some(class),
+            Some(code),
+        ) => {
+            return Refusal::Passed {
+                class,
+                code,
+                words: own_words(detail),
+                values,
+            }
+        }
+        (kind, _, _) => kind,
+    };
+    // What came with no code is given one here: it says which shelf
+    // refused, and whether for now or as asked.
     let (for_now, as_asked) = match shelf {
         CONTROLLER => ("controller_for_now", "controller_as_asked"),
         NETWORKS => ("networks_for_now", "networks_as_asked"),
         RESERVE => ("reserve_for_now", "reserve_as_asked"),
         _ => ("shelf_for_now", "shelf_as_asked"),
     };
-    match refused {
+    match kind {
         // What the shelf itself says is said on, in its own words.
         ShelfDispatchError::Transient { detail } => {
             Refusal::ForNow(why(for_now, own_words(detail)))
@@ -189,7 +239,8 @@ fn refusal_of(shelf: &str, refused: ShelfDispatchError) -> Refusal {
 
 /// The counter's refusal, as the steward takes one from a plugin. One the
 /// steward named goes back to it as the refusal it was: a caller who may
-/// not, under the name the steward gave.
+/// not, under the name the steward gave. One another shelf's plugin gave
+/// under a code of its own goes on as that plugin gave it.
 fn told(refused: Refusal) -> PluginError {
     match refused {
         Refusal::ForNow(why) => why.for_now(),
@@ -198,6 +249,17 @@ fn told(refused: Refusal) -> PluginError {
             class: ErrorClass::PermissionDenied,
             subclass: name,
             message: why,
+        },
+        Refusal::Passed {
+            class,
+            code,
+            words,
+            values,
+        } => PluginError::WithValues {
+            class,
+            subclass: code,
+            message: words,
+            values,
         },
     }
 }
@@ -216,9 +278,11 @@ impl Shelves for Steward {
             let payload = serde_json::to_vec(&payload).map_err(|e| {
                 Refusal::AsAsked(why("not_as_asked", e.to_string()))
             })?;
+            // Asked so that a refusal comes with the code and the
+            // values it was given under, whatever its class.
             let answer = self
                 .0
-                .dispatch(shelf, request_type, payload, None)
+                .dispatch_coded(shelf, request_type, payload, None)
                 .await
                 .map_err(|refused| refusal_of(shelf, refused))?;
             serde_json::from_slice(&answer).map_err(|e| {
@@ -234,9 +298,19 @@ impl Shelves for Steward {
 }
 
 /// The counter as the steward admits it.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct CounterPlugin {
     counter: Mutex<Option<Arc<Counter>>>,
+    /// The way the steward gives a plugin to say what happened to it.
+    says: Mutex<Option<Arc<dyn HappeningEmitter>>>,
+}
+
+impl std::fmt::Debug for CounterPlugin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CounterPlugin")
+            .field("counter", &self.counter)
+            .finish_non_exhaustive()
+    }
 }
 
 impl CounterPlugin {
@@ -247,6 +321,28 @@ impl CounterPlugin {
 
     fn counter(&self) -> Option<Arc<Counter>> {
         self.counter.lock().expect("the counter's lock").clone()
+    }
+
+    /// Say that what a front desk is offered is not what it was. What
+    /// was asked is done by now, and stays done where this cannot be
+    /// said: a page that hears nothing asks again by itself.
+    async fn say_the_offer_changed(&self) {
+        let says = self.says.lock().expect("the counter's lock").clone();
+        let Some(says) = says else {
+            return;
+        };
+        if let Err(e) = says
+            .emit_plugin_event(
+                OFFER_CHANGED.to_string(),
+                Value::Object(Default::default()),
+            )
+            .await
+        {
+            tracing::warn!(
+                plugin = NAME,
+                "that the offer changed could not be said: {e}"
+            );
+        }
     }
 }
 
@@ -305,6 +401,8 @@ impl Plugin for CounterPlugin {
             tracing::info!(plugin = NAME, "plugin load");
             *self.counter.lock().expect("the counter's lock") =
                 Some(Arc::new(counter));
+            *self.says.lock().expect("the counter's lock") =
+                Some(ctx.happening_emitter.clone());
             Ok(())
         }
     }
@@ -315,6 +413,7 @@ impl Plugin for CounterPlugin {
         async move {
             tracing::info!(plugin = NAME, "plugin unload");
             *self.counter.lock().expect("the counter's lock") = None;
+            *self.says.lock().expect("the counter's lock") = None;
             Ok(())
         }
     }
@@ -343,6 +442,9 @@ impl Respondent for CounterPlugin {
                 .answer(&req.request_type, &req.payload)
                 .await
                 .map_err(told)?;
+            if CHANGING_THE_OFFER.contains(&req.request_type.as_str()) {
+                self.say_the_offer_changed().await;
+            }
             let payload = serde_json::to_vec(&answer)
                 .map_err(|e| PluginError::Permanent(e.to_string()))?;
             Ok(Response::for_request(req, payload))
@@ -453,7 +555,9 @@ mod tests {
     #[test]
     fn every_other_refusal_of_a_shelf_is_one_for_now_or_as_asked() {
         let detail = || "the shelf's words".to_string();
-        let of = |refused| refusal_of("stock.reserve", refused);
+        let of = |refused: ShelfDispatchError| {
+            refusal_of("stock.reserve", refused.into())
+        };
         assert_eq!(
             of(ShelfDispatchError::Transient { detail: detail() }),
             Refusal::ForNow(why("reserve_for_now", detail()))
@@ -466,14 +570,14 @@ mod tests {
         assert_eq!(
             refusal_of(
                 "access.controller",
-                ShelfDispatchError::Transient { detail: detail() }
+                ShelfDispatchError::Transient { detail: detail() }.into()
             ),
             Refusal::ForNow(why("controller_for_now", detail()))
         );
         assert_eq!(
             refusal_of(
                 "networks.directory",
-                ShelfDispatchError::Permanent { detail: detail() }
+                ShelfDispatchError::Permanent { detail: detail() }.into()
             ),
             Refusal::AsAsked(why("networks_as_asked", detail()))
         );
@@ -497,14 +601,223 @@ mod tests {
         // nothing before them.
         assert!(matches!(
             told(Refusal::ForNow(why("reserve_for_now", detail()))),
-            PluginError::WithSubclass { class: ErrorClass::Transient, subclass, message }
-                if subclass == "reserve_for_now" && message == detail()
+            PluginError::WithValues { class: ErrorClass::Transient, subclass, message, values }
+                if subclass == "reserve_for_now" && message == detail() && values.is_empty()
         ));
         assert!(matches!(
             told(Refusal::AsAsked(why("no_such_type", detail()))),
-            PluginError::WithSubclass { class: ErrorClass::ContractViolation, subclass, message }
-                if subclass == "no_such_type" && message == detail()
+            PluginError::WithValues { class: ErrorClass::ContractViolation, subclass, message, values }
+                if subclass == "no_such_type" && message == detail() && values.is_empty()
         ));
+    }
+
+    /// A refusal as the steward gives one that the plugin on another
+    /// shelf gave under a code, with a value it speaks of.
+    fn coded(
+        kind: ShelfDispatchError,
+        class: ErrorClass,
+    ) -> CodedDispatchError {
+        CodedDispatchError::new(kind)
+            .with_code(class, "terms_outside")
+            .with_values([("term".to_string(), Value::from("minutes"))].into())
+    }
+
+    #[test]
+    fn what_another_shelfs_plugin_refused_under_a_code_is_given_on_as_it_was() {
+        let words = "minutes must be within 1..=1000000";
+        for (kind, class) in [
+            (
+                ShelfDispatchError::Permanent {
+                    detail: words.to_string(),
+                },
+                ErrorClass::ContractViolation,
+            ),
+            (
+                ShelfDispatchError::Transient {
+                    detail: format!("plugin error: transient error: {words}"),
+                },
+                ErrorClass::Transient,
+            ),
+        ] {
+            let refused = refusal_of("access.controller", coded(kind, class));
+            // The code is the plugin's own, and not one that says which
+            // shelf it was; the value it speaks of is beside it.
+            assert_eq!(
+                refused,
+                Refusal::Passed {
+                    class,
+                    code: "terms_outside".to_string(),
+                    words: words.to_string(),
+                    values: [("term".to_string(), Value::from("minutes"))]
+                        .into(),
+                }
+            );
+            // And the steward is told the same: whoever asked the
+            // counter reads the code and the value as they would have
+            // asking that shelf themselves.
+            let told = told(refused);
+            assert_eq!(
+                told.coded_details(),
+                Some(serde_json::json!({
+                    "subclass": "terms_outside",
+                    "values": { "term": "minutes" },
+                }))
+            );
+            assert!(
+                matches!(&told, PluginError::WithValues { class: under, message, .. }
+                    if *under == class && message == words),
+                "{told:?}"
+            );
+        }
+
+        // What the steward refuses by name stays the steward's refusal,
+        // whatever came beside it; and what is not the plugin's own
+        // saying is given the code of its shelf, as before.
+        let named = refusal_of(
+            "stock.reserve",
+            coded(
+                ShelfDispatchError::Refused {
+                    subclass: KEPT.to_string(),
+                    detail: "the owner's".to_string(),
+                },
+                ErrorClass::PermissionDenied,
+            ),
+        );
+        assert_eq!(
+            named,
+            Refusal::Named {
+                name: KEPT.to_string(),
+                why: "the owner's".to_string(),
+            }
+        );
+        let unstocked = refusal_of(
+            "stock.reserve",
+            coded(
+                ShelfDispatchError::NoPluginOnShelf {
+                    shelf: "stock.reserve".to_string(),
+                },
+                ErrorClass::NotFound,
+            ),
+        );
+        assert!(
+            matches!(&unstocked, Refusal::AsAsked(why) if why.code == "shelf_as_asked"),
+            "{unstocked:?}"
+        );
+    }
+
+    /// A steward whose shelves answer as a unit's do where a network is
+    /// chosen and nothing is set aside, and whose controller refuses to
+    /// mint under a code of its own, with the value it speaks of.
+    struct RefusingTerms;
+
+    impl ShelfRequestDispatcher for RefusingTerms {
+        fn dispatch<'a>(
+            &'a self,
+            shelf: &'a str,
+            request_type: &'a str,
+            payload: Vec<u8>,
+            instance_id: Option<&'a str>,
+        ) -> Pin<
+            Box<
+                dyn Future<Output = Result<Vec<u8>, ShelfDispatchError>>
+                    + Send
+                    + 'a,
+            >,
+        > {
+            Box::pin(async move {
+                self.dispatch_coded(shelf, request_type, payload, instance_id)
+                    .await
+                    .map_err(|coded| coded.kind)
+            })
+        }
+
+        fn dispatch_coded<'a>(
+            &'a self,
+            shelf: &'a str,
+            request_type: &'a str,
+            _payload: Vec<u8>,
+            _instance_id: Option<&'a str>,
+        ) -> Pin<
+            Box<
+                dyn Future<Output = Result<Vec<u8>, CodedDispatchError>>
+                    + Send
+                    + 'a,
+            >,
+        > {
+            Box::pin(async move {
+                let said = match (shelf, request_type) {
+                    (NETWORKS, "chosen") => serde_json::json!({ "chosen": {
+                        "site": "site-1", "network": "wifi-2", "name": "Guests",
+                    }}),
+                    (RESERVE, "take") => serde_json::json!({ "voucher": null }),
+                    (CONTROLLER, "mint") => {
+                        return Err(coded(
+                            ShelfDispatchError::Permanent {
+                                detail: "minutes must be within 1..=1000000"
+                                    .to_string(),
+                            },
+                            ErrorClass::ContractViolation,
+                        ))
+                    }
+                    other => panic!("the counter asked {other:?}"),
+                };
+                Ok(serde_json::to_vec(&said).unwrap())
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn a_voucher_refused_by_the_controller_is_refused_under_the_controllers_code(
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let counter =
+            Counter::open(
+                dir.path(),
+                Some(Arc::new(Steward(Arc::new(RefusingTerms)))
+                    as Arc<dyn Shelves>),
+            )
+            .unwrap();
+        counter
+            .answer("put_type", br#"{"name": "For ever", "minutes": 1440}"#)
+            .await
+            .unwrap();
+        let refused = counter
+            .answer("hand", br#"{"type": "For ever"}"#)
+            .await
+            .unwrap_err();
+        let told = told(refused);
+        assert_eq!(
+            told.coded_details(),
+            Some(serde_json::json!({
+                "subclass": "terms_outside",
+                "values": { "term": "minutes" },
+            })),
+            "{told:?}"
+        );
+    }
+
+    /// Which requests may leave a front desk offered something else,
+    /// and which leave the offer as it stands: a request the plugin is
+    /// given one day is put in one list or the other here.
+    #[test]
+    fn the_counter_says_the_offer_changed_after_what_changes_it_and_nothing_else(
+    ) {
+        let leaves_it: [&str; 6] = [
+            "types",
+            "offered",
+            "hand",
+            "hand_default",
+            "hand_type",
+            "handed",
+        ];
+        for request in REQUESTS {
+            assert_ne!(
+                CHANGING_THE_OFFER.contains(&request),
+                leaves_it.contains(&request),
+                "{request}"
+            );
+        }
+        assert_eq!(CHANGING_THE_OFFER.len() + leaves_it.len(), REQUESTS.len());
     }
 
     /// The steward admits a plugin only where what it says of itself is

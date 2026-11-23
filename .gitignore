@@ -2,6 +2,8 @@
 /out/
 /dist/
 **/*.rs.bk
+__pycache__/
+*.pyc
 .DS_Store
 
 # What a site puts beside the Compose files, and is no part of the

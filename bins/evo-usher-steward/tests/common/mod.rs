@@ -181,7 +181,17 @@ impl Line {
     /// The next frame that `wanted` holds of, within a few seconds; none
     /// where the line stays silent or is closed.
     pub fn hear(&mut self, wanted: impl Fn(&Value) -> bool) -> Option<Value> {
-        let until = Instant::now() + Duration::from_secs(8);
+        self.hear_for(Duration::from_secs(8), wanted)
+    }
+
+    /// The next frame that `wanted` holds of, within so long; none
+    /// where the line stays silent that long or is closed.
+    pub fn hear_for(
+        &mut self,
+        long: Duration,
+        wanted: impl Fn(&Value) -> bool,
+    ) -> Option<Value> {
+        let until = Instant::now() + long;
         while Instant::now() < until {
             match self.socket.read() {
                 Ok(tungstenite::Message::Text(text)) => {
@@ -466,7 +476,20 @@ impl Steward {
         dir: &Path,
         given: &[(&str, &str)],
     ) -> (Option<i32>, String) {
+        Self::refused_to_start_without(dir, &[], given)
+    }
+
+    /// The same, started without variables a steward is otherwise
+    /// started with: a unit that was not told one of them.
+    pub fn refused_to_start_without(
+        dir: &Path,
+        without: &[&str],
+        given: &[(&str, &str)],
+    ) -> (Option<i32>, String) {
         let (mut command, _, _) = Self::command_on(dir, true, None, given);
+        for name in without {
+            command.env_remove(name);
+        }
         let mut child = command.stderr(Stdio::piped()).spawn().unwrap();
         let until = Instant::now() + Duration::from_secs(20);
         let ended = loop {
@@ -502,12 +525,39 @@ impl Steward {
         Self::once_up(dir, port, socket, child)
     }
 
+    /// Start another program as the steward on `dir`: one that takes
+    /// the steward's place for a test, and reads the configuration
+    /// written for it at `evo.toml` in `dir`. It is given what the
+    /// steward is given in its environment, with no face, and is waited
+    /// for as the steward is.
+    pub fn start_another(dir: &Path, program: Command) -> Self {
+        let (mut command, port, socket) =
+            Self::furnished(dir, false, program, None, &[]);
+        let child = command.spawn().unwrap();
+        Self::once_up(dir, port, socket, child)
+    }
+
     /// The steward as it is started on `dir`: its configuration written,
     /// and the command with its environment; the port its listener is
     /// given, and its socket.
     fn command_on(
         dir: &Path,
         face: bool,
+        level: Option<&str>,
+        given: &[(&str, &str)],
+    ) -> (Command, u16, PathBuf) {
+        let mut program = Command::new(env!("CARGO_BIN_EXE_evo-usher-steward"));
+        program.arg("--config").arg(dir.join("evo.toml"));
+        Self::furnished(dir, face, program, level, given)
+    }
+
+    /// A program furnished as the steward is on `dir`: the steward's
+    /// configuration written, and the program given its environment;
+    /// the port its listener is given, and its socket.
+    fn furnished(
+        dir: &Path,
+        face: bool,
+        mut command: Command,
         level: Option<&str>,
         given: &[(&str, &str)],
     ) -> (Command, u16, PathBuf) {
@@ -574,10 +624,7 @@ discovery_enabled = false
         fs::create_dir_all(dir.join("state")).unwrap();
         let code = dir.join("unit-code");
         let port = free_port();
-        let mut command = Command::new(env!("CARGO_BIN_EXE_evo-usher-steward"));
         command
-            .arg("--config")
-            .arg(&config)
             .env("EVO_HTTPS_LISTEN_ADDR", format!("127.0.0.1:{port}"))
             .env("EVO_PAIR_PRESEED_FILE", &code)
             // As a unit has it: evo writes a revoked bearer down under
@@ -752,6 +799,111 @@ discovery_enabled = false
         let mut body = vec![0u8; u32::from_be_bytes(length) as usize];
         line.read_exact(&mut body).ok()?;
         serde_json::from_slice(&body).ok()
+    }
+
+    /// Ask the steward one thing over its client socket as its own
+    /// program does: granted first what only a program that runs as the
+    /// steward's own account is granted, as the usher is where it has a
+    /// session's bearer made.
+    pub fn as_its_program(&self, message: &Value) -> Value {
+        let mut line =
+            UnixStream::connect(&self.socket).expect("the steward's socket");
+        line.set_read_timeout(Some(Duration::from_secs(20)))
+            .unwrap();
+        let mut ask = |message: &Value| -> Value {
+            let body = serde_json::to_vec(message).unwrap();
+            line.write_all(&(body.len() as u32).to_be_bytes()).unwrap();
+            line.write_all(&body).unwrap();
+            let mut length = [0u8; 4];
+            line.read_exact(&mut length).unwrap();
+            let mut body = vec![0u8; u32::from_be_bytes(length) as usize];
+            line.read_exact(&mut body).unwrap();
+            serde_json::from_slice(&body).unwrap()
+        };
+        let granted = ask(
+            &json!({ "op": "negotiate", "capabilities": ["plugins_admin"] }),
+        );
+        assert!(
+            granted["granted"].as_array().is_some_and(
+                |granted| granted.contains(&json!("plugins_admin"))
+            ),
+            "the steward grants its own program nothing: {granted}"
+        );
+        ask(message)
+    }
+
+    /// A bearer evo makes over the client socket, good for the
+    /// capabilities named and for ten minutes: made as the usher has a
+    /// session's made, and no session of the usher's.
+    pub fn minted(&self, capabilities: &[&str]) -> String {
+        let said = self.as_its_program(&json!({
+            "op": "mint_bearer_token",
+            "reason": "made by a test",
+            "ttl_seconds": 600,
+            "capabilities": capabilities,
+        }));
+        said["token"]
+            .as_str()
+            .unwrap_or_else(|| panic!("evo made no bearer: {said}"))
+            .to_string()
+    }
+
+    /// evo's own record of every bearer it made and has not let go:
+    /// what it is called, what made it, why, and whether it was taken
+    /// back.
+    pub fn bearers(&self) -> Vec<Value> {
+        let said = self.as_its_program(&json!({ "op": "list_bearer_tokens" }));
+        said["records"]
+            .as_array()
+            .unwrap_or_else(|| panic!("evo listed no bearers: {said}"))
+            .clone()
+    }
+
+    /// evo's record of one bearer, by the bearer; nothing where evo
+    /// keeps none.
+    pub fn record_of(&self, bearer: &str) -> Option<Value> {
+        let id = evo_auth_bearer::BearerToken::decode(bearer)
+            .expect("a bearer of evo's")
+            .id;
+        self.bearers()
+            .into_iter()
+            .find(|record| record["token_id"] == id.as_str())
+    }
+
+    /// Wait until evo has taken a bearer back, and say why it did: the
+    /// usher tells evo of a session that ended a moment after it ends.
+    pub fn taken_back(&self, bearer: &str) -> String {
+        let until = Instant::now() + Duration::from_secs(30);
+        loop {
+            let record = self.record_of(bearer).expect("evo's record of it");
+            if !record["revoked_at_ms"].is_null() {
+                return record["revoked_reason"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string();
+            }
+            assert!(
+                Instant::now() < until,
+                "evo was not told that the session ended: {record}"
+            );
+            sleep(Duration::from_millis(50));
+        }
+    }
+
+    /// What a bearer is good for at evo, as evo wrote it on the bearer:
+    /// each capability by its name, once, in order.
+    pub fn good_for(bearer: &str) -> Vec<String> {
+        let mut scopes: Vec<String> =
+            evo_auth_bearer::BearerToken::decode(bearer)
+                .expect("a bearer of evo's")
+                .capabilities
+                .capabilities()
+                .iter()
+                .map(|capability| capability.scope().to_string())
+                .collect();
+        scopes.sort();
+        scopes.dedup();
+        scopes
     }
 
     /// Ask a shelf over the client socket, as a program on the same
@@ -974,6 +1126,32 @@ discovery_enabled = false
             .env_remove("USHER_SECURITY")
             .envs(given.iter().copied());
         command
+    }
+
+    /// The steward's program run on the unit with arguments of the
+    /// steward's own, beside a steward that is stopped, as whoever has
+    /// the unit's files runs it: how it ended, and what it said.
+    pub fn program_on(dir: &Path, arguments: &[&str]) -> (Option<i32>, String) {
+        let ran = Command::new(env!("CARGO_BIN_EXE_evo-usher-steward"))
+            .arg("--config")
+            .arg(dir.join("evo.toml"))
+            .args(arguments)
+            .env_remove("EVO_HTTPS_LISTEN_ADDR")
+            .env_remove("EVO_HTTPS_STATE_DIR")
+            .env_remove("USHER_SECURITY")
+            .env_remove("USHER_DEMO")
+            .env_remove("USHER_PROFILE")
+            .stdin(Stdio::null())
+            .output()
+            .expect("the program runs");
+        (
+            ran.status.code(),
+            format!(
+                "{}{}",
+                String::from_utf8_lossy(&ran.stdout),
+                String::from_utf8_lossy(&ran.stderr)
+            ),
+        )
     }
 
     /// Ask the program for a new password where there is no terminal:

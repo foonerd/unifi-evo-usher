@@ -3,7 +3,7 @@ name = "org.evoframework.usher.site"
 # The crate's version, which is the workspace's. The steward refuses a
 # plugin that says another version than its manifest; a test holds the two
 # together.
-version = "0.3.23"
+version = "0.3.24"
 contract = 1
 
 [target]
@@ -43,11 +43,16 @@ request_types = ["get", "set", "put_logo", "remove_logo"]
 response_budget_ms = 1000
 
 # Who may ask. What a site is called, how its logo looks and what time it
-# keeps are what its forms and its guests are shown: reading them asks for
-# nothing. Changing them is an administrator's, and asks for the
-# network_admin capability, as everything that changes a unit does.
+# keeps are what its forms and its guests are shown, and what every page
+# of a person who hands out vouchers wears: reading them asks for
+# voucher_issue, the capability the session of a person at the front
+# desk holds, and an administrator's with it. A request that asks for no
+# capability at all is answered only to a bearer that may ask any plugin
+# anything, which the front desk's is not. Changing them is an
+# administrator's, and asks for the network_admin capability, as
+# everything that changes a unit does.
 [capabilities.respondent.verb_capabilities]
-get = { kind = "none" }
+get = { kind = "read", scope = "voucher_issue" }
 set = { kind = "write", scope = "network_admin" }
 put_logo = { kind = "write", scope = "network_admin" }
 remove_logo = { kind = "write", scope = "network_admin" }

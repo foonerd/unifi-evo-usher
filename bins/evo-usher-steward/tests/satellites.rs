@@ -303,7 +303,7 @@ fn a_screen_is_adopted_by_its_code_and_hands_out_the_default_voucher() {
     assert!(!told.contains(&secret) && !told.contains("hash"), "{told}");
 
     // The screen exchanges its secret for a session, which is good for
-    // asking the plugins and handing out the default voucher, and for
+    // asking a shelf and handing out the default voucher, and for
     // nothing else of evo's.
     let (status, said) = present(&secret);
     assert_eq!(status, 200, "{said}");
@@ -320,7 +320,7 @@ fn a_screen_is_adopted_by_its_code_and_hands_out_the_default_voucher() {
         .collect();
     scopes.sort();
     scopes.dedup();
-    assert_eq!(scopes, ["plugins", "voucher_default"]);
+    assert_eq!(scopes, ["request", "voucher_default"]);
     let lobby = Caller::on_the_lan().with(&bearer);
 
     // It says it is there, and is told what it is and what the site is
@@ -417,13 +417,11 @@ fn a_screen_is_adopted_by_its_code_and_hands_out_the_default_voucher() {
         assert_eq!(status, 403, "{said}");
     }
 
-    // What the site is called is told a satellite; nothing else of any
-    // shelf is, and nothing is done.
-    let (status, site) =
-        steward.ask_status(&lobby, "site.settings", "get", json!({}));
-    assert_eq!(status, 200, "{site}");
-    assert_eq!(site["name"], "", "{site}");
+    // What the site is called is told a satellite where it says that
+    // it is there, by the usher; nothing of any shelf is but a voucher,
+    // and nothing is done.
     for (shelf, request, payload) in [
+        ("site.settings", "get", json!({})),
         ("issue.counter", "hand", json!({ "type": "Day guest" })),
         ("issue.counter", "offered", json!({})),
         ("issue.counter", "types", json!({})),
@@ -470,6 +468,7 @@ fn a_screen_is_adopted_by_its_code_and_hands_out_the_default_voucher() {
     // satellites are not a satellite's to ask.
     for (route, asked) in [
         ("me", None),
+        ("stocked", None),
         ("people", None),
         ("satellites", None),
         ("sign_out", Some(json!({}))),
@@ -525,8 +524,11 @@ fn a_screen_is_adopted_by_its_code_and_hands_out_the_default_voucher() {
     assert_eq!(listed(&steward, &anna)[0]["limit"], 20);
 
     // And of the steward's own operations, every one evo lists, read or
-    // written, but what the door reads and the asking of a shelf, which
-    // is held to the default voucher above.
+    // written, but the asking of a shelf, which is held to the default
+    // voucher above. The gate refuses them by name. The one operation
+    // it lets anyone ask, which a screen asks with nothing presented,
+    // evo itself refuses a session that is not good for the plugins:
+    // the gate and evo hold each other.
     for operation in evo::projection_schema::canonical_schema()
         .iter()
         .map(|operation| operation.id.as_str().to_string())
@@ -540,8 +542,18 @@ fn a_screen_is_adopted_by_its_code_and_hands_out_the_default_voucher() {
                 &lobby,
             );
             if operation == "describe_active_ui_selection" {
-                assert_ne!(status, 403, "{method} {operation}: {said}");
-                assert_ne!(status, 401, "{method} {operation}: {said}");
+                assert!(
+                    !said.contains("not_for_satellite"),
+                    "{method} {operation}: {said}"
+                );
+                // evo's own refusal, which says nothing beside it.
+                if method == "GET" {
+                    assert_eq!(
+                        (status, said.as_str()),
+                        (403, ""),
+                        "{method} {operation}"
+                    );
+                }
             } else if operation == "request" && method == "POST" {
                 // What names no shelf asks none.
                 assert_eq!(status, 400, "{method} {operation}: {said}");
@@ -554,7 +566,19 @@ fn a_screen_is_adopted_by_its_code_and_hands_out_the_default_voucher() {
             }
         }
     }
-    // The line of what happens is not opened to it.
+    // With nothing presented it is answered, to a screen as to anyone.
+    assert_eq!(
+        steward
+            .op(
+                "describe_active_ui_selection",
+                json!({}),
+                &Caller::on_the_lan()
+            )
+            .0,
+        200
+    );
+    // No line of what happens is opened to it: a satellite hears
+    // nothing of the unit.
     assert_eq!(steward.line(&bearer, true).err(), Some(403));
     assert_eq!(steward.line(&bearer, false).err(), Some(403));
     // The files of its page are read, as by anyone, and nothing is
@@ -1382,12 +1406,12 @@ fn a_protected_satellite_gives_the_voucher_types_it_was_given() {
     let ward_bearer = ward_in["token"].as_str().unwrap().to_string();
     assert_eq!(
         good_for(&ward_bearer),
-        ["plugins", "voucher_default", "voucher_named"]
+        ["request", "voucher_default", "voucher_named"]
     );
     let lobby_in = present(&lobby_secret);
     assert_eq!(
         good_for(lobby_in["token"].as_str().unwrap()),
-        ["plugins", "voucher_default"]
+        ["request", "voucher_default"]
     );
     let ward = Caller::on_the_lan().with(&ward_bearer);
     let lobby = Caller::on_the_lan().with(lobby_in["token"].as_str().unwrap());
@@ -1542,7 +1566,7 @@ fn a_protected_satellite_gives_the_voucher_types_it_was_given() {
     let again = present(&ward_secret);
     assert_eq!(
         good_for(again["token"].as_str().unwrap()),
-        ["plugins", "voucher_default"]
+        ["request", "voucher_default"]
     );
     assert_eq!(again["types"], json!([]));
     let ward = Caller::on_the_lan().with(again["token"].as_str().unwrap());
@@ -1562,7 +1586,7 @@ fn a_protected_satellite_gives_the_voucher_types_it_was_given() {
     let again = present(&ward_secret);
     assert_eq!(
         good_for(again["token"].as_str().unwrap()),
-        ["plugins", "voucher_default", "voucher_named"]
+        ["request", "voucher_default", "voucher_named"]
     );
 
     // A file changed by hand: a list on a satellite that is unlocked.
@@ -1589,7 +1613,7 @@ fn a_protected_satellite_gives_the_voucher_types_it_was_given() {
     assert_eq!(status, 200, "{said}");
     assert_eq!(
         good_for(said["token"].as_str().unwrap()),
-        ["plugins", "voucher_default"]
+        ["request", "voucher_default"]
     );
     assert_eq!(said["types"], json!([]));
     let lobby = Caller::on_the_lan().with(said["token"].as_str().unwrap());

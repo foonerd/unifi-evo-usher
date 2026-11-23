@@ -303,6 +303,7 @@
   "refusal.signs_in_with_pin": "{name} logt in met een PIN, niet met een wachtwoord. In plaats daarvan maakt een beheerder een nieuwe PIN aan.",
   "refusal.site_name_not_plain": "De naam van een locatie is gewone tekst op één regel.",
   "refusal.site_name_too_long": "De naam van een locatie is maximaal {most} tekens lang; deze heeft er {has}.",
+  "refusal.stocked_not_read": "Wat op deze pagina staat, kon niet worden gelezen. Probeer het zo meteen opnieuw.",
   "refusal.terms_outside": "De controller accepteert geen voucher met deze voorwaarden. ({words})",
   "refusal.time_zone_not_one": "{time_zone} is geen naam van een tijdzone. Een tijdzone wordt geschreven als Europe/Warsaw.",
   "refusal.too_many_satellites": "Er kunnen niet meer satellieten worden bewaard: maximaal {most}.",

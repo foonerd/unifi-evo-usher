@@ -286,9 +286,13 @@ desk=$(jq -r '.token' "$work/answer")
 # Ask a shelf as the browser of a person at the front desk does.
 at_the_desk() { ask request "$(request "$1" "$2" "${3:-{\}}")" "$desk"; }
 # What the counter's page asks is answered: who they are, what is
-# stocked, the site, how many vouchers are set aside, the types on offer.
+# stocked for their page, the site, how many vouchers are set aside, the
+# types on offer. What is stocked is told them by the usher, and of it
+# the counter alone; evo's own word on it is an administrator's.
 [ "$(usher me '' "$desk")" = 200 ] || fail "a person at the front desk is not told who they are: $(cat "$work/answer")"
-[ "$(ask describe_ui_stockings '' "$desk")" = 200 ] || fail "a person at the front desk is not told what is stocked: $(cat "$work/answer")"
+[ "$(usher stocked '' "$desk")" = 200 ] || fail "a person at the front desk is not told what is stocked for their page: $(cat "$work/answer")"
+jq -e '(.entries | map(.widget)) == ["usher.counter"] and (.shelves | map(.id)) == ["issue.counter"] and (.widget_kinds | map(.id)) == ["usher.counter"]' "$work/answer" > /dev/null || fail "a person at the front desk is told to be stocked: $(cat "$work/answer")"
+[ "$(ask describe_ui_stockings '' "$desk")" = 403 ] || fail "a person at the front desk is told everything that is stocked: $(cat "$work/answer")"
 [ "$(at_the_desk site.settings get)" = 200 ] || fail "a person at the front desk is not told of the site: $(cat "$work/answer")"
 [ "$(at_the_desk stock.reserve count)" = 200 ] || fail "a person at the front desk is not told how many vouchers are set aside: $(cat "$work/answer")"
 [ "$(at_the_desk issue.counter offered)" = 200 ] || fail "a person at the front desk is not told the types on offer: $(cat "$work/answer")"
@@ -386,13 +390,13 @@ jq -e '.adopted == true and .name == "Lobby"' "$work/answer" > /dev/null || fail
 screen=$(jq -r '.token' "$work/answer")
 # Ask a shelf as a satellite's screen does.
 at_the_screen() { ask request "$(request "$1" "$2" "${3:-{\}}")" "$screen"; }
-# What its page asks is answered: that it is still a satellite, and
-# what the site is called; the site's settings; and the default
-# voucher, of which the counter says that no network is chosen yet,
-# which is the administrator's to do.
+# What its page asks is answered: that it is still a satellite, which
+# tells it what the site is called; and the default voucher, of which
+# the counter says that no network is chosen yet, which is the
+# administrator's to do. The site's own shelf is not its to ask.
 [ "$(usher satellite '' "$screen")" = 200 ] || fail "a satellite is not told that it is one: $(cat "$work/answer")"
 jq -e '.name == "Lobby" and .place == "By the door" and .limit == 20 and .handed == 0 and (.site.name | type == "string")' "$work/answer" > /dev/null || fail "a satellite that says it is there is answered: $(cat "$work/answer")"
-[ "$(at_the_screen site.settings get)" = 200 ] || fail "a satellite is not told of the site: $(cat "$work/answer")"
+[ "$(at_the_screen site.settings get)" = 403 ] || fail "a satellite is answered by the site's shelf: $(cat "$work/answer")"
 [ "$(at_the_screen issue.counter hand_default)" != 403 ] || fail "a satellite is kept from handing out the default voucher: $(cat "$work/answer")"
 jq -e '.error.details.subclass == "no_network_chosen"' "$work/answer" > /dev/null || fail "the counter answered a satellite: $(cat "$work/answer")"
 # A voucher that was not handed out is not counted against its hour.
@@ -418,7 +422,7 @@ stock.reserve held
 stock.reserve take
 site.settings set
 ASKED
-for route in me people satellites; do
+for route in me stocked people satellites; do
   [ "$(usher "$route" '' "$screen")" = 403 ] || fail "a satellite is answered $route: $(cat "$work/answer")"
 done
 [ "$(usher add_person "$(named "Mallory" "three small owls sing")" "$screen")" = 403 ] || fail "a satellite adds a person: $(cat "$work/answer")"

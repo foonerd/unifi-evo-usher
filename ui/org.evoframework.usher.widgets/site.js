@@ -219,16 +219,9 @@ export function site(element, context) {
             tell(/** @type {HTMLElement} */ (drawn.querySelector(".usher-said")), say("site.saved"));
             /** @type {HTMLElement} */ (drawn.querySelector('button[type="submit"]')).focus();
           } catch (why) {
-            // What a name may be was told with the site, and how long
-            // the one typed is can be counted: a refusal may say both.
-            tell(
-              settingsSaid,
-              words(why, {
-                most: allowed.name_characters,
-                has: [...nameField.value.trim()].length,
-              }),
-              true,
-            );
+            // A refusal carries the values it speaks of: how long a
+            // name may be, and how long the one typed is.
+            tell(settingsSaid, words(why), true);
             save.disabled = false;
           }
         },

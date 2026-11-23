@@ -299,6 +299,7 @@
   "refusal.signs_in_with_pin": "{name} はパスワードではなく PIN でサインインします。代わりに管理者が新しい PIN を作成します。",
   "refusal.site_name_not_plain": "サイトの名前は、1 行のテキストにしてください。",
   "refusal.site_name_too_long": "サイトの名前は {most} 文字までです。入力されたものは {has} 文字です。",
+  "refusal.stocked_not_read": "このページの内容を読み取れませんでした。しばらくしてからもう一度お試しください。",
   "refusal.terms_outside": "コントローラーはこの条件のバウチャーを受け付けません。（{words}）",
   "refusal.time_zone_not_one": "{time_zone} はタイムゾーンの名前ではありません。Europe/Warsaw のように書きます。",
   "refusal.too_many_satellites": "サテライトはこれ以上登録できません。{most} 台までです。",

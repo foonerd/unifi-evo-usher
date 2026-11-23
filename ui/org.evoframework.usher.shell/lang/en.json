@@ -303,6 +303,7 @@
   "refusal.signs_in_with_pin": "{name} signs in with a PIN, not a password. An administrator makes a new PIN instead.",
   "refusal.site_name_not_plain": "A site's name is plain text on one line.",
   "refusal.site_name_too_long": "A site's name is {most} characters at most; this one has {has}.",
+  "refusal.stocked_not_read": "What is on this page could not be read. Try again in a moment.",
   "refusal.terms_outside": "The controller does not take a voucher on these terms. ({words})",
   "refusal.time_zone_not_one": "{time_zone} is not the name of a time zone. One is written as Europe/Warsaw.",
   "refusal.too_many_satellites": "No more satellites can be kept: {most} at most.",

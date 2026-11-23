@@ -6,15 +6,26 @@
 // first. For a network that is joined without a passphrase the voucher
 // is shown with the symbol a phone joins that network from, and the whole
 // can be put before the guest, alone on the screen.
+//
+// What is offered is what the counter says it is now: when the counter
+// says its offer changed, the offer is asked for again at once; and it
+// is asked for again from time to time while the page is looked at, so
+// that what was not heard is had all the same.
 
 import { el, id, placeOf, svg, words } from "./dom.js";
-import { HELD_CHANGED, TYPES_KEPT, VOUCHER_HANDED } from "./events.js";
+import { HELD_CHANGED, PLUGIN_EVENT, TYPES_KEPT, VOUCHER_HANDED } from "./events.js";
 import { RESERVE } from "./shelves.js";
 import { lasts, limits, written } from "./vouchers.js";
 import { demo, say } from "./words.js";
 
 /** The minutes in a day, the step in which days are chosen. */
 const DAY = 1440;
+
+/** The event the counter emits when its offer is not what it was. */
+const OFFER_CHANGED = "offer_changed";
+
+/** How often the offer is asked for again while the page is looked at. */
+const EVERY_MS = 30000;
 
 /**
  * How many devices a voucher of a type is for, in words: a number that
@@ -154,6 +165,8 @@ export function counter(element, context) {
   let asking = false;
   /** The type whose choice is being asked for, by its name; null for none. */
   let choosingFor = /** @type {string | null} */ (null);
+  /** The offer as it is drawn; null where none is. @type {string | null} */
+  let offeredAs = null;
 
   const chooseNone = () => {
     choosingFor = null;
@@ -417,6 +430,12 @@ export function counter(element, context) {
       if (gone) return;
       const types = Array.isArray(known?.types) ? known.types : [];
       const standard = typeof known?.default === "string" ? known.default : null;
+      // An offer that is what it was is left as it stands, with what
+      // is said under it: nothing a person reads or types is disturbed
+      // by asking again.
+      const as = JSON.stringify([types, standard, held]);
+      if (as === offeredAs) return;
+      offeredAs = as;
       // A type that is asked about and is offered no longer is let go.
       if (!types.some((/** @type {any} */ type) => type.name === choosingFor)) chooseNone();
       if (types.length === 0) {
@@ -457,9 +476,20 @@ export function counter(element, context) {
       tell("");
     } catch (why) {
       if (gone) return;
+      offeredAs = null;
       offer.replaceChildren();
       tell(words(why));
     }
+  };
+
+  /** Ask again while the page is looked at. */
+  const seen = () => {
+    if (document.visibilityState === "visible") look();
+  };
+  /** The counter said something happened to it. @param {Event} event */
+  const counterSaid = (event) => {
+    const said = /** @type {CustomEvent} */ (event).detail;
+    if (said?.plugin === context.stocking.plugin && said?.event_type === OFFER_CHANGED) look();
   };
 
   element.setAttribute("role", "region");
@@ -474,12 +504,18 @@ export function counter(element, context) {
 
   document.addEventListener(TYPES_KEPT, look);
   document.addEventListener(HELD_CHANGED, look);
+  document.addEventListener(PLUGIN_EVENT, counterSaid);
+  document.addEventListener("visibilitychange", seen);
+  const timer = setInterval(seen, EVERY_MS);
   look();
 
   return () => {
     gone = true;
+    clearInterval(timer);
     document.removeEventListener(TYPES_KEPT, look);
     document.removeEventListener(HELD_CHANGED, look);
+    document.removeEventListener(PLUGIN_EVENT, counterSaid);
+    document.removeEventListener("visibilitychange", seen);
     element.replaceChildren();
   };
 }

@@ -311,6 +311,7 @@
   "refusal.signs_in_with_pin": "Osoba {name} loguje się PIN-em, a nie hasłem. Zamiast tego administrator tworzy nowy PIN.",
   "refusal.site_name_not_plain": "Nazwa lokalizacji to zwykły tekst w jednym wierszu.",
   "refusal.site_name_too_long": "Nazwa lokalizacji może mieć najwyżej {most} znaków; ta ma {has}.",
+  "refusal.stocked_not_read": "Nie udało się odczytać tego, co jest na tej stronie. Proszę spróbować ponownie za chwilę.",
   "refusal.terms_outside": "Kontroler nie przyjmuje vouchera na tych warunkach. ({words})",
   "refusal.time_zone_not_one": "{time_zone} to nie jest nazwa strefy czasowej. Strefę zapisuje się tak jak Europe/Warsaw.",
   "refusal.too_many_satellites": "Nie można zapisać więcej satelitów: najwyżej {most}.",

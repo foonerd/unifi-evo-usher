@@ -30,11 +30,12 @@ use std::sync::{Arc, OnceLock};
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
-use evo_auth_bearer::{Capability, CapabilitySet};
 use evo_projection_core::WireOpId;
-use evo_runtime_http::{Dispatcher, Principal};
+use evo_runtime_http::Dispatcher;
 use evo_usher_controller_unifi::simulated::Simulated;
 use serde_json::{json, Value};
+
+use crate::signin::{asking_as, ISSUING};
 
 /// The variable a demo is asked for with when the steward starts.
 pub const NAMED_BY: &str = "USHER_DEMO";
@@ -285,10 +286,7 @@ async fn ask(
 ) -> Result<Value, String> {
     let operation = WireOpId::new(ASK_A_SHELF)
         .map_err(|e| format!("no shelf can be asked: {e}"))?;
-    let who = Principal::new(
-        AS_THE_DEMO,
-        CapabilitySet::new([Capability::step_up(SETTING_UP)]),
-    );
+    let who = asking_as(AS_THE_DEMO, &[SETTING_UP, ISSUING]);
     let asked = json!({
         "shelf": shelf,
         "request_type": request_type,

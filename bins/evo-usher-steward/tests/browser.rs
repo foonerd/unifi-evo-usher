@@ -2953,7 +2953,7 @@ fn the_front_desk_is_given_a_pin_and_has_the_counter_alone() {
     // He has the counter, and nothing else: no menu, since there is
     // nowhere else to go, no page of the people, and nothing drawn that
     // he would be refused. The bar says who he is, and that the usher is
-    // reached, though no line is joined for him.
+    // reached.
     browser.wait(
         "the bar",
         r#"document.getElementById("line").textContent === "Connected""#,
@@ -3005,9 +3005,110 @@ fn the_front_desk_is_given_a_pin_and_has_the_counter_alone() {
     assert_eq!(handed["handed"][0]["by"], "Ben", "{handed}");
     assert_eq!(handed["handed"].as_array().unwrap().len(), 1, "{handed}");
 
-    // The page that hears nothing asks again when it is looked at: with
-    // his session ended elsewhere, he is asked in again, and what stood
-    // on the page is out of sight until it is known who signs in.
+    // The counter says when its offer is not what it was, and his page
+    // hears it on its line: a type an administrator adds elsewhere
+    // stands on his screen at once, with nobody touching the page, and
+    // long before the page would ask again by itself. Of what else
+    // happens on the unit his page hears nothing.
+    // His page joins a line of his own once he is signed in, in the
+    // place of the line of whoever was signed in at this browser before
+    // him, and says on the page when it is joined. What the counter says
+    // before that is said to nobody, and is taken up by asking.
+    browser.wait(
+        "his line is joined",
+        r#"document.documentElement.dataset.line === "joined""#,
+    );
+    browser.act(
+        r#"
+        window.counterSaid = [];
+        document.addEventListener("usher:plugin-event", (event) => window.counterSaid.push(event.detail));
+        "#,
+    );
+    let offered = r#"[...widget("usher.counter").querySelectorAll("button.usher-type strong")].map((name) => name.textContent)"#;
+    assert_eq!(
+        browser.look(&format!("return {offered};")),
+        json!(["Day guest"])
+    );
+    let (status, raised) = steward.op(
+        "household_protection_set",
+        json!({"level": "strict", "lend": true}),
+        &Caller::here().with(&steward.operator()),
+    );
+    assert_eq!(status, 200, "{raised}");
+    let added = std::time::Instant::now();
+    let (status, put) = steward.ask_status(
+        &anna,
+        "issue.counter",
+        "put_type",
+        json!({ "name": "For ever", "minutes": 100_000_000 }),
+    );
+    assert_eq!(status, 200, "{put}");
+    browser.wait(
+        "the type that was added elsewhere",
+        &format!(r#"{offered}.includes("For ever")"#),
+    );
+    let took = added.elapsed();
+    let heard = browser.look(
+        "return [window.counterSaid, document.documentElement.dataset.line];",
+    );
+    assert!(
+        took < std::time::Duration::from_secs(15),
+        "the page took the new offer up by asking again, after {took:?}, and not at once; it heard, and its line is: {heard}"
+    );
+    assert_eq!(
+        browser.look("return window.counterSaid;"),
+        json!([{
+            "plugin": "org.evoframework.usher.counter",
+            "event_type": "offer_changed",
+            "payload": {},
+        }]),
+        "his page heard the counter, once, and nothing else"
+    );
+
+    // What the controller refuses, the counter gives on as the
+    // controller's plugin gave it: under that plugin's own code, with
+    // the value it speaks of. His page says it in the words the
+    // language has for that code, and not as something that went wrong
+    // on some shelf.
+    browser.act(
+        r#"[...widget("usher.counter").querySelectorAll("button.usher-type")].find((type) => type.querySelector("strong").textContent === "For ever").click();"#,
+    );
+    browser.wait(
+        "the controller's refusal, by its own code",
+        r#"widget("usher.counter").querySelector(".usher-said.usher-trouble")?.textContent === "The controller does not take a voucher on these terms. (minutes must be within 1..=1000000)""#,
+    );
+    // What his page was told, asked once more with the session his
+    // browser holds.
+    let his_session = browser.look(
+        r#"return sessionStorage.getItem("evoBearer") ?? localStorage.getItem("evoBearer");"#,
+    );
+    let (status, refused) = steward.ask_status(
+        &Caller::beyond().with(his_session.as_str().expect("his session")),
+        "issue.counter",
+        "hand",
+        json!({ "type": "For ever" }),
+    );
+    assert_eq!(status, 400, "{refused}");
+    assert_eq!(
+        refused["error"]["details"],
+        json!({ "subclass": "terms_outside", "values": { "term": "minutes" } }),
+        "what his page was told: {refused}"
+    );
+    let (status, _) = steward.ask_status(
+        &anna,
+        "issue.counter",
+        "drop_type",
+        json!({ "name": "For ever" }),
+    );
+    assert_eq!(status, 200);
+    browser.wait(
+        "the type that was deleted elsewhere is gone",
+        &format!(r#"!{offered}.includes("For ever")"#),
+    );
+
+    // The page asks again as well when it is looked at: with his
+    // session ended elsewhere, he is asked in again, and what stood on
+    // the page is out of sight until it is known who signs in.
     let (status, _) = steward.usher(
         "POST",
         "make_pin",

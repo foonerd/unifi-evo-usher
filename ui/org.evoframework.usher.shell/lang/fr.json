@@ -303,6 +303,7 @@
   "refusal.signs_in_with_pin": "{name} se connecte avec un PIN, pas avec un mot de passe. Un administrateur crée plutôt un nouveau PIN.",
   "refusal.site_name_not_plain": "Le nom d'un site est du texte simple sur une seule ligne.",
   "refusal.site_name_too_long": "Le nom d'un site compte {most} caractères au plus ; celui-ci en a {has}.",
+  "refusal.stocked_not_read": "Le contenu de cette page n'a pas pu être lu. Réessayez dans un instant.",
   "refusal.terms_outside": "Le contrôleur n'accepte pas de voucher à ces conditions. ({words})",
   "refusal.time_zone_not_one": "{time_zone} n'est pas le nom d'un fuseau horaire. Un fuseau horaire s'écrit ainsi : Europe/Warsaw.",
   "refusal.too_many_satellites": "Il n'est pas possible de garder plus de satellites : {most} au plus.",

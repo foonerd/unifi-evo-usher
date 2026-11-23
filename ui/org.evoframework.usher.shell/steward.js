@@ -201,6 +201,19 @@ export async function op(name, payload = {}) {
   return ask(address, method, payload, true);
 }
 
+/**
+ * Ask the steward for an operation it answers anyone, presenting
+ * nothing: what is asked before anyone has signed in, and what is the
+ * same whoever asks.
+ *
+ * @param {string} name the operation, one that is read
+ * @returns {Promise<any>} what it answers
+ * @throws {Refusal}
+ */
+export function unsigned(name) {
+  return ask(`/api/v1/${name}`, "GET", null, false);
+}
+
 /** @param {string} text @returns {string} */
 function toBase64(text) {
   const bytes = new TextEncoder().encode(text);
@@ -411,8 +424,11 @@ export async function signOut() {
  * is taken up again by itself when it drops, and anew when another
  * session's bearer is held than the one it was joined with.
  *
- * The steward opens the line to an administrator, and to nobody else: a
- * session that is not let hear what happens joins none.
+ * The steward opens the line to a person who has signed in, and each
+ * hears on it what their role may read: an administrator what happens
+ * to the plugins and the face, a person at the front desk what the
+ * counter says of its offer. A session that is not let hear anything
+ * joins none.
  *
  * @param {(happening: { type: string } & Record<string, unknown>) => void} onHappening
  * @param {(joined: boolean) => void} onLine told when the line is up or down
@@ -421,6 +437,13 @@ export async function signOut() {
  * @returns {() => void} ends the watch
  */
 export function watch(onHappening, onLine, hears = () => true) {
+  // How the line stands is kept on the page, where a test and whoever
+  // looks into the page can see it: "joined" while the line of whoever
+  // is signed in is open, "down" while it is lost, "none" while there
+  // is nobody to join one for.
+  const lineStands = (/** @type {"joined" | "down" | "none"} */ how) => {
+    document.documentElement.dataset.line = how;
+  };
   /** @type {WebSocket | null} */
   let line = null;
   /** The bearer the line was joined with. @type {string | null} */
@@ -454,6 +477,7 @@ export function watch(onHappening, onLine, hears = () => true) {
           payload: {},
         }),
       );
+      lineStands("joined");
       onLine(true);
     };
     joining.onmessage = (message) => {
@@ -479,6 +503,7 @@ export function watch(onHappening, onLine, hears = () => true) {
       // Signed out, or signed in as another: nothing is down, the line
       // is joined anew once there is a session to join it with.
       const stillTheSame = bearer() === joinedWith;
+      lineStands(stillTheSame ? "down" : "none");
       if (stillTheSame) onLine(false);
       again = setTimeout(join, stillTheSame ? wait : 0);
       if (stillTheSame) wait = Math.min(wait * 2, 15000);
@@ -486,9 +511,24 @@ export function watch(onHappening, onLine, hears = () => true) {
   };
 
   // Another session than the one the line was joined with: the line is
-  // let go, and taken up with the new one.
+  // let go at once, and taken up with the new one. Its closing is not
+  // waited for: the far end may take its time to answer a closing, and
+  // until it had, whoever signed in next had no line of their own.
   const sameSession = setInterval(() => {
-    if (line !== null && bearer() !== joinedWith) line.close();
+    if (line === null || bearer() === joinedWith) return;
+    const old = line;
+    old.onopen = null;
+    old.onmessage = null;
+    old.onclose = null;
+    line = null;
+    try {
+      old.close();
+    } catch {
+      // A line that cannot be closed is one that is gone already.
+    }
+    lineStands("none");
+    clearTimeout(again);
+    join();
   }, 500);
 
   join();
@@ -497,5 +537,6 @@ export function watch(onHappening, onLine, hears = () => true) {
     clearTimeout(again);
     clearInterval(sameSession);
     line?.close();
+    lineStands("none");
   };
 }

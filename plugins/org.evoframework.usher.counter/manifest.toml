@@ -3,7 +3,7 @@ name = "org.evoframework.usher.counter"
 # The crate's version, which is the workspace's. The steward refuses a
 # plugin that says another version than its manifest; a test holds the two
 # together.
-version = "0.3.23"
+version = "0.3.24"
 contract = 1
 
 [target]
@@ -51,8 +51,12 @@ response_budget_ms = 35000
 # network_admin capability. The two requests a front desk makes, the
 # types on offer and a voucher handed out, ask for a capability of the
 # usher's own, voucher_issue, which a session of a person at the front
-# desk is given and nothing else of the kind. It is declared as a step-up,
-# the one kind of a plugin's capability a bearer can be made with. The
+# desk is given and nothing else of the kind: the types are read under
+# it, and a voucher is handed out under it as a write. A bearer is made
+# with a plugin's own capability at the rank its requests declare, and
+# is good for no request that declares another. Every request declares
+# one: a request that declared none would be answered to a bearer good
+# for the plugins as such, and to no session but an administrator's. The
 # one request a satellite makes, the default voucher handed out, asks
 # for a capability of its own, voucher_default, which a satellite's
 # session is given and nothing else: a satellite hands out no other
@@ -69,9 +73,9 @@ drop_type = { kind = "write", scope = "network_admin" }
 enable_type = { kind = "write", scope = "network_admin" }
 set_default = { kind = "write", scope = "network_admin" }
 order_types = { kind = "write", scope = "network_admin" }
-hand = { kind = "step_up", scope = "voucher_issue" }
-hand_default = { kind = "step_up", scope = "voucher_default" }
-hand_type = { kind = "step_up", scope = "voucher_named" }
+hand = { kind = "write", scope = "voucher_issue" }
+hand_default = { kind = "write", scope = "voucher_default" }
+hand_type = { kind = "write", scope = "voucher_named" }
 assign = { kind = "write", scope = "network_admin" }
 handed = { kind = "read", scope = "network_admin" }
 

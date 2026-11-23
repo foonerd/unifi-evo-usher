@@ -11,10 +11,12 @@
 //! once.
 //!
 //! An administrator's session is good for everything the usher's plugins
-//! take. A front desk's is good for asking the plugins and for issuing a
-//! voucher, and for nothing that sets a unit up or reads what it keeps:
-//! evo refuses it the rest, and the usher's gate before evo lets it ask
-//! no more than the counter's page does.
+//! take. A front desk's is good for asking a shelf and for issuing a
+//! voucher, and for nothing that sets a unit up or reads what it keeps,
+//! nor for evo's own reads of its plugins: evo refuses it the rest, and
+//! the usher's gate before evo lets it ask no more than the counter's
+//! page does. A session that ends before its time is up is told to evo,
+//! which then takes its bearer no more by itself.
 //!
 //! A new usher has nobody. Whoever opens it first sets it up, by making
 //! its first administrator; in the extended level that takes the code
@@ -42,7 +44,7 @@ use axum::Router;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
 use evo_auth_bearer::{Capability, CapabilitySet};
-use evo_projection_core::WireOpId;
+use evo_projection_core::{CapabilityRequirement, WireOpId};
 use evo_runtime_http::{Dispatcher, Principal};
 use evo_usher_why::{why, Why};
 use serde::de::DeserializeOwned;
@@ -80,7 +82,7 @@ pub const PROFILE_NAMED_BY: &str = "USHER_PROFILE";
 
 /// Every route the usher has of its own.
 #[cfg(test)]
-pub const ROUTES: [&str; 23] = [
+pub const ROUTES: [&str; 24] = [
     "state",
     "set_up",
     "set_up_from_file",
@@ -89,6 +91,7 @@ pub const ROUTES: [&str; 23] = [
     "sign_in",
     "sign_out",
     "me",
+    "stocked",
     "people",
     "add_person",
     "set_password",
@@ -107,28 +110,48 @@ pub const ROUTES: [&str; 23] = [
 ];
 
 /// The routes a person at the front desk may ask beside the open ones:
-/// who they are, and signing out.
-pub const OF_THE_FRONT_DESKS: [&str; 2] = ["sign_out", "me"];
+/// who they are, what is stocked for the counter's page, and signing
+/// out.
+pub const OF_THE_FRONT_DESKS: [&str; 3] = ["sign_out", "me", "stocked"];
 
 /// The routes a satellite may ask beside the open ones: that it is
 /// there, which also tells it what it is, and the logo it wears.
 pub const OF_THE_SATELLITES: [&str; 2] = ["satellite", "satellite_logo"];
 
+/// The capability asking a shelf asks for, by evo's name: every bearer
+/// that asks a plugin anything holds it, and it is good for nothing by
+/// itself. A request is answered to a bearer that holds this and the
+/// capability the request declares.
+pub const ASKING: &str = "request";
+
+/// The capability evo's own reads of its plugins ask for, and with it
+/// every request of a plugin's that declares no capability of its own.
+/// An administrator's bearer holds it; no narrower one does.
+const OF_THE_PLUGINS: &str = "plugins";
+
+/// The capability whatever sets a unit up, or reads what it keeps, asks
+/// for.
+const SETTING_UP: &str = "network_admin";
+
 /// The capability issuing a voucher asks for: the usher's own, which the
-/// counter's manifest declares on the two requests a front desk makes.
+/// counter's manifest declares on the two requests a front desk makes,
+/// and the site's and the stock's on what the counter's page reads of
+/// them.
 pub const ISSUING: &str = "voucher_issue";
 
 /// What a session of an administrator's is good for, by evo's names:
-/// asking the plugins, what lets guests on to the network, issuing a
-/// voucher, and hearing what happens. It is not good for evo's own
-/// bearers, its plugins' administration or the system.
-pub const OF_AN_ADMINISTRATOR: [&str; 4] =
-    ["plugins", "network_admin", ISSUING, "subjects"];
+/// asking a shelf, evo's own reads of its plugins, what lets guests on
+/// to the network, issuing a voucher, and hearing what happens. It is
+/// not good for evo's own bearers, its plugins' administration or the
+/// system.
+pub const OF_AN_ADMINISTRATOR: [&str; 5] =
+    [ASKING, OF_THE_PLUGINS, SETTING_UP, ISSUING, "subjects"];
 
-/// What a session of a front desk's is good for: asking the plugins, and
+/// What a session of a front desk's is good for: asking a shelf, and
 /// issuing a voucher. Whatever sets a unit up, or reads what it keeps,
-/// asks for more, and evo refuses it.
-pub const OF_A_FRONT_DESK: [&str; 2] = ["plugins", ISSUING];
+/// asks for more, and evo refuses it; and so it does evo's own reads of
+/// its plugins, and every request that declares no capability.
+pub const OF_A_FRONT_DESK: [&str; 2] = [ASKING, ISSUING];
 
 /// What a session of a person of this role is good for. An
 /// administrator's is good for an administrator's work. Any other
@@ -147,11 +170,12 @@ pub fn good_for(role: &str) -> &'static [&'static str] {
 /// satellite makes.
 pub const DEFAULT_ISSUING: &str = "voucher_default";
 
-/// What a session of a satellite's is good for: asking the plugins, and
+/// What a session of a satellite's is good for: asking a shelf, and
 /// handing out the default voucher. evo refuses it every other request
-/// of the counter's, and everything that sets a unit up or reads what it
-/// keeps.
-pub const OF_A_SATELLITE: [&str; 2] = ["plugins", DEFAULT_ISSUING];
+/// of the counter's, everything that sets a unit up or reads what it
+/// keeps, evo's own reads of its plugins, and every request that
+/// declares no capability.
+pub const OF_A_SATELLITE: [&str; 2] = [ASKING, DEFAULT_ISSUING];
 
 /// The capability handing out a voucher of a type that is named asks
 /// for: the usher's own, which the counter's manifest declares on the
@@ -163,12 +187,25 @@ pub const NAMED_ISSUING: &str = "voucher_named";
 /// named. No other session is made with it, so evo itself refuses a
 /// named type to a satellite that gives the default alone.
 pub const OF_A_SATELLITE_WITH_TYPES: [&str; 3] =
-    ["plugins", DEFAULT_ISSUING, NAMED_ISSUING];
+    [ASKING, DEFAULT_ISSUING, NAMED_ISSUING];
 
 /// The shelf the voucher types are kept on, and what it is asked for
 /// the types on offer.
 const THE_COUNTER: &str = "issue.counter";
 const OFFERED: &str = "offered";
+
+/// The operation of evo's that says what is stocked on which UI shelf,
+/// and the widget kind the counter is drawn with: what a front desk's
+/// one page is drawn from.
+const WHAT_IS_STOCKED: &str = "describe_ui_stockings";
+const THE_COUNTERS_KIND: &str = "usher.counter";
+
+/// How many ended sessions are kept to tell evo of while it cannot be
+/// told, and how long until it is tried again: half a second the first
+/// time, twice as long each time after, and no longer than the last.
+const MOST_UNTOLD: usize = 4096;
+const TOLD_AGAIN_FIRST: Duration = Duration::from_millis(500);
+const TOLD_AGAIN_AFTER: Duration = Duration::from_secs(16);
 
 /// Who the usher asks the counter as for the types on offer: itself,
 /// with what a front desk reads them with and nothing else.
@@ -183,20 +220,76 @@ const SATELLITE_SECONDS: u64 = 12 * 60 * 60;
 /// minute, and the site's shelf is asked once a minute for all.
 const SITE_TOLD_MS: u64 = 60_000;
 
-/// What the unit's keeper asks a shelf with: what an administrator's
-/// session is good for there. The unit's own bearer is evo's making, and
-/// carries no capability a plugin declares.
-const OF_THE_KEEPER: [&str; 3] = ["plugins", "network_admin", ISSUING];
+/// What the unit's keeper asks a shelf with, on a unit whose own bearer
+/// does not carry what the usher's plugins declare: what an
+/// administrator's session is good for there. The unit's own bearer is
+/// evo's making, made when the unit was first started. One made by an
+/// evo that put no plugin's capability on it stays as it was made, and
+/// asks the usher's shelves in vain; one made since carries them, and
+/// is shown to evo as it is.
+const OF_THE_KEEPER: [&str; 4] = [ASKING, OF_THE_PLUGINS, SETTING_UP, ISSUING];
 
 /// For how long the bearer the keeper asks a shelf with is good, in
 /// seconds, and how long before its end another is made.
 const KEEPER_SECONDS: u64 = 600;
 const KEEPER_SPARE_MS: u64 = 60_000;
 
-/// What the bearer of a line is good for: hearing what happens, and
-/// reading what the steward knows of. Nothing is asked of a plugin with
-/// it, so that a line left open is no way to work the unit.
-const OF_A_LINE: [&str; 1] = ["subjects"];
+/// Whether a bearer is good by itself for everything the unit's keeper
+/// asks a shelf with. The bearer evo makes when a unit first starts is,
+/// on a unit that first started with an evo that gives it what the
+/// plugins declare; the bearer of a unit that first started before
+/// that is not, and its keeper asks a shelf with one the usher makes.
+pub fn is_good_for_the_keeper(held: &CapabilitySet) -> bool {
+    OF_THE_KEEPER
+        .iter()
+        .all(|scope| held.satisfies(&CapabilityRequirement::write(*scope)))
+}
+
+/// What the bearer of an administrator's line reads, and it does
+/// nothing but read. evo tells a line what its bearer may read and no
+/// more: what happens to the plugins and to the face is read under
+/// evo's capability of the plugins; what the usher's own plugins say of
+/// themselves is heard under a capability they declare. The capability
+/// asking a shelf takes is not on it, and nothing on it is good for
+/// more than reading, so that a line left open is no way to work the
+/// unit.
+const OF_AN_ADMINISTRATORS_LINE: [&str; 2] = [OF_THE_PLUGINS, ISSUING];
+
+/// What the bearer of a front desk's line reads: what the plugins say
+/// that declare the capability the front desk holds, which is the
+/// counter saying that what it offers has changed, and nothing of the
+/// rest of what happens on a unit. It asks no shelf either.
+const OF_A_FRONT_DESKS_LINE: [&str; 1] = [ISSUING];
+
+/// What evo's record calls the bearer of a line.
+const A_LINE: &str = "a line of the usher's";
+
+/// What the bearer of a line is good for, for a person of this role:
+/// an administrator's for an administrator, and for anyone else the
+/// front desk's, the least there is.
+fn of_a_line(role: &str) -> &'static [&'static str] {
+    if role == ADMINISTRATOR {
+        &OF_AN_ADMINISTRATORS_LINE
+    } else {
+        &OF_A_FRONT_DESKS_LINE
+    }
+}
+
+/// Who the usher asks a shelf as where it asks in its own name: a caller
+/// that may ask a shelf, holding the capabilities named and no other,
+/// each as a write, which is the most a request of the usher's shelves
+/// declares.
+pub(crate) fn asking_as(name: &str, capabilities: &[&str]) -> Principal {
+    Principal::new(
+        name,
+        CapabilitySet::new(
+            std::iter::once(ASKING)
+                .chain(capabilities.iter().copied())
+                .map(Capability::write)
+                .collect::<Vec<_>>(),
+        ),
+    )
+}
 
 /// For how long the bearer of a line is good, in seconds. evo judges it
 /// once, as the line is opened, which is at once.
@@ -294,7 +387,22 @@ struct Session {
     /// person's role asks now: it is not kept.
     #[serde(default)]
     of: String,
+    /// The shape the session's bearer was made in, by [`MADE`]. A
+    /// session kept from before the shape of today has another, and its
+    /// bearer does not ask a shelf any more: it is not kept, and whoever
+    /// held it signs in once more.
+    #[serde(default)]
+    made: u32,
 }
+
+/// The shape a session's bearer is made in now: one that holds the
+/// capability asking a shelf takes. A session written down by an usher
+/// from before has none, and reads as 0.
+const MADE: u32 = 1;
+
+/// Why evo is told that a bearer is no longer to be taken: the session
+/// it was made for has ended.
+const ENDED: &str = "a session of the usher's that ended";
 
 /// The live sessions, kept through a restart: evo's bearers outlive one,
 /// and the usher has to know which of them are still a person's.
@@ -302,6 +410,13 @@ struct Session {
 struct Sessions {
     path: PathBuf,
     live: HashMap<String, Session>,
+    /// The sessions that ended before their time was up, and that evo
+    /// has not been told of yet. The usher takes none of them from the
+    /// moment it ends; evo is told so that it refuses their bearers
+    /// itself.
+    ended: Vec<String>,
+    /// Rung when a session ends, for whoever tells evo.
+    ending: Arc<tokio::sync::Notify>,
 }
 
 impl Sessions {
@@ -313,16 +428,33 @@ impl Sessions {
             Err(e) => return Err(e),
         };
         let now = now_ms();
+        let (live, gone): (Vec<Session>, Vec<Session>) =
+            kept.into_iter().partition(|session| {
+                session.until_ms > now
+                    && !session.of.is_empty()
+                    && session.made == MADE
+            });
         Ok(Self {
             path,
-            live: kept
+            live: live
                 .into_iter()
-                .filter(|session| {
-                    session.until_ms > now && !session.of.is_empty()
-                })
                 .map(|session| (session.id.clone(), session))
                 .collect(),
+            // What is not kept and has time left is ended, and evo is
+            // told of it as of any that ends.
+            ended: gone
+                .into_iter()
+                .filter(|session| session.until_ms > now)
+                .map(|session| session.id)
+                .collect(),
+            ending: Arc::new(tokio::sync::Notify::new()),
         })
+    }
+
+    /// The sessions that ended since this was last asked, for evo to be
+    /// told of.
+    fn take_ended(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.ended)
     }
 
     fn of(&self, id: &str, now: u64) -> Option<&Session> {
@@ -374,6 +506,7 @@ impl Sessions {
                 until_ms,
                 under: under.to_string(),
                 of: of.to_string(),
+                made: MADE,
             },
         );
         self.keep();
@@ -390,32 +523,45 @@ impl Sessions {
 
     fn end(&mut self, id: &str) {
         if self.live.remove(id).is_some() {
+            self.ended.push(id.to_string());
+            self.ending.notify_one();
             self.keep();
         }
+    }
+
+    /// End every session that `ends` says is to end.
+    fn end_where(&mut self, ends: impl Fn(&str, &Session) -> bool) {
+        let ending: Vec<String> = self
+            .live
+            .iter()
+            .filter(|(id, session)| ends(id, session))
+            .map(|(id, _)| id.clone())
+            .collect();
+        if ending.is_empty() {
+            return;
+        }
+        for id in &ending {
+            self.live.remove(id);
+        }
+        self.ended.extend(ending);
+        self.ending.notify_one();
+        self.keep();
     }
 
     /// End every session of a person but one, where one is named.
     fn end_of(&mut self, person: &str, but: Option<&str>) {
-        let before = self.live.len();
-        self.live.retain(|id, session| {
-            session.of == SATELLITE
-                || !people::same_name(&session.person, person)
-                || but == Some(id.as_str())
+        self.end_where(|id, session| {
+            session.of != SATELLITE
+                && people::same_name(&session.person, person)
+                && but != Some(id)
         });
-        if self.live.len() != before {
-            self.keep();
-        }
     }
 
     /// End every session of a satellite, by what the usher knows it by.
     fn end_of_satellite(&mut self, satellite: &str) {
-        let before = self.live.len();
-        self.live.retain(|_, session| {
-            session.of != SATELLITE || session.person != satellite
+        self.end_where(|_, session| {
+            session.of == SATELLITE && session.person == satellite
         });
-        if self.live.len() != before {
-            self.keep();
-        }
     }
 }
 
@@ -627,6 +773,127 @@ impl Usher {
         }))
     }
 
+    /// Tell evo of every session that ends before its time is up, from
+    /// now on and for as long as the usher stands: evo then refuses the
+    /// session's bearer itself, as the usher's gate does from the moment
+    /// the session ends. The sessions that were not kept when the usher
+    /// opened are told of first. Where evo cannot be told just now, it
+    /// is told a little later; a bearer evo keeps no record of was made
+    /// before evo kept one, and is the gate's alone to refuse until its
+    /// time is up.
+    pub fn begin_telling(self: &Arc<Self>) {
+        let ending = self
+            .sessions
+            .lock()
+            .expect("the sessions' lock")
+            .ending
+            .clone();
+        let usher = Arc::downgrade(self);
+        tokio::spawn(async move {
+            let mut untold: std::collections::VecDeque<String> =
+                std::collections::VecDeque::new();
+            // How long until evo is told again of what it could not be
+            // told: a moment at first, as where the usher opens before
+            // evo's socket does, and longer each time after.
+            let mut again_after = TOLD_AGAIN_FIRST;
+            loop {
+                let Some(usher) = usher.upgrade() else {
+                    return;
+                };
+                untold.extend(
+                    usher
+                        .sessions
+                        .lock()
+                        .expect("the sessions' lock")
+                        .take_ended(),
+                );
+                // What cannot be told for long is let go, oldest first:
+                // the gate refuses it all the same.
+                while untold.len() > MOST_UNTOLD {
+                    untold.pop_front();
+                }
+                while let Some(id) = untold.pop_front() {
+                    match revoke(&usher.socket, &id).await {
+                        Ok(()) => {}
+                        // evo answered, and goes on taking the bearer:
+                        // it is said once, and not asked again. The
+                        // gate refuses the session all the same.
+                        Err(Untold::Refused(why)) => tracing::warn!(
+                            "evo was told that a session ended, and \
+                             goes on taking its bearer: {why}"
+                        ),
+                        Err(Untold::NotReached(why)) => {
+                            // Said where it goes on: once is the usher
+                            // having opened before evo's socket has.
+                            if again_after >= TOLD_AGAIN_AFTER {
+                                tracing::warn!(
+                                    "evo could not be told that a \
+                                     session ended: {why}; it is told \
+                                     again in a while"
+                                );
+                            }
+                            untold.push_front(id);
+                            break;
+                        }
+                    }
+                }
+                drop(usher);
+                if untold.is_empty() {
+                    again_after = TOLD_AGAIN_FIRST;
+                    ending.notified().await;
+                } else {
+                    let _ =
+                        tokio::time::timeout(again_after, ending.notified())
+                            .await;
+                    again_after = (again_after * 2).min(TOLD_AGAIN_AFTER);
+                }
+            }
+        });
+    }
+
+    /// What is stocked for the counter's page, as the steward says it:
+    /// the UI shelf the counter stands on, the counter on it, and the
+    /// kind it is drawn with. It is read of evo in the usher's own
+    /// name, and of what evo answers no more than this is passed on: a
+    /// person at the front desk draws their one page from it, and is
+    /// told of nothing else that is stocked.
+    async fn stocked_for_the_counter(&self) -> Option<Value> {
+        let operation = WireOpId::new(WHAT_IS_STOCKED).ok()?;
+        let who = Principal::new(
+            AS_THE_USHER,
+            CapabilitySet::new([Capability::read(OF_THE_PLUGINS)]),
+        );
+        let said = match self
+            .shelves
+            .dispatch(&operation, json!({ "shelf_filter": THE_COUNTER }), &who)
+            .await
+        {
+            Ok(said) => said,
+            Err(why) => {
+                tracing::warn!("what is stocked was not answered: {why}");
+                return None;
+            }
+        };
+        let of = |part: &str, named: &str, is: &str| -> Vec<Value> {
+            said[part]
+                .as_array()
+                .map(|all| {
+                    all.iter().filter(|one| one[named] == is).cloned().collect()
+                })
+                .unwrap_or_default()
+        };
+        let entries: Vec<Value> = of("entries", "ui_shelf", THE_COUNTER)
+            .into_iter()
+            .filter(|entry| entry["widget"] == THE_COUNTERS_KIND)
+            .collect();
+        Some(json!({
+            "ui_stockings": true,
+            "entries": entries,
+            "shelves": of("shelves", "id", THE_COUNTER),
+            "widget_kinds": of("widget_kinds", "id", THE_COUNTERS_KIND),
+        }))
+    }
+
     /// Apply the profile the unit is started with, where it is started
     /// with one it has not applied before: the settings of a site, made
     /// on another unit. The same file is applied once, so that what an
@@ -787,9 +1054,9 @@ impl Usher {
             "name": "", "logo": null,
             "language": evo_usher_site::OWN_LANGUAGE, "follows_browser": false,
         });
-        let nobody = Principal::new(AS_NOBODY, CapabilitySet::default());
+        let reading = asking_as(AS_NOBODY, &[ISSUING]);
         let Some(site) =
-            self.read_of(evo_usher_site::SHELF, "get", &nobody).await
+            self.read_of(evo_usher_site::SHELF, "get", &reading).await
         else {
             return nothing;
         };
@@ -858,10 +1125,7 @@ impl Usher {
                 return offer.clone();
             }
         }
-        let who = Principal::new(
-            AS_THE_USHER,
-            CapabilitySet::new([Capability::step_up(ISSUING)]),
-        );
+        let who = asking_as(AS_THE_USHER, &[ISSUING]);
         let offer: Vec<Value> = self
             .read_of(THE_COUNTER, OFFERED, &who)
             .await
@@ -1179,12 +1443,13 @@ impl Usher {
         matches && known
     }
 
-    /// A bearer for evo to open one line on, for a session that asks
-    /// for the line: it is shown to evo and to nobody else.
-    pub async fn line(&self) -> Result<String, Refused> {
-        mint(
+    /// A bearer for evo to open one line on, for a session of a person
+    /// of this role that asks for the line: it is shown to evo and to
+    /// nobody else, and is good for hearing what the role may read.
+    pub async fn line(&self, role: &str) -> Result<String, Refused> {
+        reading(
             &self.socket,
-            &OF_A_LINE,
+            of_a_line(role),
             LINE_SECONDS,
             "the line of a session of the usher's, to hear what happens",
         )
@@ -1297,15 +1562,10 @@ struct Minted {
     until_ms: u64,
 }
 
-/// Have evo make a bearer over the steward's own client socket, good
-/// for the capabilities named and for so many seconds. Only a program
-/// that runs as the steward's own account is granted that.
-async fn mint(
-    socket: &Path,
-    capabilities: &[&str],
-    seconds: u64,
-    reason: &str,
-) -> Result<Minted, String> {
+/// Ask evo one thing over the steward's own client socket, as the
+/// steward's own program: what only a program that runs as the
+/// steward's own account is granted.
+async fn of_evo(socket: &Path, asked: Value) -> Result<Value, String> {
     async fn ask(
         line: &mut UnixStream,
         message: &Value,
@@ -1331,7 +1591,7 @@ async fn mint(
             .map_err(|e| e.to_string())?;
         serde_json::from_slice(&body).map_err(|e| e.to_string())
     }
-    let asked = async {
+    let asking = async {
         let mut line = UnixStream::connect(socket)
             .await
             .map_err(|e| format!("{}: {e}", socket.display()))?;
@@ -1348,32 +1608,109 @@ async fn mint(
                 "the steward grants its own program nothing: {granted}"
             ));
         }
-        let said = ask(
-            &mut line,
-            &json!({
-                "op": "mint_bearer_token",
-                "reason": reason,
-                "ttl_seconds": seconds,
-                "capabilities": capabilities,
-            }),
-        )
-        .await?;
-        match (
-            said["token"].as_str(),
-            said["token_id"].as_str(),
-            said["expires_at_ms"].as_u64(),
-        ) {
-            (Some(token), Some(id), Some(until_ms)) => Ok(Minted {
-                token: token.to_string(),
-                id: id.to_string(),
-                until_ms,
-            }),
-            _ => Err(format!("the steward made no bearer: {}", said["error"])),
-        }
+        ask(&mut line, &asked).await
     };
-    tokio::time::timeout(Duration::from_secs(10), asked)
+    tokio::time::timeout(Duration::from_secs(10), asking)
         .await
         .map_err(|_| "the steward did not answer in time".to_string())?
+}
+
+/// Have evo make a bearer, good for the capabilities named and for so
+/// many seconds.
+async fn mint(
+    socket: &Path,
+    capabilities: &[&str],
+    seconds: u64,
+    reason: &str,
+) -> Result<Minted, String> {
+    let said = of_evo(
+        socket,
+        json!({
+            "op": "mint_bearer_token",
+            "reason": reason,
+            "ttl_seconds": seconds,
+            "capabilities": capabilities,
+        }),
+    )
+    .await?;
+    match (
+        said["token"].as_str(),
+        said["token_id"].as_str(),
+        said["expires_at_ms"].as_u64(),
+    ) {
+        (Some(token), Some(id), Some(until_ms)) => Ok(Minted {
+            token: token.to_string(),
+            id: id.to_string(),
+            until_ms,
+        }),
+        _ => Err(format!("the steward made no bearer: {}", said["error"])),
+    }
+}
+
+/// Have evo make a bearer that reads what is named and is good for
+/// nothing else, for so many seconds: each capability at the rank of a
+/// read, where a bearer made by its capabilities' names alone holds
+/// each at the highest rank there is.
+async fn reading(
+    socket: &Path,
+    capabilities: &[&str],
+    seconds: u64,
+    reason: &str,
+) -> Result<Minted, String> {
+    let scopes: Vec<Value> = capabilities
+        .iter()
+        .map(|scope| json!({ "kind": "read", "scope": scope }))
+        .collect();
+    let said = of_evo(
+        socket,
+        json!({
+            "op": "create_bearer_token",
+            "name": A_LINE,
+            "reason": reason,
+            "scopes": scopes,
+            "expires_in_seconds": seconds,
+        }),
+    )
+    .await?;
+    match (
+        said["token"].as_str(),
+        said["record"]["token_id"].as_str(),
+        said["record"]["expires_at_ms"].as_u64(),
+    ) {
+        (Some(token), Some(id), Some(until_ms)) => Ok(Minted {
+            token: token.to_string(),
+            id: id.to_string(),
+            until_ms,
+        }),
+        _ => Err(format!("the steward made no bearer: {}", said["error"])),
+    }
+}
+
+/// Why evo was not told that a bearer is to be taken no longer.
+#[derive(Debug)]
+enum Untold {
+    /// evo was not reached, or did not answer: it is told again.
+    NotReached(String),
+    /// evo answered, and would not: telling it again changes nothing.
+    Refused(String),
+}
+
+/// Have evo take a bearer no longer, by its id. A bearer evo keeps no
+/// record of, or has stopped taking already, leaves nothing to do.
+async fn revoke(socket: &Path, id: &str) -> Result<(), Untold> {
+    let said = of_evo(
+        socket,
+        json!({ "op": "revoke_bearer_token", "token_id": id, "reason": ENDED }),
+    )
+    .await
+    .map_err(Untold::NotReached)?;
+    if said["bearer_token_revoked"] == true {
+        return Ok(());
+    }
+    match said["error"]["details"]["subclass"].as_str() {
+        Some("not_found") | Some("already_revoked") => Ok(()),
+        _ => Err(Untold::Refused(said["error"].to_string())),
+    }
 }
 
 /// An answer, as JSON.
@@ -1937,6 +2274,31 @@ async fn sign_out(
         Ok(Asking::Unit) => {
             answer(StatusCode::OK, &json!({ "signed_out": false }))
         }
+        Err(refused) => *refused,
+    }
+}
+
+/// What is stocked for the counter's page: what a person at the front
+/// desk draws their page from. A satellite draws no page of the shell's
+/// and is told nothing of it.
+async fn stocked(
+    State(usher): State<Arc<Usher>>,
+    request: Request,
+) -> Response {
+    match asking(&request) {
+        Ok(Asking::Person { .. }) | Ok(Asking::Unit) => {
+            match usher.stocked_for_the_counter().await {
+                Some(stocked) => answer(StatusCode::OK, &stocked),
+                None => refusal(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "unavailable",
+                    "stocked_not_read",
+                    "What is on the counter's page could not be read. \
+                     Try again in a moment.",
+                ),
+            }
+        }
+        Ok(Asking::Satellite { .. }) => not_for_a_satellite(),
         Err(refused) => *refused,
     }
 }
@@ -3509,6 +3871,7 @@ pub fn routes(usher: Arc<Usher>) -> Router {
         .route(&at("sign_in"), post(sign_in))
         .route(&at("sign_out"), post(sign_out))
         .route(&at("me"), get(me))
+        .route(&at("stocked"), get(stocked))
         .route(&at("people"), get(list))
         .route(&at("add_person"), post(add_person))
         .route(&at("set_password"), post(set_password))
@@ -3651,7 +4014,7 @@ mod tests {
             dir.path().join("sessions.json"),
             json!([
                 { "id": "s-before", "person": "Anna", "until_ms": now + 60_000, "under": "first" },
-                { "id": "s-now", "person": "Anna", "until_ms": now + 60_000, "under": "first", "of": ADMINISTRATOR },
+                { "id": "s-now", "person": "Anna", "until_ms": now + 60_000, "under": "first", "of": ADMINISTRATOR, "made": MADE },
             ])
             .to_string(),
         )
@@ -3659,6 +4022,86 @@ mod tests {
         let sessions = Sessions::open(dir.path()).unwrap();
         assert!(sessions.of("s-before", now).is_none());
         assert!(sessions.of("s-now", now).is_some());
+    }
+
+    #[test]
+    fn a_session_made_before_a_bearer_asked_a_shelf_as_it_does_now_is_not_kept()
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let now = now_ms();
+        // As the version before this one wrote them: a role, and no
+        // word of the shape the bearer was made in. Their bearers do
+        // not ask a shelf any more, whoever holds them.
+        fs::write(
+            dir.path().join("sessions.json"),
+            json!([
+                { "id": "s-anna", "person": "Anna", "until_ms": now + 60_000, "under": "first", "of": ADMINISTRATOR },
+                { "id": "s-ben", "person": "Ben", "until_ms": now + 60_000, "under": "bens", "of": FRONT_DESK },
+                { "id": "s-screen", "person": "sat-1", "until_ms": now + 60_000, "under": "its", "of": SATELLITE },
+                { "id": "s-over", "person": "Ben", "until_ms": now.saturating_sub(1), "under": "bens", "of": FRONT_DESK },
+            ])
+            .to_string(),
+        )
+        .unwrap();
+        let mut sessions = Sessions::open(dir.path()).unwrap();
+        for id in ["s-anna", "s-ben", "s-screen", "s-over"] {
+            assert!(sessions.of(id, now).is_none(), "{id}");
+        }
+        // evo is told of each that had time left, once.
+        let mut ended = sessions.take_ended();
+        ended.sort_unstable();
+        assert_eq!(ended, ["s-anna", "s-ben", "s-screen"]);
+        assert!(sessions.take_ended().is_empty());
+        // Whoever signs in from now on is kept, through a restart too:
+        // everyone signs in once more, and once only.
+        sessions.add(
+            "s-new".to_string(),
+            "Anna",
+            now + 60_000,
+            "first",
+            ADMINISTRATOR,
+        );
+        let mut again = Sessions::open(dir.path()).unwrap();
+        assert_eq!(again.of("s-new", now).unwrap().person, "Anna");
+        assert!(again.take_ended().is_empty());
+    }
+
+    #[test]
+    fn evo_is_told_of_every_session_that_ends_before_its_time_is_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let now = now_ms();
+        let mut sessions = Sessions::open(dir.path()).unwrap();
+        for (id, person, of) in [
+            ("s-1", "Anna", ADMINISTRATOR),
+            ("s-2", "Anna", ADMINISTRATOR),
+            ("s-3", "Ben", FRONT_DESK),
+            ("s-4", "sat-1", SATELLITE),
+            ("s-5", "sat-1", SATELLITE),
+            ("s-6", "Ben", FRONT_DESK),
+        ] {
+            sessions.add(id.to_string(), person, now + 60_000, "under", of);
+        }
+        assert!(sessions.take_ended().is_empty());
+        // Signed out; a new password, which keeps the session it was
+        // set from; a satellite taken away.
+        sessions.end("s-3");
+        sessions.end("s-3");
+        sessions.end("nobody's");
+        assert_eq!(sessions.take_ended(), ["s-3"]);
+        sessions.end_of("anna", Some("s-2"));
+        assert_eq!(sessions.take_ended(), ["s-1"]);
+        sessions.end_of_satellite("sat-1");
+        let mut ended = sessions.take_ended();
+        ended.sort_unstable();
+        assert_eq!(ended, ["s-4", "s-5"]);
+        // What ends nothing tells nothing.
+        sessions.end_of("Carol", None);
+        sessions.end_of_satellite("sat-9");
+        assert!(sessions.take_ended().is_empty());
+        // A session whose time ran out is no longer taken by evo
+        // either, and is not told of.
+        assert!(sessions.of("s-6", now + 60_001).is_none());
+        assert!(sessions.take_ended().is_empty());
     }
 
     #[test]
@@ -3678,10 +4121,14 @@ mod tests {
                 "{of_the_desk}"
             );
         }
-        // Nothing that sets a unit up, and no hearing of what happens.
-        assert!(!OF_A_FRONT_DESK.contains(&"network_admin"));
+        // It asks a shelf and issues a voucher, and that is all of it:
+        // nothing that sets a unit up, none of evo's reads of its
+        // plugins, and with those no request that declares no
+        // capability.
+        assert_eq!(OF_A_FRONT_DESK, [ASKING, ISSUING]);
+        assert!(!OF_A_FRONT_DESK.contains(&SETTING_UP));
+        assert!(!OF_A_FRONT_DESK.contains(&OF_THE_PLUGINS));
         assert!(!OF_A_FRONT_DESK.contains(&"subjects"));
-        assert!(OF_A_FRONT_DESK.contains(&ISSUING));
         // The keeper asks a shelf with what an administrator's session
         // has there.
         for of_the_keeper in OF_THE_KEEPER {
@@ -3690,10 +4137,69 @@ mod tests {
     }
 
     #[test]
+    fn every_bearer_that_asks_a_shelf_may_ask_and_a_line_may_not() {
+        // Asking a shelf takes a capability of its own, which every
+        // session and the keeper's bearer hold.
+        for asks in [
+            &OF_AN_ADMINISTRATOR[..],
+            &OF_A_FRONT_DESK[..],
+            &OF_A_SATELLITE[..],
+            &OF_A_SATELLITE_WITH_TYPES[..],
+            &OF_THE_KEEPER[..],
+        ] {
+            assert!(asks.contains(&ASKING), "{asks:?}");
+        }
+        // A line holds none: whatever is said on it, no shelf is asked.
+        for role in [ADMINISTRATOR, FRONT_DESK, "auditor", ""] {
+            let line = of_a_line(role);
+            assert!(!line.contains(&ASKING), "{role:?}: {line:?}");
+            assert!(!line.contains(&SETTING_UP), "{role:?}: {line:?}");
+        }
+        // An administrator's line hears what the face goes by; a front
+        // desk's, and that of a role the usher does not know, what the
+        // counter says and nothing of evo's own.
+        assert_eq!(of_a_line(ADMINISTRATOR), [OF_THE_PLUGINS, ISSUING]);
+        for role in [FRONT_DESK, "auditor", ""] {
+            assert_eq!(of_a_line(role), [ISSUING], "{role:?}");
+        }
+        // Only an administrator's bearers hold evo's reads of its
+        // plugins.
+        for narrow in [
+            &OF_A_FRONT_DESK[..],
+            &OF_A_SATELLITE[..],
+            &OF_A_SATELLITE_WITH_TYPES[..],
+            &OF_A_FRONT_DESKS_LINE[..],
+        ] {
+            assert!(!narrow.contains(&OF_THE_PLUGINS), "{narrow:?}");
+        }
+    }
+
+    #[test]
+    fn the_usher_asks_a_shelf_in_its_own_name_with_what_it_names() {
+        use evo_projection_core::CapabilityRequirement;
+        let reading = asking_as(AS_THE_USHER, &[ISSUING]);
+        assert_eq!(reading.token_id, AS_THE_USHER);
+        for held in [
+            CapabilityRequirement::write(ASKING),
+            CapabilityRequirement::write(ISSUING),
+            CapabilityRequirement::read(ISSUING),
+        ] {
+            assert!(reading.capabilities.satisfies(&held), "{held:?}");
+        }
+        for not_held in [
+            CapabilityRequirement::read(OF_THE_PLUGINS),
+            CapabilityRequirement::write(SETTING_UP),
+            CapabilityRequirement::read(DEFAULT_ISSUING),
+        ] {
+            assert!(!reading.capabilities.satisfies(&not_held), "{not_held:?}");
+        }
+    }
+
+    #[test]
     fn only_a_satellite_with_types_has_a_session_good_for_a_named_type() {
         assert_eq!(
             OF_A_SATELLITE_WITH_TYPES,
-            ["plugins", DEFAULT_ISSUING, NAMED_ISSUING]
+            [ASKING, DEFAULT_ISSUING, NAMED_ISSUING]
         );
         // It is good for what any satellite's is, and for nothing a
         // person's session issues with.
@@ -3708,7 +4214,8 @@ mod tests {
             &OF_AN_ADMINISTRATOR[..],
             &OF_A_FRONT_DESK[..],
             &OF_THE_KEEPER[..],
-            &OF_A_LINE[..],
+            &OF_AN_ADMINISTRATORS_LINE[..],
+            &OF_A_FRONT_DESKS_LINE[..],
         ] {
             assert!(!others.contains(&NAMED_ISSUING), "{others:?}");
         }
@@ -3716,7 +4223,7 @@ mod tests {
 
     #[test]
     fn a_satellites_session_is_good_for_the_default_voucher_and_no_other() {
-        assert_eq!(OF_A_SATELLITE, ["plugins", DEFAULT_ISSUING]);
+        assert_eq!(OF_A_SATELLITE, [ASKING, DEFAULT_ISSUING]);
         // Not for what the front desk hands out, which takes a choice;
         // and the default voucher is in nobody else's session.
         assert!(!OF_A_SATELLITE.contains(&ISSUING));

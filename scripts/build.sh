@@ -64,11 +64,16 @@ else
 fi
 
 echo "build: build.json"
+# The evo-core the programs are built on, as the lock names it: its tag
+# and the commit the tag stands on.
+evo_core=$(sed -n 's|^source = "git+https://github.com/foonerd/evo-core.git?tag=\(.*\)#\(.*\)"$|\1 \2|p' Cargo.lock | sort -u)
+[ "$(printf '%s\n' "$evo_core" | wc -l)" = 1 ] && [ -n "$evo_core" ] || { echo "build: Cargo.lock does not name one evo-core: '$evo_core'" >&2; exit 1; }
 {
   printf '{\n'
   printf '  "name": "unifi-evo-usher",\n'
   printf '  "version": "%s",\n' "$version"
   printf '  "commit": "%s",\n' "$commit"
+  printf '  "evo_core": "%s",\n' "$evo_core"
   printf '  "arch": "%s",\n' "$arch"
   printf '  "target": "%s",\n' "$triple"
   printf '  "rustc": "%s",\n' "$(rustc --version)"

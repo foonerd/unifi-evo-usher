@@ -42,12 +42,19 @@ context=$(mktemp -d)
 trap 'rm -rf "$context"' EXIT
 platforms=""
 commit=""
+evo_core=""
 for arch in $arches; do
   [[ -x "out/$arch/bin/$SERVICE" ]] || { echo "image: out/$arch/bin/$SERVICE is missing; build '$arch' first (scripts/build.sh $arch)" >&2; exit 1; }
   built=$(sed -n 's/^ *"commit": "\(.*\)",$/\1/p' "out/$arch/build.json")
   [ -n "$built" ] || { echo "image: out/$arch/build.json names no commit" >&2; exit 1; }
   [ -z "$commit" ] || [ "$commit" = "$built" ] || { echo "image: out/$arch is built from $built, another from $commit" >&2; exit 1; }
   commit=$built
+  # The evo-core the programs stand on, as their build wrote it down:
+  # its tag and the commit the tag stood on.
+  stands_on=$(sed -n 's/^ *"evo_core": "\(.*\)",$/\1/p' "out/$arch/build.json")
+  [ -n "$stands_on" ] || { echo "image: out/$arch/build.json does not say which evo-core it stands on" >&2; exit 1; }
+  [ -z "$evo_core" ] || [ "$evo_core" = "$stands_on" ] || { echo "image: out/$arch stands on evo-core $stands_on, another on $evo_core" >&2; exit 1; }
+  evo_core=$stands_on
   unit_tree "out/$arch/bin/$SERVICE" "$context/$arch/rootfs"
   # Where evo looks for its socket; a machine has the same link.
   mkdir -p "$context/$arch/rootfs/var"
@@ -69,7 +76,8 @@ build=(docker buildx build -f packaging/docker/Dockerfile
   --label "org.opencontainers.image.source=https://github.com/foonerd/unifi-evo-usher"
   --label "org.opencontainers.image.licenses=MIT AND BUSL-1.1"
   --label "org.opencontainers.image.version=$version"
-  --label "org.opencontainers.image.revision=$commit")
+  --label "org.opencontainers.image.revision=$commit"
+  --label "org.evoframework.usher.evo-core=$evo_core")
 
 # An image of several architectures is assembled in one go by a builder
 # of its own, made where there is none; the image for this machine alone

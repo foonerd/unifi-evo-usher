@@ -15,8 +15,9 @@
 # Alone: the unit is started by itself, as the image's account, with no
 # capability, no way to gain a privilege and a root file system it cannot
 # write to, and is asked on its own port, believed by its own authority.
-# It holds two thousand connections at once, as a large venue's screens
-# would, and goes on answering. Its administrator is given a new
+# It holds two thousand connections at once, each asked on as it is
+# joined, as a large venue's screens would, and goes on answering. Its
+# administrator is given a new
 # password by the steward's own program, asked in the container.
 #
 # In every case the container must come to say that it is healthy: Docker
@@ -54,9 +55,11 @@
 # believing nothing but that authority, the face is loaded, a caller who
 # has not signed in is refused, the unit is set up with a name and a
 # password and signed in to, and with the session that gave is answered
-# and hears a happening over the WebSocket; a person is added for the
-# front desk, signs in with the PIN the usher made, is told the types on
-# offer and is refused what is an administrator's; a screen is adopted
+# and hears the counter say over the WebSocket that its offer changed; a
+# person is added for the front desk, signs in with the PIN the usher
+# made, is told the types on offer and what is stocked for their page,
+# is refused what is an administrator's, and hears the counter on their
+# line and nothing else; a screen is adopted
 # as a satellite by the code it is given, is let ask for the default
 # voucher and refused everything else, is protected by a PIN and refused
 # a voucher without it, and is disabled and refused.
@@ -243,6 +246,7 @@ send(json.dumps({"frame_type": "subscribe", "subscription_id": "happenings", "op
 # Said when happenings are asked for, so that whoever waits knows when
 # to make one happen.
 print("asked", flush=True)
+before = []
 until = time.time() + 20
 line.settimeout(1)
 while time.time() < until:
@@ -266,16 +270,23 @@ while time.time() < until:
     event = frame.get("event") or {}
     happened = event.get("happening", event)
     if happened.get("type") == wanted:
+        # Every happening heard before it is told with it: a line hears
+        # what its session may read, and nothing else.
+        happened["heard_before"] = before
         print(json.dumps(happened), flush=True)
         sys.exit(0)
+    before.append(happened.get("type"))
 sys.exit("no happening of the type came in time")
 PY
 }
 
 # As many connections as are asked for, held at once as screens hold
-# them: each is joined under the name and the authority given and kept
-# open. With all of them held, the unit is asked on the first, on the
-# last and on one more, and each has to be answered.
+# them: each is joined under the name and the authority given, asked on
+# at once, as a screen asks as soon as it is joined, and kept open. A
+# connection that asks nothing is closed by the unit within ten seconds,
+# and only so many of those are let wait at once. With all of them held,
+# the unit is asked on the first, on the last and on one more, and each
+# has to be answered.
 #
 #   holds <name> <port> <authority> <count>
 holds() {
@@ -301,22 +312,40 @@ def joined():
 
 
 def answered(line):
+    # The answer is read whole, so that the connection is fit for the
+    # next thing asked on it.
     line.sendall(f"GET /usher/v1/state HTTP/1.1\r\nHost: {name}:{port}\r\n\r\n".encode())
-    head = b""
-    while b"\r\n" not in head:
+    got = b""
+    while b"\r\n\r\n" not in got:
         more = line.recv(4096)
         if not more:
             return "the connection was closed"
-        head += more
-    return head.split(b"\r\n", 1)[0].decode()
+        got += more
+    head, _, body = got.partition(b"\r\n\r\n")
+    lines = head.decode("latin-1").split("\r\n")
+    length = 0
+    for said in lines[1:]:
+        key, _, value = said.partition(":")
+        if key.strip().lower() == "content-length":
+            length = int(value)
+    while len(body) < length:
+        more = line.recv(65536)
+        if not more:
+            return "the connection was closed"
+        body += more
+    return lines[0]
 
 
 held = []
 for at in range(count):
     try:
-        held.append(joined())
+        line = joined()
+        said = answered(line)
     except OSError as why:
         sys.exit(f"connection {at + 1} of {count} was not taken: {why}")
+    if said.split()[1:2] != ["200"]:
+        sys.exit(f"connection {at + 1} of {count} is answered: {said}")
+    held.append(line)
 for which, line in (("first", held[0]), ("last", held[-1]), ("one more", joined())):
     said = answered(line)
     if said.split()[1:2] != ["200"]:
@@ -415,7 +444,7 @@ prove() {
     # is an open file. Two thousand are held at once, twice what a
     # process is commonly started with, and the unit goes on answering.
     holds localhost "$port" "$dir/unit-ca.crt" 2000 > "$dir/held" 2> "$dir/held.err" || fail "the unit does not hold two thousand connections: $(tail -n 1 "$dir/held.err")"
-    echo "  ok    $(cat "$dir/held") connections held at once, and the unit answers on the first, on the last and on one more"
+    echo "  ok    $(cat "$dir/held") connections held at once, each asked on as it is joined, and the unit answers on the first, on the last and on one more"
   fi
   if [ "$behind" = no ]; then
     said=$(docker inspect "$unit" --format '{{.Config.User}} {{.HostConfig.ReadonlyRootfs}} {{.HostConfig.CapDrop}} {{.HostConfig.SecurityOpt}}')
@@ -564,31 +593,45 @@ prove() {
   [ "$status" = 401 ] || fail "a session is answered after it was signed out of: $status $(cat "$dir/answer")"
   echo "  ok    the name and the password sign in, a wrong one does not, and a session is refused once it is signed out of"
 
-  # A happening, made while the line is open: evo's household level,
-  # which on an usher protects nothing, set by the unit's keeper, who
-  # has the unit's own bearer out of the unit's files.
+  # A happening, made while the line is open. First something of evo's
+  # own, which no person's line reads: evo's household level, which on
+  # an usher protects nothing, set by the unit's keeper, who has the
+  # unit's own bearer out of the unit's files. Then the counter's offer
+  # is changed, which the counter says, and which an administrator's
+  # line hears: that, and nothing of what happened before it.
   compose cp usher:/var/lib/evo/state/https/bootstrap.token "$dir/units-bearer" > /dev/null 2>&1 || fail "the unit's own bearer is not among its files"
   keeper=$(tr -d ' \n' < "$dir/units-bearer")
-  rm -f "$dir/line"
-  mkfifo "$dir/line"
-  happening "$name" "$port" "$authority" "$bearer" household_protection_changed > "$dir/line" 2> "$dir/line.err" &
-  local listener=$!
-  {
-    read -r said || said=""
-    [ "$said" = asked ] || { wait "$listener" || true; fail "the WebSocket does not come through: $(cat "$dir/line.err")"; }
-    status=$(post /api/v1/household_protection_set '{"level": "open", "lend": false}' -H "Authorization: Bearer $keeper")
-    [ "$status" = 200 ] || fail "nothing was made to happen: $status $(cat "$dir/answer")"
-    read -r said || said=""
-  } < "$dir/line"
-  wait "$listener" || fail "no happening came over the WebSocket: $(cat "$dir/line.err")"
-  [ "$(printf '%s' "$said" | jq -r '.type')" = household_protection_changed ] || fail "what came over the WebSocket is no happening: $said"
-  echo "  ok    a happening arrives over the WebSocket, joined with the session"
+  # Hear the counter say that its offer changed, on the line of the
+  # session given: what was heard is left in $said.
+  hears_the_counter() {
+    local session="$1" listener
+    rm -f "$dir/line"
+    mkfifo "$dir/line"
+    happening "$name" "$port" "$authority" "$session" plugin_event > "$dir/line" 2> "$dir/line.err" &
+    listener=$!
+    {
+      read -r said || said=""
+      [ "$said" = asked ] || { wait "$listener" || true; fail "the WebSocket does not come through: $(cat "$dir/line.err")"; }
+      status=$(post /api/v1/household_protection_set '{"level": "open", "lend": false}' -H "Authorization: Bearer $keeper")
+      [ "$status" = 200 ] || fail "nothing of evo's own was made to happen: $status $(cat "$dir/answer")"
+      status=$(post /api/v1/request "$(request issue.counter put_type '{"name": "Heard on the line", "minutes": 60}')" -H "Authorization: Bearer $bearer")
+      [ "$status" = 200 ] || fail "the counter's offer was not changed: $status $(cat "$dir/answer")"
+      read -r said || said=""
+    } < "$dir/line"
+    wait "$listener" || fail "the counter was not heard over the WebSocket: $(cat "$dir/line.err")"
+    status=$(post /api/v1/request "$(request issue.counter drop_type '{"name": "Heard on the line"}')" -H "Authorization: Bearer $bearer")
+    [ "$status" = 200 ] || fail "the voucher type made for the line was not deleted: $status $(cat "$dir/answer")"
+    printf '%s' "$said" | jq -e '.type == "plugin_event" and .plugin == "org.evoframework.usher.counter" and .event_type == "offer_changed"' > /dev/null || fail "what came over the WebSocket is not the counter saying that its offer changed: $said"
+    printf '%s' "$said" | jq -e '.heard_before == []' > /dev/null || fail "the line heard what its session does not read: $said"
+  }
+  hears_the_counter "$bearer"
+  echo "  ok    the counter is heard over the WebSocket when its offer changes, joined with the session, and nothing of evo's own is heard with it"
 
   # A person at the front desk: added by the administrator, with a PIN
   # the usher makes, of as many digits as the unit's level asks. They
   # sign in with it, are answered what the counter's page asks, are
-  # refused by name what is an administrator's, and no line of what
-  # happens is opened to them.
+  # refused by name what is an administrator's, and hear on their line
+  # what the counter says and nothing else of the unit.
   local pin desk digits=6
   [ "$proxy" != extended ] || digits=8
   status=$(post /usher/v1/add_person '{"name": "Ben", "role": "front_desk"}' -H "Authorization: Bearer $bearer")
@@ -608,16 +651,31 @@ prove() {
   [ "$status" = 403 ] || fail "a person at the front desk is told of the people: $status $(cat "$dir/answer")"
   status=$(ask /api/v1/list_bearer_tokens -H "Authorization: Bearer $desk")
   [ "$status" = 403 ] || fail "a person at the front desk is told of the unit's bearers: $status $(cat "$dir/answer")"
-  status=$(ask /api/v1/ws --http1.1 -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" \
-    -H "Sec-WebSocket-Key: dGhlIHVzaGVyJ3MgcHJvb2Y=" -H "Sec-WebSocket-Protocol: evo.bearer.$desk")
-  [ "$status" = 403 ] || fail "the line of what happens is opened to a person at the front desk: $status $(cat "$dir/answer")"
-  echo "  ok    a person at the front desk signs in with a PIN the usher made, is told the types on offer, and is refused what is an administrator's and the line of what happens"
+  # What is stocked for their page is told them by the usher, and of
+  # it the counter alone; evo's own word on what is stocked is refused
+  # them by the gate, and which shell is active, which the gate lets
+  # anyone ask, evo itself refuses a session that is not good for the
+  # plugins: it is asked with nothing presented.
+  status=$(ask /usher/v1/stocked -H "Authorization: Bearer $desk")
+  [ "$status" = 200 ] || fail "a person at the front desk is not told what is stocked for their page: $status $(cat "$dir/answer")"
+  jq -e '(.entries | map(.widget)) == ["usher.counter"] and (.shelves | map(.id)) == ["issue.counter"]' "$dir/answer" > /dev/null || fail "a person at the front desk is told to be stocked: $(cat "$dir/answer")"
+  status=$(ask /api/v1/describe_ui_stockings -H "Authorization: Bearer $desk")
+  [ "$status" = 403 ] || fail "a person at the front desk is told everything that is stocked: $status $(cat "$dir/answer")"
+  jq -e '.error.details.subclass == "not_for_front_desk"' "$dir/answer" > /dev/null || fail "what is stocked is refused a person at the front desk as: $(cat "$dir/answer")"
+  status=$(ask /api/v1/describe_active_ui_selection -H "Authorization: Bearer $desk")
+  [ "$status" = 403 ] || fail "evo answers a session that is not good for the plugins which shell is active: $status $(cat "$dir/answer")"
+  ! grep -q 'not_for_front_desk' "$dir/answer" || fail "which shell is active was refused by the gate, and not by evo: $(cat "$dir/answer")"
+  [ "$(ask /api/v1/describe_active_ui_selection)" = 200 ] || fail "which shell is active is not told a caller who presents nothing"
+  # Their line hears the counter, and nothing of evo's own.
+  hears_the_counter "$desk"
+  echo "  ok    a person at the front desk signs in with a PIN the usher made, is told the types on offer and what is stocked for their page, is refused what is an administrator's by the gate and by evo, and hears the counter on their line and nothing else"
 
   # A satellite: a screen that nobody is signed in at opens a page of
   # its own, is given a code, and is adopted by it. It is let ask for
-  # the default voucher, for the site, and whether it is still a
-  # satellite; everything else is refused it by name, and no line of
-  # what happens is opened to it. Disabled, it is signed out and refused.
+  # the default voucher and whether it is still a satellite, which
+  # tells it what the site is called; everything else is refused it by
+  # name, and no line of what happens is opened to it. Disabled, it is
+  # signed out and refused.
   local shown secret presenting satellite screen
   [ "$(ask /satellite/)" = 200 ] || fail "the page of a satellite does not come"
   grep -q 'satellite.js' "$dir/answer" || fail "what came for a satellite is not its page"
@@ -646,20 +704,18 @@ prove() {
   status=$(ask /usher/v1/satellite -H "Authorization: Bearer $screen")
   [ "$status" = 200 ] || fail "a satellite is not told that it is one: $status $(cat "$dir/answer")"
   jq -e --arg name "$SET_NAME" '.name == "Lobby" and .limit == 20 and .site.name == $name' "$dir/answer" > /dev/null || fail "a satellite that says it is there is answered: $(cat "$dir/answer")"
-  status=$(post /api/v1/request "$(request site.settings get '{}')" -H "Authorization: Bearer $screen")
-  [ "$status" = 200 ] || fail "a satellite is not told of the site: $status $(cat "$dir/answer")"
   # The default voucher is its to ask for: the counter is asked, and
   # says that no voucher type is the default yet, which is the
   # administrator's to set.
   status=$(post /api/v1/request "$(request issue.counter hand_default '{}')" -H "Authorization: Bearer $screen")
   [ "$status" != 403 ] || fail "a satellite is kept from the default voucher: $(cat "$dir/answer")"
   jq -e '.error.details.subclass == "no_default_type"' "$dir/answer" > /dev/null || fail "the counter answered a satellite: $status $(cat "$dir/answer")"
-  for said in "issue.counter hand" "issue.counter offered" "issue.counter types" "stock.reserve count" "site.settings set" "access.controller info"; do
+  for said in "issue.counter hand" "issue.counter offered" "issue.counter types" "stock.reserve count" "site.settings get" "site.settings set" "access.controller info"; do
     status=$(post /api/v1/request "$(request "${said% *}" "${said#* }" '{}')" -H "Authorization: Bearer $screen")
     [ "$status" = 403 ] || fail "a satellite is answered $said: $status $(cat "$dir/answer")"
     jq -e '.error.details.subclass == "not_for_satellite"' "$dir/answer" > /dev/null || fail "$said is refused a satellite as: $(cat "$dir/answer")"
   done
-  for said in /usher/v1/me /usher/v1/people /usher/v1/satellites /api/v1/list_bearer_tokens /api/v1/describe_ui_stockings; do
+  for said in /usher/v1/me /usher/v1/stocked /usher/v1/people /usher/v1/satellites /api/v1/list_bearer_tokens /api/v1/describe_ui_stockings; do
     status=$(ask "$said" -H "Authorization: Bearer $screen")
     [ "$status" = 403 ] || fail "a satellite is answered $said: $status $(cat "$dir/answer")"
   done

@@ -18,25 +18,32 @@
 //! any other way than the usher's own.
 //!
 //! What a session may do, once through, is evo's to say, by what its
-//! bearer is good for; and for a person at the front desk it is held
-//! here as well, to what the counter's page asks and no more: the types
-//! on offer, a voucher handed out, how many are set aside, what the site
-//! is called, and what the shell reads to draw the page. Everything else
-//! is refused them here, by name, whatever their bearer would be good
-//! for.
+//! bearer is good for: asking a shelf, and what the requests of its
+//! role declare. For a person at the front desk it is held here as
+//! well, to what the counter's page asks and no more: the types on
+//! offer, a voucher handed out, how many are set aside, what the site
+//! is called, what is stocked for the page, and the line the page hears
+//! on. Everything else is refused them here, by name, whatever their
+//! bearer would be good for; and evo refuses them, by what their bearer
+//! holds, whatever this gate would let through. The two hold each
+//! other.
 //!
 //! Where a shelf is asked, the gate reads what is asked of which, and
 //! evo is given exactly what the gate read. A voucher that is handed out
 //! is handed out by somebody: the gate, which knows whose session it is,
 //! writes the person on the request, over whatever the caller wrote
 //! there, for the counter to put in its record. The unit's keeper asks
-//! a shelf with a bearer the usher has made for that, good for what an
-//! administrator's is: the unit's own bearer is evo's making, and
-//! carries no capability a plugin of the usher's declares.
+//! a shelf with the unit's own bearer, where that is good for what the
+//! usher's plugins declare: evo makes it so on a unit's first start. A
+//! unit that first started with an evo that gave its bearer none of
+//! what a plugin declares keeps that bearer, and there the keeper asks
+//! a shelf with a bearer the usher has made for it, good for what an
+//! administrator's is.
 //!
 //! A satellite is held closer still: to handing out the default voucher,
-//! to what the site is called, to saying that it is there, and to the
-//! logo it wears. The gate writes which satellite hands a voucher out,
+//! to saying that it is there, which tells it what the site is called,
+//! and to the logo it wears. The gate writes which satellite hands a
+//! voucher out,
 //! and counts its vouchers against what it may hand out in an hour. A
 //! satellite that is protected gives a voucher for its PIN: the gate
 //! takes the PIN off the request, holds it against the satellite's own,
@@ -46,11 +53,15 @@
 //! gives the default alone is refused every type that is named.
 //!
 //! evo is shown the one bearer the gate judged, and no other a request
-//! carries beside it. Where a session opens the WebSocket, evo is shown
-//! a bearer made for that line alone, good for hearing what happens and
-//! for nothing that changes the unit: evo judges a line's bearer once,
-//! when it is opened, and answers on it for as long as it stays open,
-//! so a line must not be a way to go on asking after its session ended.
+//! carries beside it. Where a person's session opens the WebSocket, evo
+//! is shown a bearer made for that line alone, good for hearing what
+//! the person's role may read and for asking no shelf: evo judges a
+//! line's bearer once, when it is opened, and answers on it for as long
+//! as it stays open, so a line must not be a way to go on asking after
+//! its session ended. An administrator's line hears what happens to the
+//! plugins and the face; a front desk's hears what the counter says of
+//! what is on offer, and nothing else of the unit. A satellite has no
+//! line.
 
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -79,11 +90,6 @@ const SOCKET: &str = "ws";
 /// The operation of evo's a shelf of the catalogue is asked with.
 const ASK_A_SHELF: &str = "request";
 
-/// The operations of evo's a person at the front desk may ask beside
-/// [`OPEN`] and asking a shelf: what is stocked, which the shell draws
-/// its pages from.
-pub const OF_THE_SHELL: [&str; 1] = ["describe_ui_stockings"];
-
 /// What a person at the front desk may ask of a shelf: what the
 /// counter's page asks, and no more. The types on offer and a voucher
 /// handed out; how many vouchers are set aside for each type, which the
@@ -99,12 +105,12 @@ pub const OF_THE_COUNTER: [(&str, &str); 4] = [
 
 /// What a satellite may ask of a shelf: the default voucher handed out,
 /// or a voucher of a type that is named, which the gate holds to the
-/// types the satellite was given; and what the site is called, how it
-/// looks and what language it speaks, which its page wears.
-pub const OF_A_SATELLITE: [(&str, &str); 3] = [
+/// types the satellite was given. What the site is called, how it looks
+/// and what language it speaks, it is told by the usher's own route,
+/// where it says that it is there.
+pub const OF_A_SATELLITE: [(&str, &str); 2] = [
     ("issue.counter", "hand_default"),
     ("issue.counter", "hand_type"),
-    ("site.settings", "get"),
 ];
 
 /// The shelf and the request a voucher is handed out with.
@@ -181,6 +187,8 @@ pub fn setup(settings: Settings) -> evo::HttpsSetup {
                 // its own only where it has none.
                 usher.begin_profile().await;
                 usher.begin_demo().await;
+                // And evo is told of every session that ends.
+                usher.begin_telling();
                 let gate = Gate {
                     validator: ctx.validator.clone(),
                     api: ctx.api_prefix.trim_end_matches('/').to_string(),
@@ -353,15 +361,24 @@ async fn admit(
 
     let on_the_line = asked == Asked::Evo(SOCKET.to_string());
     let to_evo = match &who {
-        Asking::Person { .. } if on_the_line => match gate.usher.line().await {
-            Ok(of_the_line) => of_the_line,
-            Err(refused) => return *refused,
-        },
-        // The unit's keeper asks a shelf as an administrator does.
-        Asking::Unit if asks_a_shelf => match gate.usher.as_keeper().await {
-            Ok(of_the_keeper) => of_the_keeper,
-            Err(refused) => return *refused,
-        },
+        // A person's line is opened on a bearer made for it, good for
+        // hearing what their role may read.
+        Asking::Person { role, .. } if on_the_line => {
+            match gate.usher.line(role).await {
+                Ok(of_the_line) => of_the_line,
+                Err(refused) => return *refused,
+            }
+        }
+        // The unit's keeper asks a shelf as an administrator does: with
+        // the unit's own bearer where that is good for it, and with one
+        // the usher makes where the unit's own was made before evo gave
+        // it what the plugins declare.
+        Asking::Unit if asks_a_shelf && !good_for_the_keeper(&shown.bearer) => {
+            match gate.usher.as_keeper().await {
+                Ok(of_the_keeper) => of_the_keeper,
+                Err(refused) => return *refused,
+            }
+        }
         _ => shown.bearer.clone(),
     };
     show(&mut request, Some((&to_evo, shown.as_subprotocol)));
@@ -425,6 +442,14 @@ fn asked_each_time(of_the_face: bool, mut answer: Response) -> Response {
         );
     }
     answer
+}
+
+/// Whether the unit's own bearer is good by itself for everything its
+/// keeper asks a shelf with. It is read off the bearer, which evo's own
+/// judge has taken by now: what a bearer is good for is written on it.
+fn good_for_the_keeper(bearer: &str) -> bool {
+    BearerToken::decode(bearer)
+        .is_ok_and(|token| signin::is_good_for_the_keeper(&token.capabilities))
 }
 
 /// Show evo one bearer, or none: every bearer the request carries is
@@ -549,9 +574,12 @@ fn held_as_the_desk(who: &Asking) -> bool {
 }
 
 /// Whether a person at the front desk is let in: to what anyone is let
-/// in to, to what the shell reads to draw a page, to ask a shelf, which
-/// [`of_a_shelf`] then holds to the counter's page, and to say who they
-/// are and to sign out.
+/// in to, to ask a shelf, which [`of_a_shelf`] then holds to the
+/// counter's page, to open the line their page hears on, and to the
+/// routes of the usher's that say who they are, what is stocked for
+/// their page, and sign them out. Of evo's own operations they are let
+/// ask no other: what the shell draws their page from is told them by
+/// the usher.
 fn let_in_front_desk(method: &Method, asked: &Asked) -> bool {
     if let_in_unsigned(method, asked) {
         return true;
@@ -559,8 +587,8 @@ fn let_in_front_desk(method: &Method, asked: &Asked) -> bool {
     match asked {
         Asked::File => false,
         Asked::Evo(operation) => {
-            OF_THE_SHELL.contains(&operation.as_str())
-                || (operation == ASK_A_SHELF && method == Method::POST)
+            (operation == ASK_A_SHELF && method == Method::POST)
+                || (operation == SOCKET && method == Method::GET)
         }
         Asked::Usher(route) => {
             signin::OF_THE_FRONT_DESKS.contains(&route.as_str())
@@ -569,9 +597,9 @@ fn let_in_front_desk(method: &Method, asked: &Asked) -> bool {
 }
 
 /// Whether a satellite is let in: to what anyone is let in to, to ask a
-/// shelf, which [`of_a_shelf`] then holds to the default voucher and the
-/// site, and to say that it is there. It reads nothing the shell reads:
-/// its page is its own.
+/// shelf, which [`of_a_shelf`] then holds to the vouchers it gives, and
+/// to say that it is there. It reads nothing the shell reads, and opens
+/// no line: its page is its own.
 fn let_in_satellite(method: &Method, asked: &Asked) -> bool {
     if let_in_unsigned(method, asked) {
         return true;
@@ -1068,18 +1096,23 @@ mod tests {
         // The face's files are read, as by anyone.
         assert!(let_in_front_desk(&get, &Asked::File));
         assert!(!let_in_front_desk(&post, &Asked::File));
-        // What the door and the shell read, and asking a shelf.
+        // What the door reads, asking a shelf, and the line their page
+        // hears on, which is opened and nothing else.
         assert!(let_in_front_desk(
             &get,
             &evo("describe_active_ui_selection")
         ));
-        assert!(let_in_front_desk(&get, &evo("describe_ui_stockings")));
         assert!(let_in_front_desk(&post, &evo("request")));
         for method in [&get, &Method::PUT, &Method::DELETE] {
             assert!(!let_in_front_desk(method, &evo("request")), "{method}");
         }
+        assert!(let_in_front_desk(&get, &evo("ws")));
+        for method in [&post, &Method::PUT, &Method::DELETE] {
+            assert!(!let_in_front_desk(method, &evo("ws")), "{method}");
+        }
         // Nothing else of the steward's: its bearers, its plugins'
-        // administration, the line of what happens.
+        // administration, and what is stocked, which the usher tells
+        // them of their one page.
         for operation in [
             "create_bearer_token",
             "list_bearer_tokens",
@@ -1089,9 +1122,11 @@ mod tests {
             "list_subjects",
             "course_correct",
             "activate_theme",
-            "ws",
+            "describe_ui_stockings",
+            "describe_capabilities",
             "",
             "request/",
+            "ws/",
             "describe_ui_stockings/",
         ] {
             for method in [&get, &post] {
@@ -1101,17 +1136,82 @@ mod tests {
                 );
             }
         }
-        // Of the usher's own routes: the way in, who they are, and
-        // signing out. The people are an administrator's.
+        // Of the usher's own routes: the way in, who they are, what is
+        // stocked for their page, and signing out. The people are an
+        // administrator's.
         for route in signin::ROUTES {
             assert_eq!(
                 let_in_front_desk(&post, &usher(route)),
                 signin::OPEN.contains(&route)
-                    || ["sign_out", "me"].contains(&route),
+                    || ["sign_out", "me", "stocked"].contains(&route),
                 "{route}"
             );
         }
         assert!(!let_in_front_desk(&get, &usher("")));
+    }
+
+    /// A bearer as evo makes one, good for the capabilities named, each
+    /// at the rank it is made at.
+    fn bearer_good_for(held: Vec<evo_auth_bearer::Capability>) -> String {
+        BearerToken {
+            id: "made-in-a-test".to_string(),
+            capabilities: evo_auth_bearer::CapabilitySet::new(held),
+            issued_at_ms: 0,
+            expires_at_ms: u64::MAX,
+            signature_b64: String::new(),
+        }
+        .encode()
+    }
+
+    #[test]
+    fn the_keeper_asks_with_the_units_own_bearer_where_it_is_good_for_it() {
+        use evo_auth_bearer::Capability;
+        // What evo gives the bearer of a unit that first starts now:
+        // asking a shelf, the plugins, and what the usher's plugins
+        // declare, each at the highest rank it is declared at, with the
+        // capability evo itself holds higher.
+        let of_today = vec![
+            Capability::write("request"),
+            Capability::write("plugins"),
+            Capability::step_up("network_admin"),
+            Capability::write("voucher_issue"),
+            Capability::write("voucher_default"),
+            Capability::write("voucher_named"),
+            Capability::read("subjects"),
+        ];
+        assert!(good_for_the_keeper(&bearer_good_for(of_today.clone())));
+        // The bearer of a unit that first started before evo gave one
+        // what the plugins declare holds none of it: the keeper asks
+        // with a bearer the usher makes.
+        let from_before: Vec<Capability> = of_today
+            .iter()
+            .filter(|held| !held.scope().starts_with("voucher_"))
+            .cloned()
+            .collect();
+        assert!(!good_for_the_keeper(&bearer_good_for(from_before)));
+        // And so wherever the unit's own falls short of one thing the
+        // keeper asks with: whichever it is, and at whatever rank.
+        for lacking in ["request", "plugins", "network_admin", "voucher_issue"]
+        {
+            let short: Vec<Capability> = of_today
+                .iter()
+                .filter(|held| held.scope() != lacking)
+                .cloned()
+                .collect();
+            assert!(!good_for_the_keeper(&bearer_good_for(short)), "{lacking}");
+        }
+        let read_only: Vec<Capability> = of_today
+            .iter()
+            .map(|held| match held.scope() {
+                "voucher_issue" => Capability::read("voucher_issue"),
+                _ => held.clone(),
+            })
+            .collect();
+        assert!(!good_for_the_keeper(&bearer_good_for(read_only)));
+        // What is no bearer is good for nothing.
+        for no_bearer in ["", "x", "eyJpZCI6In0"] {
+            assert!(!good_for_the_keeper(no_bearer), "{no_bearer:?}");
+        }
     }
 
     /// A request that asks a shelf, as a caller sends one.
@@ -1404,7 +1504,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_satellite_asks_a_shelf_for_the_default_voucher_and_the_site() {
+    async fn a_satellite_asks_a_shelf_for_the_vouchers_it_gives_and_no_more() {
         for (shelf, request_type) in OF_A_SATELLITE {
             let read = of_a_shelf(
                 asking_a_shelf(shelf, request_type, r#"{"type": "Week"}"#),
@@ -1419,6 +1519,7 @@ mod tests {
             ("issue.counter", "types"),
             ("issue.counter", "handed"),
             ("stock.reserve", "count"),
+            ("site.settings", "get"),
             ("site.settings", "set"),
             ("access.controller", "list"),
             ("issue.counter", "Hand_default"),
