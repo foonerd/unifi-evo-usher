@@ -157,7 +157,7 @@ fn a_screen_is_adopted_by_its_code_and_hands_out_the_default_voucher() {
         .unwrap()
         .as_millis() as u64;
     let (status, begun) =
-        steward.usher("POST", "satellite_code", None, &nobody);
+        steward.usher("POST", "satellite_code", Some(json!({})), &nobody);
     assert_eq!(status, 200, "{begun}");
     let code = begun["code"].as_str().unwrap().to_string();
     let secret = begun["secret"].as_str().unwrap().to_string();
@@ -759,24 +759,49 @@ fn a_satellite_is_held_to_its_hour_and_is_disabled_and_taken_away() {
     let kept = fs::read_to_string(kept_file(dir.path())).unwrap();
     assert_eq!(kept.trim(), "[]");
 
-    // Nobody fills the unit's memory by asking for codes: so many
-    // screens wait and no more, and the one that waited longest is let
-    // go.
-    let (_, first) = steward.screen();
-    for _ in 0..300 {
-        steward.screen();
-    }
+    // Nobody fills the unit's memory by asking for codes, and nobody
+    // takes a screen's code from it by asking: so many screens wait and
+    // no more. One more is given no code and is told to ask again; the
+    // screen that showed a code before the crowd is adopted by it.
+    let (code, first) = steward.screen();
+    let mut given = 1;
+    let refused = loop {
+        let (status, said) = steward.usher(
+            "POST",
+            "satellite_code",
+            Some(json!({})),
+            &Caller::on_the_lan(),
+        );
+        if status != 200 {
+            break (status, said);
+        }
+        given += 1;
+        assert!(given <= 300, "codes are given without end");
+    };
+    assert_eq!(given, 256, "so many screens wait");
+    assert_eq!(
+        (refused.0, subclass(&refused.1)),
+        (503, "no_session"),
+        "{}",
+        refused.1
+    );
+    let (status, said) = steward.usher(
+        "POST",
+        "adopt_satellite",
+        Some(json!({ "code": code, "name": "Side door" })),
+        &anna,
+    );
+    assert_eq!(status, 200, "{said}");
     let (status, said) = steward.usher(
         "POST",
         "satellite_sign_in",
         Some(json!({ "secret": first })),
         &Caller::on_the_lan(),
     );
-    assert_eq!(
-        (status, subclass(&said)),
-        (401, "satellite_unknown"),
-        "{said}"
-    );
+    assert_eq!(status, 200, "{said}");
+    assert_eq!(said["adopted"], true, "{said}");
+    // One screen adopted, there is room for one more.
+    steward.screen();
     assert_eq!(steward.stop(), Some(0));
 }
 
@@ -971,7 +996,41 @@ fn a_protected_satellite_gives_a_voucher_for_its_pin() {
     assert_eq!(said["set"]["mode"], "protected", "{said}");
     assert_eq!(press_with(&steward, &ward, "902746").0, 200);
 
-    // Protected and its PIN are kept through a restart.
+    // Twenty wrong PINs typed in the same moment are held as wrong PINs
+    // in a row are: five are held against the PIN, and the rest are
+    // refused before anything is checked.
+    let at_once = 20;
+    let together = std::sync::Barrier::new(at_once);
+    let answered: Vec<(u16, Value)> = std::thread::scope(|scope| {
+        let tries: Vec<_> = (0..at_once)
+            .map(|_| {
+                scope.spawn(|| {
+                    together.wait();
+                    press_with(&steward, &ward, "111111")
+                })
+            })
+            .collect();
+        tries.into_iter().map(|one| one.join().unwrap()).collect()
+    });
+    let said = |as_what: &str| {
+        answered
+            .iter()
+            .filter(|(_, said)| subclass(said) == as_what)
+            .count()
+    };
+    assert_eq!(
+        (said("satellite_pin_wrong"), said("satellite_pin_held")),
+        (5, at_once - 5),
+        "{answered:?}"
+    );
+    refused(
+        press_with(&steward, &ward, "902746"),
+        429,
+        "satellite_pin_held",
+    );
+
+    // Protected and its PIN are kept through a restart, and a hold is
+    // not.
     assert_eq!(steward.stop(), Some(0));
     let steward = Steward::start(dir.path());
     let there = || steward.usher("GET", "satellite", None, &ward).1;

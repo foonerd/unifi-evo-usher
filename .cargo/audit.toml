@@ -1,0 +1,35 @@
+# What `cargo audit` is told of this workspace: the advisories that are
+# taken as they stand, each with why. Every other advisory published
+# against a library the lock file names fails the audit, which the
+# workflow `advisories` runs on every change of the lock file and once a
+# week.
+#
+# Each advisory below is published against a library that evo-core
+# builds on, at the version evo-core's tag names. The usher's lock file
+# cannot name a patched one: the patched versions are of another major
+# version than evo-core asks for. They are taken off this list when
+# evo-core's tag names a version that is patched.
+[advisories]
+ignore = [
+    # zip 2.4.2: what goes wrong when an archive that somebody made to
+    # that end is unpacked. The steward unpacks an archive in two
+    # places, both evo's. One is the directory a plugin is staged in,
+    # which is among the unit's own files: whoever can write there has
+    # the unit. The other is the operation that installs a plugin from
+    # an address, `install_plugin_from_url`, which asks for evo's
+    # capability `plugins_admin`: no session the usher makes is given
+    # it, for an administrator either, and the usher's gate lets no
+    # other bearer through. No archive a caller names is unpacked.
+    "RUSTSEC-2026-0367",
+    "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
+    "RUSTSEC-2026-0429",
+    "RUSTSEC-2026-0545",
+    "RUSTSEC-2026-0548",
+    # libsqlite3-sys 0.28.0, the SQLite it carries: a database opened
+    # beside a write-ahead log that somebody made to that end gives
+    # back memory of the process. The steward opens one database, its
+    # own, in the unit's state directory: whoever can write there has
+    # the unit, and no caller names a file to open.
+    "RUSTSEC-2026-0459",
+]

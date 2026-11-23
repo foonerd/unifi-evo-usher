@@ -1,0 +1,45 @@
+name: advisories
+
+# The libraries the lock file names, held against the advisories that
+# are published for them (https://rustsec.org): on every push that
+# changes what is locked or what is taken as it stands, once a week by
+# itself, and when it is asked for. An advisory against a locked
+# version fails the run, but for those .cargo/audit.toml takes with
+# their reasons. A library that is only said to be unmaintained is
+# listed in the run's log and fails nothing. A run that fails by
+# itself, on a Monday, says that an advisory was published since: the
+# lock file is lifted, or the advisory is taken with its reason.
+on:
+  push:
+    branches: [main]
+    paths:
+      - Cargo.lock
+      - .cargo/audit.toml
+      - .github/workflows/advisories.yml
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: the lock file against the advisories
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: The toolchain rust-toolchain.toml names
+        run: scripts/toolchain.sh
+      # The tool the lock file is held against the advisories with, kept
+      # from run to run.
+      - uses: actions/cache@v6
+        id: audit
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: cargo-audit-0.23.0-${{ runner.os }}-${{ runner.arch }}
+      - name: The tool the advisories are read with
+        if: steps.audit.outputs.cache-hit != 'true'
+        run: cargo install cargo-audit --locked --version 0.23.0
+      - run: cargo audit

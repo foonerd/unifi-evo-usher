@@ -677,7 +677,13 @@ fn a_new_usher_is_set_up_and_its_controller_set_from_the_screen() {
         ])
     );
 
-    // A type is deleted from the screen, and is off the counter.
+    // A type is deleted from the screen, and is off the counter. The
+    // list of the types is drawn by itself, a moment after the counter
+    // may have taken the new type up: the press waits for the list.
+    browser.wait(
+        "the second type in the list of types",
+        r#"widget("usher.types").querySelector('button[aria-label="Delete Evening"]') !== null"#,
+    );
     browser.act(
         r#"widget("usher.types").querySelector('button[aria-label="Delete Evening"]').click();"#,
     );

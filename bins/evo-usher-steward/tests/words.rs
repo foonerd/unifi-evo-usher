@@ -21,7 +21,7 @@ const COUNTS: [&str; 6] = ["zero", "one", "two", "few", "many", "other"];
 /// its own: what a caller sent was not what a request takes, which the
 /// face never sends, and what went wrong inside the usher, which is said
 /// in the usher's own words for whoever looks into it.
-const NOT_FOR_A_SCREEN: [&str; 18] = [
+const NOT_FOR_A_SCREEN: [&str; 19] = [
     "not_as_asked",
     "role_not_one",
     "pin_not_chosen",
@@ -46,6 +46,9 @@ const NOT_FOR_A_SCREEN: [&str; 18] = [
     // A logo that is not there to fetch: the page that asked wears
     // none, and says nothing.
     "no_such_logo",
+    // What a page of another site had a browser ask: the usher's own
+    // pages are never told it.
+    "from_another_site",
 ];
 
 /// What stands in a script as written and is no text for a person: a

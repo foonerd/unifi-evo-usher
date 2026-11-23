@@ -314,21 +314,44 @@ const ASK_A_SHELF: &str = "request";
 /// such a caller can be told.
 const AS_NOBODY: &str = "org.evoframework.usher.unsigned";
 
-/// What is tried where the unit's code is asked.
-const THE_CODE: &str = "\u{0}the unit's code";
+/// How many checks of a password, a PIN or a passphrase may wait for
+/// their turn at one door. One more is told to try again in a moment:
+/// whoever waits is not kept waiting behind a crowd without end, and a
+/// crowd does not fill the unit's memory with what it sent.
+const MOST_WAITING: usize = 32;
 
-/// What is tried where the passphrase of a file is asked: no person's
-/// name.
-const THE_FILE: &str = "\u{0}a file's passphrase";
+/// What a try is made at: a person's password or PIN, by the name that
+/// was tried; a satellite's PIN, by what the usher knows the satellite
+/// by; the unit's code; the passphrase of a file. Each is counted by
+/// itself, so that no name a caller sends is a satellite's PIN or the
+/// unit's code, and a try at one lifts nothing from another.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum Guessed {
+    Person(String),
+    SatellitesPin(String),
+    Code,
+    File,
+}
+
+impl Guessed {
+    /// A person's password or PIN, by the name tried, as names are
+    /// compared. Nothing where the name is longer than a name is: it is
+    /// nobody's, and is counted as nobody's try at nothing.
+    fn person(name: &str) -> Option<Self> {
+        let name = name.trim();
+        (name.chars().count() <= people::LONGEST_NAME)
+            .then(|| Self::Person(name.to_lowercase()))
+    }
+}
 
 /// How long the program goes on after it answered that a file was taken
 /// in, before it starts again: long enough for the answer to arrive.
 const BEFORE_STARTING_AGAIN: Duration = Duration::from_millis(600);
 
-/// What is tried where a satellite's PIN is asked: no person's name, and
-/// one for each satellite.
-fn the_pin_of(satellite: &str) -> String {
-    format!("\u{0}the PIN of the satellite {satellite}")
+/// What is tried where a satellite's PIN is asked: one for each
+/// satellite.
+fn the_pin_of(satellite: &str) -> Guessed {
+    Guessed::SatellitesPin(satellite.to_string())
 }
 
 /// The longest that is read of what adopts or changes a satellite, in
@@ -403,6 +426,12 @@ const MADE: u32 = 1;
 /// Why evo is told that a bearer is no longer to be taken: the session
 /// it was made for has ended.
 const ENDED: &str = "a session of the usher's that ended";
+
+/// The most sessions one person, or one satellite, has at a time. One
+/// more ends the one of theirs whose time is up soonest: nobody who may
+/// sign in fills the unit with sessions by signing in over and over.
+/// GitLab keeps to a hundred in the same way.
+const MOST_SESSIONS: usize = 100;
 
 /// The live sessions, kept through a restart: evo's bearers outlive one,
 /// and the usher has to know which of them are still a person's.
@@ -501,7 +530,7 @@ impl Sessions {
         self.live.insert(
             id.clone(),
             Session {
-                id,
+                id: id.clone(),
                 person: person.to_string(),
                 until_ms,
                 under: under.to_string(),
@@ -509,6 +538,31 @@ impl Sessions {
                 made: MADE,
             },
         );
+        // Whoever has more than the most loses the ones whose time is
+        // up soonest, and never the one just made.
+        let mut theirs: Vec<(u64, String)> = self
+            .live
+            .values()
+            .filter(|session| {
+                (session.of == SATELLITE) == (of == SATELLITE)
+                    && if of == SATELLITE {
+                        session.person == person
+                    } else {
+                        people::same_name(&session.person, person)
+                    }
+                    && session.id != id
+            })
+            .map(|session| (session.until_ms, session.id.clone()))
+            .collect();
+        if theirs.len() >= MOST_SESSIONS {
+            theirs.sort();
+            let over = theirs.len() + 1 - MOST_SESSIONS;
+            for (_, ending) in theirs.into_iter().take(over) {
+                self.live.remove(&ending);
+                self.ended.push(ending);
+            }
+            self.ending.notify_one();
+        }
         self.keep();
     }
 
@@ -565,10 +619,10 @@ impl Sessions {
     }
 }
 
-/// The wrong tries of late, by the name that was tried.
+/// The tries of late, by what was tried.
 #[derive(Debug, Default)]
 struct Tries {
-    of: HashMap<String, Tried>,
+    of: HashMap<Guessed, Tried>,
 }
 
 #[derive(Debug, Clone)]
@@ -581,44 +635,50 @@ struct Tried {
     /// nothing once the person has another: whoever sets a new one, on
     /// the page or on the unit itself, is not then kept waiting.
     under: String,
+    /// Whether the tries were made at a name nobody has. There is
+    /// nothing to guess at such a name: its tries are counted so that
+    /// it is answered as a name somebody has, and are the first to be
+    /// forgotten where room is needed.
+    nobodys: bool,
 }
 
 impl Tries {
-    fn key(name: &str) -> String {
-        name.trim()
-            .to_lowercase()
-            .chars()
-            .take(people::LONGEST_NAME)
-            .collect()
-    }
-
-    /// For how many milliseconds more the name is held, where it is.
-    /// `under` is the stamp of the password the name has now: a name
-    /// held for tries against another password is held no longer.
-    fn held(&self, name: &str, now: u64, under: &str) -> Option<u64> {
-        let tried = self.of.get(&Self::key(name))?;
+    /// For how many milliseconds more a thing is held, where it is.
+    /// `under` is the stamp of the password it has now: what is held
+    /// for tries against another password is held no longer.
+    fn held(&self, at: &Guessed, now: u64, under: &str) -> Option<u64> {
+        let tried = self.of.get(at)?;
         (tried.under == under && tried.held_until_ms > now)
             .then(|| tried.held_until_ms - now)
     }
 
-    /// Note a wrong try against the password of the stamp `under`. Says
-    /// whether the name is held from now.
-    fn wrong(&mut self, name: &str, now: u64, under: &str) -> bool {
-        if self.of.len() >= MOST_NAMES {
-            self.of.retain(|_, tried| {
-                tried.held_until_ms > now || now - tried.last_ms < HELD_MS
-            });
-            if self.of.len() >= MOST_NAMES {
-                self.of.clear();
-            }
+    /// A try that is about to be made, against the password of the
+    /// stamp `under`: refused where the thing is held, with how long it
+    /// is held for, and counted otherwise, before anything is checked.
+    /// Whoever holds the lock for this is the only one counted at that
+    /// moment, so tries that are sent at once are counted as tries in a
+    /// row are, and no more of them are checked than a row allows. A
+    /// try that proves right takes its row away, with [`Tries::right`].
+    /// Says whether the thing is held from this try on.
+    fn tried(
+        &mut self,
+        at: Guessed,
+        now: u64,
+        under: &str,
+    ) -> Result<bool, u64> {
+        if let Some(left) = self.held(&at, now, under) {
+            return Err(left);
         }
+        self.make_room(now);
+        let nobodys = matches!(&at, Guessed::Person(_)) && under.is_empty();
         let none = || Tried {
             wrong: 0,
             last_ms: now,
             held_until_ms: 0,
             under: under.to_string(),
+            nobodys,
         };
-        let tried = self.of.entry(Self::key(name)).or_insert_with(none);
+        let tried = self.of.entry(at).or_insert_with(none);
         // Tries against a password the person no longer has are no part
         // of a row, and hold nothing.
         if tried.under != under {
@@ -633,13 +693,118 @@ impl Tries {
         if tried.wrong >= WRONG_TRIES {
             tried.wrong = 0;
             tried.held_until_ms = now + HELD_MS;
-            return true;
+            return Ok(true);
         }
-        false
+        Ok(false)
     }
 
-    fn right(&mut self, name: &str) {
-        self.of.remove(&Self::key(name));
+    /// Room for one more, where the most are remembered. What is long
+    /// ago goes first; then the tries at names nobody has. What was
+    /// tried at somebody's password or PIN, at the unit's code or at a
+    /// file is never forgotten early: nobody lifts a hold by trying
+    /// names. There are no more of those than the unit has people and
+    /// satellites.
+    fn make_room(&mut self, now: u64) {
+        if self.of.len() < MOST_NAMES {
+            return;
+        }
+        self.of.retain(|_, tried| {
+            tried.held_until_ms > now
+                || now.saturating_sub(tried.last_ms) < HELD_MS
+        });
+        if self.of.len() < MOST_NAMES {
+            return;
+        }
+        self.of.retain(|_, tried| !tried.nobodys);
+    }
+
+    fn right(&mut self, at: &Guessed) {
+        self.of.remove(at);
+    }
+}
+
+/// What a check finds: whether it proves the try right.
+trait Proven {
+    fn right(&self) -> bool;
+}
+
+impl Proven for bool {
+    fn right(&self) -> bool {
+        *self
+    }
+}
+
+impl<T, E> Proven for Result<T, E> {
+    fn right(&self) -> bool {
+        self.is_ok()
+    }
+}
+
+/// A try that was made: whether it was right, whether what was tried is
+/// held from this try on, and what the check found, where it came to an
+/// end.
+struct Try<T> {
+    right: bool,
+    held_now: bool,
+    found: Option<T>,
+}
+
+impl Try<bool> {
+    /// A try at what nobody has: wrong, with nothing counted and
+    /// nothing checked.
+    fn wrong() -> Self {
+        Self {
+            right: false,
+            held_now: false,
+            found: Some(false),
+        }
+    }
+}
+
+/// Why a try was not made: what was tried is held, for so many
+/// milliseconds more; or too many wait at the door.
+enum Untried {
+    Held(u64),
+    Crowded,
+}
+
+/// The turns at one door at which passwords, PINs and passphrases are
+/// checked. Checking one is work, so a few are checked at a time and
+/// the rest wait; and no more wait than [`MOST_WAITING`].
+#[derive(Debug)]
+struct Door {
+    turns: tokio::sync::Semaphore,
+    waiting: std::sync::atomic::AtomicUsize,
+}
+
+/// One that waits at a door, counted for as long as it does: also where
+/// whoever asked went away before its turn came.
+struct Waiting<'a>(&'a std::sync::atomic::AtomicUsize);
+
+impl Drop for Waiting<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl Door {
+    fn new() -> Self {
+        Self {
+            turns: tokio::sync::Semaphore::new(2),
+            waiting: std::sync::atomic::AtomicUsize::new(0),
+        }
+    }
+
+    /// A turn at the door, once one is free; nothing where as many wait
+    /// already as may.
+    async fn turn(&self) -> Option<tokio::sync::SemaphorePermit<'_>> {
+        use std::sync::atomic::Ordering::SeqCst;
+        if self.waiting.fetch_add(1, SeqCst) >= MOST_WAITING {
+            self.waiting.fetch_sub(1, SeqCst);
+            return None;
+        }
+        let _waiting = Waiting(&self.waiting);
+        self.turns.acquire().await.ok()
     }
 }
 
@@ -695,9 +860,17 @@ pub struct Usher {
     /// A hash no password matches, to hold a password against where the
     /// name is nobody's: a wrong name takes as long as a wrong password.
     nobodys: String,
-    /// Passwords are checked a few at a time: checking one is work, and
-    /// a crowd at the door is not to stall the counter.
-    checking: tokio::sync::Semaphore,
+    /// Where what anyone sends is checked, who has not signed in: the
+    /// password or PIN a name is tried with, and the passphrase of a
+    /// file a unit is to be set up from. Checking one is work, so a
+    /// few are checked at a time: a crowd at the door is not to stall
+    /// the counter.
+    outside: Door,
+    /// Where what is typed by those the unit knows is checked: a
+    /// satellite's PIN, and the password an administrator is asked for
+    /// again. It is a door of its own, so that a crowd outside keeps
+    /// nobody inside waiting.
+    inside: Door,
     /// The steward's shelves, as evo hands them to a distribution: the
     /// usher's own routes ask a shelf through it, as any caller does.
     shelves: Arc<dyn Dispatcher>,
@@ -760,7 +933,8 @@ impl Usher {
             sessions: Mutex::new(sessions),
             tries: Mutex::new(Tries::default()),
             nobodys,
-            checking: tokio::sync::Semaphore::new(2),
+            outside: Door::new(),
+            inside: Door::new(),
             shelves,
             keepers: tokio::sync::Mutex::new(None),
             demo: settings.demo.then(Demo::default),
@@ -976,21 +1150,20 @@ impl Usher {
         if !self.level.asks_code() {
             return None;
         }
-        let now = now_ms();
-        if let Some(left) = self
-            .tries
-            .lock()
-            .expect("the tries' lock")
-            .held(THE_CODE, now, "")
-        {
-            return Some(held(left));
-        }
         let units = self
             .code
             .as_ref()
             .and_then(|file| fs::read_to_string(file).ok())
             .map(|code| code.trim().to_string())
             .filter(|code| !code.is_empty());
+        // The try is refused or counted, and the code compared, under
+        // the one lock: of tries sent at once no more are compared
+        // than of tries in a row.
+        let mut tries = self.tries.lock().expect("the tries' lock");
+        let now = now_ms();
+        if let Some(left) = tries.held(&Guessed::Code, now, "") {
+            return Some(held(left));
+        }
         let Some(units) = units else {
             return Some(refusal(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -999,13 +1172,12 @@ impl Usher {
                 "This usher has no code to be set up with. It is given one when it is started.",
             ));
         };
+        if let Err(left) = tries.tried(Guessed::Code, now, "") {
+            return Some(held(left));
+        }
         let given = given.unwrap_or("").trim();
         let same: bool = units.as_bytes().ct_eq(given.as_bytes()).into();
         if !same {
-            self.tries
-                .lock()
-                .expect("the tries' lock")
-                .wrong(THE_CODE, now, "");
             return Some(refusal(
                 StatusCode::FORBIDDEN,
                 "permission_denied",
@@ -1013,7 +1185,7 @@ impl Usher {
                 "That is not the unit's code. It is read on the unit itself.",
             ));
         }
-        self.tries.lock().expect("the tries' lock").right(THE_CODE);
+        tries.right(&Guessed::Code);
         None
     }
 
@@ -1367,37 +1539,30 @@ impl Usher {
             return Err(Box::new(pin_asked()));
         };
         // What cannot be a PIN is not one, and is not held against a
-        // hash to say so.
+        // hash to say so; it is a wrong try all the same.
         let may_be = pin.len() <= people::LONGEST_PIN
             && pin.bytes().all(|byte| byte.is_ascii_digit());
-        let right = match hash.filter(|_| may_be) {
-            Some(hash) => {
-                let pin = pin.to_string();
-                let _turn = self.checking.acquire().await;
-                tokio::task::spawn_blocking(move || {
-                    people::matches(&pin, &hash)
-                })
-                .await
-                .unwrap_or(false)
+        let hash = hash.filter(|_| may_be);
+        let pin = pin.to_string();
+        let tried = self
+            .try_at(&self.inside, tried, &under, move || {
+                hash.is_some_and(|hash| people::matches(&pin, &hash))
+            })
+            .await;
+        match tried {
+            Ok(Try { right: true, .. }) => Ok(()),
+            Ok(Try { held_now, .. }) => {
+                if held_now {
+                    tracing::warn!(
+                        "the PIN of a satellite is held after wrong tries \
+                         in a row"
+                    );
+                }
+                Err(Box::new(pin_is_wrong()))
             }
-            None => false,
-        };
-        if !right {
-            let held_now = self.tries.lock().expect("the tries' lock").wrong(
-                &tried,
-                now_ms(),
-                &under,
-            );
-            if held_now {
-                tracing::warn!(
-                    "the PIN of a satellite is held after wrong tries in a \
-                     row"
-                );
-            }
-            return Err(Box::new(pin_is_wrong()));
+            Err(Untried::Held(left)) => Err(Box::new(pin_is_held(left))),
+            Err(Untried::Crowded) => Err(Box::new(crowded())),
         }
-        self.tries.lock().expect("the tries' lock").right(&tried);
-        Ok(())
     }
 
     /// The people, as their file has them now: whoever has the unit's
@@ -1415,32 +1580,91 @@ impl Usher {
         self.people().unread().is_some().then(people_unread)
     }
 
-    /// The stamp of the password a name has now; empty where the name
-    /// is nobody's.
-    fn stamp_of(&self, name: &str) -> String {
-        self.people()
-            .find(name)
-            .map(|person| person.stamp().to_string())
-            .unwrap_or_default()
+    /// Forget the tries at a person's password or PIN: they have a new
+    /// one.
+    fn no_tries_at(&self, name: &str) {
+        if let Some(at) = Guessed::person(name) {
+            self.tries.lock().expect("the tries' lock").right(&at);
+        }
     }
 
-    /// Whether a password is the person's. It is held against a hash
-    /// either way, so that a name nobody has takes as long.
-    async fn is_password_of(&self, name: &str, password: &str) -> bool {
-        let hash = self
-            .people()
-            .find(name)
-            .map(|person| person.password_hash().to_string());
+    /// One try at what is held: refused where it is held or where too
+    /// many wait at the door, and otherwise counted and then checked,
+    /// which is work and so is done on a turn at the door, a few at a
+    /// time. The try is counted once its turn has come and before it is
+    /// checked, with nothing between the two but the check itself:
+    /// however many are sent at once, no more are checked than tries in
+    /// a row would be, and one that is told to come back was not
+    /// counted. A right one takes its row of wrong ones away.
+    async fn try_at<T, F>(
+        &self,
+        door: &Door,
+        at: Guessed,
+        under: &str,
+        check: F,
+    ) -> Result<Try<T>, Untried>
+    where
+        T: Proven + Send + 'static,
+        F: FnOnce() -> T + Send + 'static,
+    {
+        let held = |tries: &Mutex<Tries>| {
+            tries
+                .lock()
+                .expect("the tries' lock")
+                .held(&at, now_ms(), under)
+        };
+        if let Some(left) = held(&self.tries) {
+            return Err(Untried::Held(left));
+        }
+        let Some(_turn) = door.turn().await else {
+            return Err(Untried::Crowded);
+        };
+        let held_now = self
+            .tries
+            .lock()
+            .expect("the tries' lock")
+            .tried(at.clone(), now_ms(), under)
+            .map_err(Untried::Held)?;
+        let found = tokio::task::spawn_blocking(check).await.ok();
+        let right = found.as_ref().is_some_and(Proven::right);
+        if right {
+            self.tries.lock().expect("the tries' lock").right(&at);
+        }
+        Ok(Try {
+            right,
+            held_now: held_now && !right,
+            found,
+        })
+    }
+
+    /// One try at a person's password or PIN, by the name tried. It is
+    /// held against a hash either way, so that a name nobody has takes
+    /// as long; what is longer than a password or a name can be is
+    /// nobody's, and is held against nothing.
+    async fn try_password_of(
+        &self,
+        door: &Door,
+        name: &str,
+        password: &str,
+    ) -> Result<Try<bool>, Untried> {
+        let Some(at) = Guessed::person(name) else {
+            return Ok(Try::wrong());
+        };
+        let (hash, under) = match self.people().find(name) {
+            Some(person) => (
+                Some(person.password_hash().to_string()),
+                person.stamp().to_string(),
+            ),
+            None => (None, String::new()),
+        };
         let known = hash.is_some();
         let hash = hash.unwrap_or_else(|| self.nobodys.clone());
+        let may_be = password.chars().count() <= people::LONGEST_PASSWORD;
         let password = password.to_string();
-        let _turn = self.checking.acquire().await;
-        let matches = tokio::task::spawn_blocking(move || {
-            people::matches(&password, &hash)
+        self.try_at(door, at, &under, move || {
+            may_be && people::matches(&password, &hash) && known
         })
         .await
-        .unwrap_or(false);
-        matches && known
     }
 
     /// A bearer for evo to open one line on, for a session of a person
@@ -1815,6 +2039,25 @@ async fn carried_within<T: DeserializeOwned>(
     most: usize,
 ) -> Result<T, Refused> {
     let version = request.version();
+    // What the usher's routes take is JSON, and is said to be. A page
+    // of another site can have a browser send text and forms unasked,
+    // and cannot have it send this without the usher's leave, which it
+    // is not given: what is not said to be JSON is not read.
+    if !says_json(request.headers()) {
+        let refused = refusal_with(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "contract_violation",
+            &why(
+                "not_as_asked",
+                "What this takes is sent as application/json.",
+            ),
+        );
+        return Err(Box::new(if let_go_by(request, 64 * 1024).await {
+            refused
+        } else {
+            closing(version, refused)
+        }));
+    }
     let bytes = axum::body::to_bytes(request.into_body(), most)
         .await
         .map_err(|_| {
@@ -1830,6 +2073,29 @@ async fn carried_within<T: DeserializeOwned>(
             "This is not what this takes: {e}"
         )))
     })
+}
+
+/// Whether a request says that what it carries is JSON.
+fn says_json(headers: &axum::http::HeaderMap) -> bool {
+    headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|kind| kind.to_str().ok())
+        .and_then(|kind| kind.split(';').next())
+        .is_some_and(|kind| {
+            kind.trim().eq_ignore_ascii_case("application/json")
+        })
+}
+
+/// The refusal of what a page of another site has a browser ask: the
+/// usher's pages are the only ones that ask it of a browser.
+pub fn from_another_site() -> Response {
+    refusal(
+        StatusCode::FORBIDDEN,
+        "permission_denied",
+        "from_another_site",
+        "This is asked from the usher's own pages, and from no other \
+         site's.",
+    )
 }
 
 /// Let what a request carries go by, piece by piece, keeping none of
@@ -1993,6 +2259,21 @@ fn pin_is_held(left_ms: u64) -> Response {
         )
         .with("minutes", minutes),
     )
+}
+
+/// The refusal where too many wait for a password, a PIN or a
+/// passphrase to be checked: whoever asked is told to come back in a
+/// moment, and nothing was counted against what they tried.
+fn crowded() -> Response {
+    let mut said = refusal(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "unavailable",
+        "no_session",
+        "The usher cannot check that just now. Try again in a moment.",
+    );
+    said.headers_mut()
+        .insert(header::RETRY_AFTER, HeaderValue::from_static("1"));
+    said
 }
 
 fn held(left_ms: u64) -> Response {
@@ -2220,33 +2501,22 @@ async fn sign_in(
             "This usher is not set up yet.",
         );
     }
-    let now = now_ms();
     // Tries are counted against the password the name has now: one set
     // anew since, on the page or on the unit itself, starts from none.
-    let under = usher.stamp_of(&asked.name);
-    if let Some(left) = usher.tries.lock().expect("the tries' lock").held(
-        &asked.name,
-        now,
-        &under,
-    ) {
-        return held(left);
-    }
-    if !usher.is_password_of(&asked.name, &asked.password).await {
-        let held_now = usher.tries.lock().expect("the tries' lock").wrong(
-            &asked.name,
-            now_ms(),
-            &under,
-        );
-        if held_now {
-            tracing::warn!("a name is held after wrong tries in a row");
+    let tried = usher
+        .try_password_of(&usher.outside, &asked.name, &asked.password)
+        .await;
+    match tried {
+        Ok(Try { right: true, .. }) => {}
+        Ok(Try { held_now, .. }) => {
+            if held_now {
+                tracing::warn!("a name is held after wrong tries in a row");
+            }
+            return wrong();
         }
-        return wrong();
+        Err(Untried::Held(left)) => return held(left),
+        Err(Untried::Crowded) => return crowded(),
     }
-    usher
-        .tries
-        .lock()
-        .expect("the tries' lock")
-        .right(&asked.name);
     let name = match usher.people().find(&asked.name) {
         Some(person) => person.name.clone(),
         None => return wrong(),
@@ -2303,6 +2573,16 @@ async fn stocked(
     }
 }
 
+/// Which usher the unit runs: its version and the commit it was built
+/// from. An administrator is told, who updates the unit and has to see
+/// that it was; nobody else is, and nobody who has not signed in.
+fn what_runs() -> Value {
+    json!({
+        "version": evo_usher_about::VERSION,
+        "commit": evo_usher_about::COMMIT,
+    })
+}
+
 async fn me(State(usher): State<Arc<Usher>>, request: Request) -> Response {
     match asking(&request) {
         Ok(Asking::Person {
@@ -2316,16 +2596,17 @@ async fn me(State(usher): State<Arc<Usher>>, request: Request) -> Response {
                 .expect("the sessions' lock")
                 .of(&session, now_ms())
                 .map(|session| session.until_ms);
-            answer(
-                StatusCode::OK,
-                &json!({
-                    "name": name, "role": role, "until_ms": until_ms,
-                    "unit": false, "level": usher.level.as_str(),
-                    "least_password": usher.level.least_password(),
-                    "least_pin": usher.level.pin_digits(),
-                    "most_pin": people::LONGEST_PIN,
-                }),
-            )
+            let mut told = json!({
+                "name": name, "role": role, "until_ms": until_ms,
+                "unit": false, "level": usher.level.as_str(),
+                "least_password": usher.level.least_password(),
+                "least_pin": usher.level.pin_digits(),
+                "most_pin": people::LONGEST_PIN,
+            });
+            if role == ADMINISTRATOR {
+                told["runs"] = what_runs();
+            }
+            answer(StatusCode::OK, &told)
         }
         Ok(Asking::Unit) => answer(
             StatusCode::OK,
@@ -2335,6 +2616,7 @@ async fn me(State(usher): State<Arc<Usher>>, request: Request) -> Response {
                 "least_password": usher.level.least_password(),
                 "least_pin": usher.level.pin_digits(),
                 "most_pin": people::LONGEST_PIN,
+                "runs": what_runs(),
             }),
         ),
         Ok(Asking::Satellite { .. }) => not_for_a_satellite(),
@@ -2495,7 +2777,7 @@ async fn make_pin(
         .lock()
         .expect("the sessions' lock")
         .end_of(&name, None);
-    usher.tries.lock().expect("the tries' lock").right(&name);
+    usher.no_tries_at(&name);
     answer(StatusCode::OK, &json!({ "name": name, "pin": pin }))
 }
 
@@ -2551,7 +2833,7 @@ async fn set_pin(
         .lock()
         .expect("the sessions' lock")
         .end_of(&name, None);
-    usher.tries.lock().expect("the tries' lock").right(&name);
+    usher.no_tries_at(&name);
     answer(StatusCode::OK, &json!({ "set": name }))
 }
 
@@ -2606,7 +2888,7 @@ async fn set_password(
         .lock()
         .expect("the sessions' lock")
         .end_of(&name, None);
-    usher.tries.lock().expect("the tries' lock").right(&name);
+    usher.no_tries_at(&name);
     answer(StatusCode::OK, &json!({ "set": name }))
 }
 
@@ -2663,28 +2945,21 @@ async fn change_my_password(
         Ok(asked) => asked,
         Err(refused) => return *refused,
     };
-    let now = now_ms();
-    let under = usher.stamp_of(&name);
-    if let Some(left) = usher
-        .tries
-        .lock()
-        .expect("the tries' lock")
-        .held(&name, now, &under)
+    match usher
+        .try_password_of(&usher.inside, &name, &asked.current)
+        .await
     {
-        return held(left);
-    }
-    if !usher.is_password_of(&name, &asked.current).await {
-        usher.tries.lock().expect("the tries' lock").wrong(
-            &name,
-            now_ms(),
-            &under,
-        );
-        return refusal(
-            StatusCode::FORBIDDEN,
-            "permission_denied",
-            "wrong_password",
-            "The password you have now is not that one.",
-        );
+        Ok(Try { right: true, .. }) => {}
+        Ok(_) => {
+            return refusal(
+                StatusCode::FORBIDDEN,
+                "permission_denied",
+                "wrong_password",
+                "The password you have now is not that one.",
+            )
+        }
+        Err(Untried::Held(left)) => return held(left),
+        Err(Untried::Crowded) => return crowded(),
     }
     if let Err(why) = people::password_held(&asked.password, &name, usher.level)
     {
@@ -2817,8 +3092,34 @@ fn pin_typed() -> Value {
 /// A screen that is no satellite yet is given a code to show and a
 /// secret to keep. Anyone may ask: a code adopts nothing until an
 /// administrator types it.
-async fn satellite_code(State(usher): State<Arc<Usher>>) -> Response {
-    let begun = usher.satellites().begin(now_ms());
+/// What a request carries that has nothing to say: an empty object,
+/// sent as JSON. A screen asks for a code with it, so that asking for
+/// one is what no page of another site can have a browser do unasked.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Nothing {}
+
+async fn satellite_code(
+    State(usher): State<Arc<Usher>>,
+    request: Request,
+) -> Response {
+    if let Err(refused) = carried::<Nothing>(request).await {
+        return *refused;
+    }
+    let Some(begun) = usher.satellites().begin(now_ms()) else {
+        // As many screens wait to be adopted as may: this one asks
+        // again, as its page does by itself.
+        let mut said = refusal(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "unavailable",
+            "no_session",
+            "The usher cannot give a screen a code just now. Try again in \
+             a moment.",
+        );
+        said.headers_mut()
+            .insert(header::RETRY_AFTER, HeaderValue::from_static("30"));
+        return said;
+    };
     answer(
         StatusCode::OK,
         &json!({
@@ -3505,29 +3806,19 @@ async fn export(State(usher): State<Arc<Usher>>, request: Request) -> Response {
                  administrator to move the unit.",
             ));
         };
-        let now = now_ms();
-        let under = usher.stamp_of(name);
-        if let Some(left) = usher
-            .tries
-            .lock()
-            .expect("the tries' lock")
-            .held(name, now, &under)
-        {
-            return held(left);
-        }
         let password = asked.password.unwrap_or_default();
-        if !usher.is_password_of(name, &password).await {
-            usher.tries.lock().expect("the tries' lock").wrong(
-                name,
-                now_ms(),
-                &under,
-            );
-            return refusal(
-                StatusCode::FORBIDDEN,
-                "permission_denied",
-                "wrong_password",
-                "The password you have now is not that one.",
-            );
+        match usher.try_password_of(&usher.inside, name, &password).await {
+            Ok(Try { right: true, .. }) => {}
+            Ok(_) => {
+                return refusal(
+                    StatusCode::FORBIDDEN,
+                    "permission_denied",
+                    "wrong_password",
+                    "The password you have now is not that one.",
+                )
+            }
+            Err(Untried::Held(left)) => return held(left),
+            Err(Untried::Crowded) => return crowded(),
         }
         let passphrase = asked.passphrase.unwrap_or_default();
         if let Err(why) = travel::passphrase_held(&passphrase, usher.level) {
@@ -3535,7 +3826,11 @@ async fn export(State(usher): State<Arc<Usher>>, request: Request) -> Response {
         }
         let roots = usher.roots.clone();
         let demo = usher.is_demo();
-        let _turn = usher.checking.acquire().await;
+        // Sealing is the same work as checking, and takes a turn as a
+        // check does.
+        let Some(_turn) = usher.inside.turn().await else {
+            return crowded();
+        };
         let sealed = tokio::task::spawn_blocking(move || {
             let unit = travel::gather(&roots, demo)
                 .map_err(|e| format!("the unit's files: {e}"))?;
@@ -3664,8 +3959,10 @@ async fn apply_profile(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TakingIn {
-    /// The file, as it was exported with everything.
-    file: Value,
+    /// The file, as it was exported with everything, and as it came:
+    /// nothing is made of it until whoever sent it gave the unit's
+    /// code, where the level asks for one.
+    file: Box<serde_json::value::RawValue>,
     /// The passphrase it was sealed under.
     passphrase: String,
     /// The unit's code, where the level asks for one to set it up by.
@@ -3724,11 +4021,12 @@ async fn set_up_from_file(
     if let Some(refused) = usher.code_given(asked.code.as_deref()) {
         return refused;
     }
-    let carried = match travel::read(&asked.file) {
-        Ok(carried) => carried,
+    let sealed = match travel::read_unit(asked.file.get()) {
+        Ok(sealed) => sealed,
         Err(why) => return file_refused(StatusCode::BAD_REQUEST, &why),
     };
-    let Some(sealed) = carried.unit else {
+    drop(asked.file);
+    let Some(sealed) = sealed else {
         return file_refused(
             StatusCode::BAD_REQUEST,
             &why(
@@ -3739,30 +4037,23 @@ async fn set_up_from_file(
             ),
         );
     };
-    let now = now_ms();
-    if let Some(left) = usher
-        .tries
-        .lock()
-        .expect("the tries' lock")
-        .held(THE_FILE, now, "")
-    {
-        return held(left);
-    }
+    // A file that does not open is a wrong try, whatever keeps it from
+    // opening: opening one is the work a passphrase is guessed by.
     let passphrase = asked.passphrase;
-    let opened = {
-        let _turn = usher.checking.acquire().await;
-        tokio::task::spawn_blocking(move || travel::open(&sealed, &passphrase))
-            .await
-            .unwrap_or(Err(travel::Unopened::Otherwise))
-    };
-    let plain = match opened {
-        Ok(plain) => plain,
-        Err(travel::Unopened::Passphrase) => {
-            usher.tries.lock().expect("the tries' lock").wrong(
-                THE_FILE,
-                now_ms(),
-                "",
-            );
+    let tried = usher
+        .try_at(&usher.outside, Guessed::File, "", move || {
+            travel::open(&sealed, &passphrase)
+        })
+        .await;
+    let plain = match tried {
+        Ok(Try {
+            found: Some(Ok(plain)),
+            ..
+        }) => plain,
+        Ok(Try {
+            found: Some(Err(travel::Unopened::Passphrase)),
+            ..
+        }) => {
             return refusal(
                 StatusCode::FORBIDDEN,
                 "permission_denied",
@@ -3771,14 +4062,15 @@ async fn set_up_from_file(
                  the file was changed since.",
             );
         }
-        Err(travel::Unopened::Otherwise) => {
+        Ok(_) => {
             return file_refused(
                 StatusCode::BAD_REQUEST,
                 &travel::damaged("its sealed part"),
             )
         }
+        Err(Untried::Held(left)) => return held(left),
+        Err(Untried::Crowded) => return crowded(),
     };
-    usher.tries.lock().expect("the tries' lock").right(THE_FILE);
     let unit: travel::Unit = match serde_json::from_slice(&plain) {
         Ok(unit) => unit,
         Err(_) => {
@@ -3894,38 +4186,57 @@ pub fn routes(usher: Arc<Usher>) -> Router {
 mod tests {
     use super::*;
 
+    /// What is tried where a person's name is.
+    fn at(name: &str) -> Guessed {
+        Guessed::person(name).expect("a name as long as a name may be")
+    }
+
     #[test]
     fn five_wrong_tries_in_a_row_hold_a_name_for_a_quarter_of_an_hour() {
         let mut tries = Tries::default();
         let start = 1_000_000;
         for nth in 0..4 {
-            assert!(!tries.wrong("Anna", start + nth, ""));
-            assert_eq!(tries.held("anna", start + nth, ""), None);
+            assert_eq!(tries.tried(at("Anna"), start + nth, "a"), Ok(false));
+            assert_eq!(tries.held(&at("anna"), start + nth, "a"), None);
         }
         // The fifth holds the name, however it is cased.
-        assert!(tries.wrong(" ANNA ", start + 4, ""));
-        let left = tries.held("anna", start + 5, "").expect("held");
+        assert_eq!(tries.tried(at(" ANNA "), start + 4, "a"), Ok(true));
+        let left = tries.held(&at("anna"), start + 5, "a").expect("held");
         assert!(left > HELD_MS - 10 && left <= HELD_MS, "{left}");
+        // A sixth is refused, and told how long the name is held for:
+        // it is not counted, and nothing is checked for it.
+        assert_eq!(tries.tried(at("Anna"), start + 5, "a"), Err(left));
         // Another name is not held by it.
-        assert_eq!(tries.held("Ben", start + 5, ""), None);
+        assert_eq!(tries.held(&at("Ben"), start + 5, "b"), None);
         // When the time is up the name is tried again, from none.
-        assert_eq!(tries.held("anna", start + 4 + HELD_MS, ""), None);
-        assert!(!tries.wrong("anna", start + 5 + HELD_MS, ""));
+        assert_eq!(tries.held(&at("anna"), start + 4 + HELD_MS, "a"), None);
+        assert_eq!(
+            tries.tried(at("anna"), start + 5 + HELD_MS, "a"),
+            Ok(false)
+        );
     }
 
     #[test]
     fn a_right_try_and_time_end_a_row_of_wrong_ones() {
         let mut tries = Tries::default();
         for nth in 0..4 {
-            tries.wrong("Anna", nth, "");
+            assert_eq!(tries.tried(at("Anna"), nth, "a"), Ok(false));
         }
-        tries.right("anna");
+        // The fifth is right: it was counted before it was checked, and
+        // takes the whole row away, the hold it began among it.
+        assert_eq!(tries.tried(at("Anna"), 4, "a"), Ok(true));
+        tries.right(&at("anna"));
+        assert_eq!(tries.held(&at("Anna"), 5, "a"), None);
         for nth in 0..4 {
-            assert!(!tries.wrong("Anna", 10 + nth, ""), "{nth}");
+            assert_eq!(
+                tries.tried(at("Anna"), 10 + nth, "a"),
+                Ok(false),
+                "{nth}"
+            );
         }
         // Four wrong, a long while, then one more: no row of five.
-        assert!(!tries.wrong("Anna", 20 + HELD_MS + 1, ""));
-        assert_eq!(tries.held("Anna", 21 + HELD_MS, ""), None);
+        assert_eq!(tries.tried(at("Anna"), 20 + HELD_MS + 1, "a"), Ok(false));
+        assert_eq!(tries.held(&at("Anna"), 21 + HELD_MS, "a"), None);
     }
 
     #[test]
@@ -3934,27 +4245,174 @@ mod tests {
         // Five wrong tries against the password a person has hold the
         // name.
         for nth in 0..5 {
-            tries.wrong("Anna", nth, "first");
+            let _ = tries.tried(at("Anna"), nth, "first");
         }
-        assert!(tries.held("Anna", 10, "first").is_some());
+        assert!(tries.held(&at("Anna"), 10, "first").is_some());
         // The person is given another: the name is held no longer, at
         // once, and a row of wrong tries starts from none.
-        assert_eq!(tries.held("Anna", 10, "second"), None);
+        assert_eq!(tries.held(&at("Anna"), 10, "second"), None);
         for nth in 0..4 {
-            assert!(!tries.wrong("Anna", 20 + nth, "second"), "{nth}");
+            assert_eq!(
+                tries.tried(at("Anna"), 20 + nth, "second"),
+                Ok(false),
+                "{nth}"
+            );
         }
-        assert_eq!(tries.held("Anna", 30, "second"), None);
-        assert!(tries.wrong("Anna", 31, "second"));
-        assert!(tries.held("Anna", 32, "second").is_some());
+        assert_eq!(tries.held(&at("Anna"), 30, "second"), None);
+        assert_eq!(tries.tried(at("Anna"), 31, "second"), Ok(true));
+        assert!(tries.held(&at("Anna"), 32, "second").is_some());
     }
 
     #[test]
-    fn nobody_fills_the_memory_by_trying_names() {
+    fn nobody_fills_the_memory_or_lifts_a_hold_by_trying_names() {
         let mut tries = Tries::default();
-        for nth in 0..(MOST_NAMES as u64 + 50) {
-            tries.wrong(&format!("name {nth}"), nth, "");
+        // A person's name is held, and a satellite's PIN, and the
+        // unit's code.
+        let pin = the_pin_of("a-satellite");
+        for nth in 0..5 {
+            let _ = tries.tried(at("Anna"), nth, "annas");
+            let _ = tries.tried(pin.clone(), nth, "its");
+            let _ = tries.tried(Guessed::Code, nth, "");
         }
-        assert!(tries.of.len() <= MOST_NAMES, "{}", tries.of.len());
+        // One wrong try at another person's password is of late.
+        assert_eq!(tries.tried(at("Ben"), 5, "bens"), Ok(false));
+        // Then more names than are remembered are tried, each nobody's.
+        for nth in 0..(2 * MOST_NAMES as u64 + 50) {
+            let name = format!("name {nth}");
+            assert_eq!(tries.tried(at(&name), 10 + nth, ""), Ok(false));
+            assert!(tries.of.len() <= MOST_NAMES + 4, "{}", tries.of.len());
+        }
+        // What is somebody's is as it was: held, and counted.
+        let now = 10 + 2 * MOST_NAMES as u64 + 50;
+        assert!(tries.held(&at("Anna"), now, "annas").is_some());
+        assert!(tries.held(&pin, now, "its").is_some());
+        assert!(tries.held(&Guessed::Code, now, "").is_some());
+        assert_eq!(tries.of[&at("Ben")].wrong, 1);
+    }
+
+    #[test]
+    fn no_name_that_is_sent_is_a_satellites_pin_or_another_persons() {
+        let mut tries = Tries::default();
+        let pin = the_pin_of("a-satellite");
+        for nth in 0..5 {
+            let _ = tries.tried(pin.clone(), nth, "its");
+        }
+        // Whatever name is tried, it is a person's name and no more:
+        // the words a satellite's PIN was once counted under among
+        // them. The hold on the PIN stands.
+        for name in [
+            "\u{0}the PIN of the satellite a-satellite",
+            "a-satellite",
+            "",
+        ] {
+            assert_eq!(tries.tried(at(name), 10, ""), Ok(false), "{name:?}");
+        }
+        assert!(tries.held(&pin, 11, "its").is_some());
+
+        // A name as long as a name may be is held; one that is longer
+        // by a letter is nobody's, is counted under nothing, and lifts
+        // nothing from the name it begins with.
+        let longest = "n".repeat(people::LONGEST_NAME);
+        for nth in 0..5 {
+            let _ = tries.tried(at(&longest), nth, "theirs");
+        }
+        assert!(tries.held(&at(&longest), 10, "theirs").is_some());
+        assert_eq!(Guessed::person(&format!("{longest}x")), None);
+        assert!(tries.held(&at(&longest), 11, "theirs").is_some());
+    }
+
+    #[tokio::test]
+    async fn no_more_wait_at_a_door_than_may_and_one_that_leaves_is_counted_no_longer(
+    ) {
+        let door = Arc::new(Door::new());
+        // Both turns are taken, and as many wait as may.
+        let first = door.turn().await.expect("a turn");
+        let second = door.turn().await.expect("a turn");
+        let waiting: Vec<_> = (0..MOST_WAITING)
+            .map(|_| {
+                let door = door.clone();
+                tokio::spawn(async move { door.turn().await.is_some() })
+            })
+            .collect();
+        let waits = |door: &Door| {
+            door.waiting.load(std::sync::atomic::Ordering::SeqCst)
+        };
+        while waits(&door) < MOST_WAITING {
+            tokio::task::yield_now().await;
+        }
+        // One more is told at once that there is no room, and is not
+        // left counted.
+        assert!(door.turn().await.is_none());
+        assert_eq!(waits(&door), MOST_WAITING);
+        // Whoever goes away before their turn came is counted no
+        // longer, and leaves room for another.
+        let mut waiting = waiting.into_iter();
+        let gone = waiting.next().unwrap();
+        gone.abort();
+        let _ = gone.await;
+        assert_eq!(waits(&door), MOST_WAITING - 1);
+        let another = {
+            let door = door.clone();
+            tokio::spawn(async move { door.turn().await.is_some() })
+        };
+        while waits(&door) < MOST_WAITING {
+            tokio::task::yield_now().await;
+        }
+        // The turns given back, everyone who waited has one in the end.
+        drop(first);
+        drop(second);
+        for one in waiting {
+            assert!(one.await.unwrap());
+        }
+        assert!(another.await.unwrap());
+        assert_eq!(waits(&door), 0);
+    }
+
+    #[test]
+    fn one_person_has_so_many_sessions_and_no_more() {
+        let dir = tempfile::tempdir().unwrap();
+        let now = now_ms();
+        let mut sessions = Sessions::open(dir.path()).unwrap();
+        let of = FRONT_DESK;
+        let later = |nth: usize| now + 60_000 + nth as u64;
+        sessions.add("b-1".to_string(), "Ben", later(0), "bens", of);
+        // A satellite that goes by the same word is no session of the
+        // person's.
+        sessions.add("s-1".to_string(), "Cara", later(0), "its", SATELLITE);
+        for nth in 0..MOST_SESSIONS {
+            sessions.add(format!("c-{nth}"), "Cara", later(nth), "caras", of);
+        }
+        let caras = |sessions: &Sessions| {
+            sessions
+                .live
+                .values()
+                .filter(|session| {
+                    people::same_name(&session.person, "Cara")
+                        && session.of == of
+                })
+                .count()
+        };
+        assert_eq!(caras(&sessions), MOST_SESSIONS);
+        assert!(sessions.ended.is_empty());
+
+        // One more, however her name is cased, and with less time than
+        // any: it stands, and the one whose time was up soonest among
+        // the others is ended, and evo is to be told of it.
+        sessions.add("c-new".to_string(), " cara ", now + 1_000, "caras", of);
+        assert_eq!(caras(&sessions), MOST_SESSIONS);
+        assert_eq!(sessions.live.len(), MOST_SESSIONS + 2);
+        assert!(sessions.of("c-new", now).is_some());
+        assert!(sessions.of("c-0", now).is_none());
+        assert!(sessions.of("c-1", now).is_some());
+        assert_eq!(sessions.ended, ["c-0"]);
+        // Nobody else's is touched.
+        assert!(sessions.of("b-1", now).is_some());
+        assert!(sessions.of("s-1", now).is_some());
+
+        // Kept through a restart as it stands.
+        let again = Sessions::open(dir.path()).unwrap();
+        assert_eq!(again.live.len(), MOST_SESSIONS + 2);
+        assert!(!again.live.contains_key("c-0"));
     }
 
     #[test]
@@ -4263,6 +4721,10 @@ mod tests {
         carried: &Value,
     ) -> (StatusCode, String) {
         let mut request = Request::new(Body::from(carried.to_string()));
+        request.headers_mut().insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        );
         if let Some(who) = who {
             request.extensions_mut().insert(who);
         }
@@ -4322,7 +4784,7 @@ mod tests {
         let now = now_ms();
         let lobby = {
             let mut satellites = usher.satellites();
-            let begun = satellites.begin(now);
+            let begun = satellites.begin(now).expect("room for a screen");
             let Ok(lobby) = satellites.adopt(
                 &begun.code,
                 &satellites::Adopting::named("Lobby", ""),
@@ -4332,7 +4794,7 @@ mod tests {
             };
             lobby
         };
-        let waits = usher.satellites().begin(now);
+        let waits = usher.satellites().begin(now).expect("room for a screen");
         // What each route is asked, and would do were it let through.
         let asked = [
             ("people", json!(null)),
@@ -4581,7 +5043,7 @@ mod tests {
     ) -> satellites::Satellite {
         let now = now_ms();
         let mut satellites = usher.satellites();
-        let begun = satellites.begin(now);
+        let begun = satellites.begin(now).expect("room for a screen");
         match satellites.adopt(&begun.code, &adopting, now) {
             Ok(adopted) => adopted,
             Err(_) => panic!("the screen is not adopted"),

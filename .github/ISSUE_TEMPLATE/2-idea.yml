@@ -1,0 +1,28 @@
+name: An idea
+description: Something the usher does not do yet, or could do better.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: wanted
+    attributes:
+      label: What is wanted
+      description: What somebody at the site wants to do, in their own words, before how the usher might do it.
+    validations:
+      required: true
+  - type: textarea
+    id: site
+    attributes:
+      label: The site it is for
+      description: What kind of place, how many desks and screens, who hands the vouchers out. No names are needed.
+      placeholder: A hotel with one reception and four screens by the lifts.
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: How it is done today
+      description: What is done in its place now, with the usher or without it.
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else

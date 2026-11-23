@@ -347,8 +347,12 @@ impl Steward {
     /// A screen that is no satellite yet asks for a code: the code it
     /// shows, and the secret it keeps.
     pub fn screen(&self) -> (String, String) {
-        let (status, said) =
-            self.usher("POST", "satellite_code", None, &Caller::on_the_lan());
+        let (status, said) = self.usher(
+            "POST",
+            "satellite_code",
+            Some(json!({})),
+            &Caller::on_the_lan(),
+        );
         assert_eq!(status, 200, "{said}");
         (
             said["code"].as_str().expect("a code").to_string(),
@@ -1086,6 +1090,30 @@ discovery_enabled = false
             .unwrap_or_default()
             .to_string();
         (status, kind, answer.text().unwrap())
+    }
+
+    /// Text sent to one of the steward's paths as the kind of thing it
+    /// is said to be, or as no kind at all, with headers of the
+    /// sender's own: the status, and what was said.
+    pub fn text_sent(
+        &self,
+        path: &str,
+        kind: Option<&str>,
+        text: &str,
+        headers: &[(&str, &str)],
+    ) -> (u16, String) {
+        let mut asked = self
+            .web
+            .post(format!("{}{path}", self.address()))
+            .body(text.to_string());
+        if let Some(kind) = kind {
+            asked = asked.header("Content-Type", kind);
+        }
+        for (name, value) in headers {
+            asked = asked.header(*name, *value);
+        }
+        let answer = asked.send().expect("the steward answers over HTTPS");
+        (answer.status().as_u16(), answer.text().unwrap_or_default())
     }
 
     /// A file the steward serves, asked for with headers of the asker's

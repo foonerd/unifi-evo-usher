@@ -7,10 +7,10 @@
 #
 #   scripts/prove-proxy.sh [<case>...]
 #
-# <case> is alone, extended, demo, move, nginx, apache, caddy or traefik;
-# with none named, all eight. The usher's image is unifi-evo-usher:<version> on this
-# machine, as scripts/image.sh --here keeps it, or
-# $USHER_IMAGE:$USHER_VERSION.
+# <case> is alone, extended, demo, move, update, nginx, apache, caddy or
+# traefik; with none named, all nine. The usher's image is
+# unifi-evo-usher:<version> on this machine, as scripts/image.sh --here
+# keeps it, or $USHER_IMAGE:$USHER_VERSION.
 #
 # Alone: the unit is started by itself, as the image's account, with no
 # capability, no way to gain a privilege and a root file system it cannot
@@ -44,6 +44,20 @@
 # the second has, and a screen that was adopted by the first hands out
 # a voucher at the second with the secret it holds. A wrong passphrase
 # is refused and changes nothing.
+#
+# Update: a unit that ran the newest release is updated to this version,
+# and is put back to that release, on the volume it has: what a site
+# does with a new version, and what it does where the new version is to
+# be left again. The release is the image $USHER_FROM names, as
+# <image>:<tag>, or ghcr.io/foonerd/unifi-evo-usher:latest, which is
+# fetched where this machine does not have it. Set up on the release,
+# with a person at the front desk, a voucher type of the site's own, a
+# site's name and a screen that is protected by a PIN, the unit is the
+# same after the update and after the way back: its people sign in as
+# they did, its types and its site are as they were, the screen hands
+# out a voucher with the secret and the PIN it has, a browser believes
+# it by the authority it believed it by, and the record keeps every
+# hand-out, whichever version wrote it down.
 #
 # In every case a file of two MiB that is sent to be set up from reaches
 # the unit, which answers it: a unit's file is long, and what stands
@@ -99,11 +113,11 @@ SET_LANGUAGE="en"
 # what the proof was started with.
 unset USHER_DEMO
 
-proxies=${*:-alone extended demo move nginx apache caddy traefik}
+proxies=${*:-alone extended demo move update nginx apache caddy traefik}
 # The Compose files of a case, the first the one the unit is in.
 files_of() {
   case "$1" in
-    alone | demo | move) echo packaging/docker/compose.yaml ;;
+    alone | demo | move | update) echo packaging/docker/compose.yaml ;;
     extended) echo packaging/docker/compose.yaml packaging/docker/extended.yaml ;;
     *) echo "packaging/proxy/$1/compose.yaml" ;;
   esac
@@ -146,6 +160,7 @@ for proxy in $proxies; do
   [ "$proxy" != extended ] || continue
   [ "$proxy" != demo ] || continue
   [ "$proxy" != move ] || continue
+  [ "$proxy" != update ] || continue
   [ "$(unit_of "$proxy")" = "$(unit_of alone)" ] || { echo "prove-proxy: the unit in $(files_of "$proxy") is not the unit of packaging/docker/compose.yaml" >&2; exit 1; }
   # A proxy is started only once the unit says it is up.
   [ "$proxy" = alone ] || [ "$(waits_for "$proxy")" = service_healthy ] || { echo "prove-proxy: the proxy in $(files_of "$proxy") does not wait for the unit to say it is up" >&2; exit 1; }
@@ -1141,10 +1156,173 @@ prove_move() {
   project=""
 }
 
+# A unit that ran the newest release, updated to this version and put
+# back to that release, on the volume it has.
+prove_update() {
+  proxy=update
+  project="usher-proof-update"
+  started="$started $project"
+  local port dir bearer status shown secret screen tries pin first second third
+  local name=localhost authority
+  local from=${USHER_FROM:-ghcr.io/foonerd/unifi-evo-usher:latest}
+  local here="$USHER_IMAGE:$USHER_VERSION" released
+  local satellites_pin="48027316"
+  dir="$work/update"
+  mkdir -p "$dir"
+  authority="$dir/unit-ca.crt"
+  port=$(free_port)
+  # A demo, so that a voucher can be handed out with no controller at
+  # hand: what a unit keeps is kept by a demo in the same files.
+  export USHER_ADDRESS=127.0.0.1 USHER_PORT="$port" USHER_NAME="$project" USHER_DEMO=1
+  compose() { docker compose -p "$project" -f packaging/docker/compose.yaml "$@"; }
+  ask() {
+    local path="$1"
+    shift
+    curl -sS --max-time 30 -o "$dir/answer" -w '%{http_code}' \
+      --cacert "$authority" --resolve "$name:$port:127.0.0.1" \
+      "$@" "https://$name:$port$path" 2> "$dir/curl.err" || true
+  }
+  post() {
+    local path="$1" body="$2"
+    shift 2
+    ask "$path" -X POST -H 'Content-Type: application/json' -d "$body" "$@"
+  }
+  request() {
+    jq -cn --arg shelf "$1" --arg type "$2" --arg payload "$(printf '%s' "$3" | base64 -w0)" \
+      '{shelf: $shelf, request_type: $type, payload_b64: $payload}'
+  }
+  said_of() { jq -r '.payload_b64' "$dir/answer" | base64 -d; }
+  person() { jq -cn --arg name "$1" --arg password "$2" '{name: $name, password: $password}'; }
+  # Start the unit from an image, named as <image>:<tag>, on the volume
+  # it has, and see that it is that image the unit then runs.
+  up() {
+    USHER_IMAGE="${1%:*}" USHER_VERSION="${1##*:}" \
+      docker compose -p "$project" -f packaging/docker/compose.yaml up -d --wait --wait-timeout 60 usher > "$dir/up.log" 2>&1 || return 1
+    [ "$(docker inspect -f '{{.Config.Image}}' "$project")" = "$1" ]
+  }
+  # The unit's authority, as it is now, and the unit's word on itself.
+  face() {
+    tries=0
+    until compose cp usher:/var/lib/evo/state/https/ca.crt "$authority" > /dev/null 2>&1 \
+      && chmod 644 "$authority" && [ "$(ask /usher/v1/state)" = 200 ] && jq -e "$1" "$dir/answer" > /dev/null; do
+      tries=$((tries + 1))
+      [ "$tries" -lt 120 ] || fail "the unit does not say of itself that $1: $(cat "$dir/curl.err") $(head -c 300 "$dir/answer" 2> /dev/null)"
+      sleep 0.5
+    done
+  }
+  # The unit as it was set up, whichever version runs it: asked as its
+  # people and its screen ask it, and one voucher more handed out by
+  # the screen, whose id is printed.
+  #
+  #   as_it_was <which start this is, for what is said where it fails>
+  as_it_was() {
+    local when="$1" desk handed
+    [ "$(sha256sum < "$authority")" = "$(sha256sum < "$dir/first-ca.crt")" ] || fail "$when, the unit has another authority than it had"
+    status=$(post /usher/v1/sign_in "$(person "$PERSON" "$PASSWORD")")
+    [ "$status" = 200 ] || fail "$when, the administrator does not sign in with the password they had: $status $(cat "$dir/answer")"
+    jq -e '.role == "administrator"' "$dir/answer" > /dev/null || fail "$when, the administrator signs in as: $(cat "$dir/answer")"
+    bearer=$(jq -r '.token' "$dir/answer")
+    status=$(post /usher/v1/sign_in "$(person Ben "$pin")")
+    [ "$status" = 200 ] || fail "$when, the front desk does not sign in with the PIN it had: $status $(cat "$dir/answer")"
+    jq -e '.role == "front_desk"' "$dir/answer" > /dev/null || fail "$when, the front desk signs in as: $(cat "$dir/answer")"
+    desk=$(jq -r '.token' "$dir/answer")
+    status=$(post /api/v1/request "$(request issue.counter offered '{}')" -H "Authorization: Bearer $desk")
+    [ "$status" = 200 ] || fail "$when, the front desk is not told the types on offer: $status $(cat "$dir/answer")"
+    said_of | jq -e '(.types | map(.name)) == ["Day guest", "Week", "Stay", "Contractor"] and .default == "Day guest"' > /dev/null || fail "$when, on offer: $(said_of)"
+    status=$(post /api/v1/request "$(request issue.counter types '{}')" -H "Authorization: Bearer $bearer")
+    [ "$status" = 200 ] || fail "$when, the administrator is not told the types: $status $(cat "$dir/answer")"
+    said_of | jq -e '.types | map(select(.name == "Contractor")) | length == 1 and .[0].minutes == 10080 and .[0].guests == 2' > /dev/null || fail "$when, the type of the site's own: $(said_of)"
+    [ "$(ask /usher/v1/state)" = 200 ] || fail "$when, the unit does not say what it is"
+    jq -e --arg name "$SET_NAME" '.site.name == $name and .set_up == true and .demo == true' "$dir/answer" > /dev/null || fail "$when, the unit says of itself: $(cat "$dir/answer")"
+    status=$(ask /usher/v1/satellites -H "Authorization: Bearer $bearer")
+    [ "$status" = 200 ] || fail "$when, the satellites are not listed: $status $(cat "$dir/answer")"
+    jq -e '.satellites | length == 1 and .[0].name == "Lobby" and .[0].mode == "protected"' "$dir/answer" > /dev/null || fail "$when, the satellites: $(cat "$dir/answer")"
+    status=$(post /usher/v1/satellite_sign_in "$(jq -cn --arg secret "$secret" '{secret: $secret}')")
+    [ "$status" = 200 ] || fail "$when, the screen's secret is not exchanged for a session: $status $(cat "$dir/answer")"
+    screen=$(jq -r '.token' "$dir/answer")
+    status=$(post /api/v1/request "$(request issue.counter hand_default '{}')" -H "Authorization: Bearer $screen")
+    [ "$status" = 403 ] || fail "$when, the protected screen is given a voucher with no PIN: $status $(cat "$dir/answer")"
+    status=$(post /api/v1/request "$(request issue.counter hand_default "$(jq -cn --arg pin "$satellites_pin" '{pin: $pin}')")" -H "Authorization: Bearer $screen")
+    [ "$status" = 200 ] || fail "$when, the screen hands out no voucher with the PIN it had: $status $(cat "$dir/answer")"
+    said_of | jq -e '(.voucher.code | test("^[0-9]{10}$")) and .network == "Guests"' > /dev/null || fail "$when, the voucher the screen handed out: $(said_of)"
+    handed=$(said_of | jq -r '.voucher.id')
+    echo "$handed"
+  }
+  # The record of hand-outs names each of these vouchers.
+  recorded() {
+    local when="$1" ids
+    shift
+    ids=$(jq -cn '$ARGS.positional' --args "$@")
+    status=$(post /api/v1/request "$(request issue.counter handed "$(jq -cn --argjson ids "$ids" '{ids: $ids}')")" -H "Authorization: Bearer $bearer")
+    [ "$status" = 200 ] || fail "$when, the record of hand-outs is not told: $status $(cat "$dir/answer")"
+    said_of | jq -e --argjson ids "$ids" '(.handed | map(.id) | sort) == ($ids | sort)' > /dev/null || fail "$when, the record of hand-outs does not name $ids: $(said_of)"
+  }
+
+  echo "prove-proxy: update"
+  if ! docker image inspect "$from" > /dev/null 2>&1; then
+    docker pull "$from" > "$dir/pull.log" 2>&1 || { cat "$dir/pull.log" >&2; fail "the release to update from, $from, is not on this machine and is not fetched"; }
+  fi
+  released=$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.version"}}' "$from")
+  [ -n "$released" ] || fail "$from does not say which version it is"
+
+  # The unit on the release, set up as a site sets it up.
+  up "$from" || { cat "$dir/up.log" >&2; fail "a unit of the release $released does not come up"; }
+  face '.set_up == false and .demo == true'
+  cp "$authority" "$dir/first-ca.crt"
+  status=$(post /usher/v1/set_up "$(person "$PERSON" "$PASSWORD")")
+  [ "$status" = 200 ] || fail "the unit of the release is not set up: $status $(cat "$dir/answer")"
+  bearer=$(jq -r '.token' "$dir/answer")
+  status=$(post /usher/v1/add_person '{"name": "Ben", "role": "front_desk"}' -H "Authorization: Bearer $bearer")
+  [ "$status" = 200 ] || fail "a person is not added for the front desk: $status $(cat "$dir/answer")"
+  pin=$(jq -r '.pin' "$dir/answer")
+  status=$(post /api/v1/request "$(request issue.counter put_type '{"name": "Contractor", "minutes": 10080, "guests": 2}')" -H "Authorization: Bearer $bearer")
+  [ "$status" = 200 ] || fail "a voucher type is not added: $status $(cat "$dir/answer")"
+  status=$(post /api/v1/request "$(request site.settings get '{}')" -H "Authorization: Bearer $bearer")
+  [ "$status" = 200 ] || fail "the site is not told: $status $(cat "$dir/answer")"
+  status=$(post /api/v1/request "$(request site.settings set "$(said_of | jq -c --arg name "$SET_NAME" '{name: $name, time_zone: .time_zone, language: .language}')")" -H "Authorization: Bearer $bearer")
+  [ "$status" = 200 ] || fail "the site is not given a name: $status $(cat "$dir/answer")"
+  status=$(post /usher/v1/satellite_code '{}')
+  [ "$status" = 200 ] || fail "a screen is not given a code: $status $(cat "$dir/answer")"
+  shown=$(jq -r '.code' "$dir/answer")
+  secret=$(jq -r '.secret' "$dir/answer")
+  status=$(post /usher/v1/adopt_satellite "$(jq -cn --arg code "$shown" --arg pin "$satellites_pin" '{code: $code, name: "Lobby", mode: "protected", pin: $pin}')" -H "Authorization: Bearer $bearer")
+  [ "$status" = 200 ] || fail "a screen is not adopted, protected: $status $(cat "$dir/answer")"
+  first=$(as_it_was "on the release $released")
+  status=$(post /usher/v1/sign_in "$(person "$PERSON" "$PASSWORD")")
+  bearer=$(jq -r '.token' "$dir/answer")
+  recorded "on the release $released" "$first"
+  echo "  ok    a unit of the release $released is set up: a person at the front desk, a voucher type and a name of the site's own, and a screen protected by a PIN, which hands out a voucher"
+
+  # The update: this version, on the volume the unit has.
+  up "$here" || { cat "$dir/up.log" >&2; fail "updated to $USHER_VERSION, the unit does not come up"; }
+  face '.set_up == true and .demo == true'
+  second=$(as_it_was "updated to $USHER_VERSION")
+  status=$(post /usher/v1/sign_in "$(person "$PERSON" "$PASSWORD")")
+  bearer=$(jq -r '.token' "$dir/answer")
+  status=$(ask /usher/v1/me -H "Authorization: Bearer $bearer")
+  [ "$status" = 200 ] || fail "updated, the administrator is not told who they are: $status $(cat "$dir/answer")"
+  jq -e --arg version "$USHER_VERSION" '.runs.version == $version' "$dir/answer" > /dev/null || fail "updated, the unit does not tell its administrator that it runs $USHER_VERSION: $(cat "$dir/answer")"
+  recorded "updated to $USHER_VERSION" "$first" "$second"
+  echo "  ok    updated to $USHER_VERSION on the volume it has, the unit is as it was: its people sign in with what they had, its types and its site stand, the screen hands out a voucher with its secret and its PIN, the authority is the same, and the record names the hand-outs of both versions"
+
+  # The way back: the release again, on the same volume.
+  up "$from" || { cat "$dir/up.log" >&2; fail "put back to the release $released, the unit does not come up"; }
+  face '.set_up == true and .demo == true'
+  third=$(as_it_was "put back to the release $released")
+  status=$(post /usher/v1/sign_in "$(person "$PERSON" "$PASSWORD")")
+  bearer=$(jq -r '.token' "$dir/answer")
+  recorded "put back to the release $released" "$first" "$second" "$third"
+  echo "  ok    put back to the release $released on the same volume, it is as it was once more, and keeps what was handed out while it ran $USHER_VERSION"
+  compose down --volumes --remove-orphans > /dev/null 2>&1 || true
+  unset USHER_DEMO
+  project=""
+}
+
 for proxy in $proxies; do
   case "$proxy" in
     demo) prove_demo ;;
     move) prove_move ;;
+    update) prove_update ;;
     *) prove "$proxy" ;;
   esac
 done

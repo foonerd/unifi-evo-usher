@@ -118,6 +118,7 @@ What it needs: a UniFi Network controller with an API key and a guest network wh
 | A Synology | [On a Synology](https://github.com/foonerd/unifi-evo-usher/wiki/On-a-Synology) |
 | A reverse proxy with the site's certificate: nginx, Apache, Caddy, Traefik | [Behind a proxy](https://github.com/foonerd/unifi-evo-usher/wiki/Behind-a-proxy) |
 | Nothing yet, and ten minutes | [Quick start](https://github.com/foonerd/unifi-evo-usher/wiki/Quick-Start) |
+| A unit that is about to serve a real site | [Going live](https://github.com/foonerd/unifi-evo-usher/wiki/Going-live): the list for the day, and one check that says whether the unit is ready |
 
 [The manual](https://github.com/foonerd/unifi-evo-usher/wiki) has a page for every screen, with pictures, and one for what to do when something does not work.
 
@@ -125,19 +126,23 @@ What it needs: a UniFi Network controller with an API key and a guest network wh
 
 - HTTPS only. Whoever has not signed in is shown the form to sign in, and nothing else.
 - The controller's key is kept in a file only the service reads. It is in no message, on no screen and in no log.
-- Passwords and PINs are kept as Argon2id hashes; five wrong tries hold a name for fifteen minutes.
+- Passwords and PINs are kept as Argon2id hashes; five wrong tries hold a name for fifteen minutes, also where they are sent in the same moment.
+- No page of another site asks the usher anything in a person's name, or shows its pages inside its own.
 - An administrator, the front desk and a satellite may each ask only what their work takes, and the unit checks it twice.
 - An administrator who is locked out is let back in on the unit itself, not over the network.
 - Every release is signed, and every archive carries the checksums of what is in it.
+- The libraries it is built from are held against the published advisories every week.
 - A flaw is reported in private: [SECURITY.md](SECURITY.md) says how.
 
 ## Where it stands
 
-The usher is young and moves fast: [the releases](https://github.com/foonerd/unifi-evo-usher/releases) come with what each one brought, and [CHANGELOG.md](CHANGELOG.md) lists every version. Every release is built for `amd64` and `arm64` and proven before it is published: the tests pass, and the unit is installed and run as a service on a machine made for the proof, from the Debian package and from the RPM. Every change to the main branch is also run in a container, alone and behind each of four proxies.
+The usher is young and moves fast: [the releases](https://github.com/foonerd/unifi-evo-usher/releases) come with what each one brought, and [CHANGELOG.md](CHANGELOG.md) lists every version. Every release is built for `amd64` and `arm64` and proven before it is published: the tests pass, and the unit is installed and run as a service on a machine made for the proof, from the Debian package and from the RPM. Every change to the main branch is also run in a container, alone and behind each of four proxies, and as an update: a unit of the newest release is updated to the change and put back again, and is the unit it was both times.
 
 Not in it yet: a voucher printed on a label. The groundwork for label printers is in the repository, under [Printers](#printers).
 
 The ten translations were made for the usher and not every one has been read by someone whose language it is: a correction is welcome, and [Translating](https://github.com/foonerd/unifi-evo-usher/wiki/Translating) says how.
+
+Something that does not work, an idea, or a better translation: [open an issue](https://github.com/foonerd/unifi-evo-usher/issues/new/choose), where a form asks for what is needed to look into it.
 
 ## Supporting it
 
@@ -153,7 +158,7 @@ A core that holds the UniFi key, mints the vouchers on the controller and keeps 
 
 ## Status
 
-0.3.24 stands on the evo steward, has a face, and is installed as a service. `evo-usher-steward` is the steward with the usher's catalogue and four plugins: the controller, which mints vouchers on a UniFi Network controller; the counter, which keeps the voucher types on offer and hands a guest a voucher of one of them, one assigned for handing out before one minted for the asking; the stock, which holds the vouchers assigned; and the site, which keeps what the place a unit serves is called, its logo, its time zone and its language. It serves the usher's face to a browser, in any of eleven languages, in which a controller is looked at and set, its vouchers are listed, assigned for handing out and revoked, the wireless network vouchers are for is chosen, the voucher types are kept and a guest is handed a voucher. It is in the archive, in a package of its own, which makes a machine a unit, and in the image; the package is proven on a machine made for it, where it is installed, started as a service, asked as a browser asks, started again and removed. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else.
+0.3.25 stands on the evo steward, has a face, and is installed as a service. `evo-usher-steward` is the steward with the usher's catalogue and four plugins: the controller, which mints vouchers on a UniFi Network controller; the counter, which keeps the voucher types on offer and hands a guest a voucher of one of them, one assigned for handing out before one minted for the asking; the stock, which holds the vouchers assigned; and the site, which keeps what the place a unit serves is called, its logo, its time zone and its language. It serves the usher's face to a browser, in any of eleven languages, in which a controller is looked at and set, its vouchers are listed, assigned for handing out and revoked, the wireless network vouchers are for is chosen, the voucher types are kept and a guest is handed a voucher. It is in the archive, in a package of its own, which makes a machine a unit, and in the image; the package is proven on a machine made for it, where it is installed, started as a service, asked as a browser asks, started again and removed. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else.
 
 The controller plugin is written from Ubiquiti's published description of the UniFi Network API, version 11.0.97, and is held to a simulated controller written from the same description. It has been run from the usher's face against a UniFi Network application, version 11.0.99: the controller set, its version, its sites, its vouchers and its wireless networks read, a wireless network chosen, and vouchers assigned and handed out.
 
@@ -460,7 +465,11 @@ proves the steward's package on a machine that is made for the proof and thrown 
 
 `sudo scripts/prove-unit.sh dist/evo-usher-steward-<version>-1.<machine>.rpm` proves the RPM the same way on a machine of an RPM system, to what removing it leaves. `scripts/prove-unit-rpm.sh` runs that proof where there is no such machine, as CI does: in a container of AlmaLinux 9 that systemd runs, which is given every privilege of the machine it is on.
 
-`scripts/prove-proxy.sh` runs the image as a unit in a container, alone and behind each proxy the repository has an example for, and asks it as a browser asks; CI runs it on every push.
+`scripts/prove-proxy.sh` runs the image as a unit in a container, alone and behind each proxy the repository has an example for, and asks it as a browser asks; it also updates a unit of the newest release to the image and puts it back to that release, on the volume it has. CI runs it on every push.
+
+`scripts/go-live.sh https://<the usher>` is the check of a unit before a site goes live with it: it asks the unit as an administrator's browser does whether everything a guest's voucher takes is in place, and hands out, finds and revokes one voucher on the site's own controller. It needs `curl`, `jq` and `base64`; `docs/deploying.md` has what it asks and what it changes, under "Going live".
+
+`cargo audit` holds the lock file against the advisories of RustSec; the workflow `advisories` runs it on every change of the lock file and once a week, and `.cargo/audit.toml` lists the advisories that are taken as they stand, each with why.
 
 ```text
 scripts/image.sh --here

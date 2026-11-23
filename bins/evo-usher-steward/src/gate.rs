@@ -262,11 +262,75 @@ enum Asked {
     Usher(String),
 }
 
+/// Every request comes by here. What a page of another site has a
+/// browser ask is refused before anything else is looked at, and every
+/// answer goes out with what keeps a browser from misusing it.
 async fn admit(
     State(gate): State<Gate>,
-    mut request: Request,
+    request: Request,
     next: Next,
 ) -> Response {
+    if from_another_site(&request) {
+        let refused = signin::from_another_site();
+        return guarded(refused_unread(request, refused).await);
+    }
+    guarded(admitted(gate, request, next).await)
+}
+
+/// What a browser says of where a request comes from, on every request
+/// it makes (Fetch Metadata, <https://www.w3.org/TR/fetch-metadata/>).
+const WHERE_FROM: &str = "sec-fetch-site";
+
+/// Whether a request that changes something was made by a browser for a
+/// page that is not the usher's own. A browser says where a request
+/// comes from: `same-origin` for the usher's pages, `none` for what a
+/// person did themselves, and `cross-site` or `same-site` for another
+/// site's page, which is refused; a page under a neighbouring name of
+/// the site's is another site's here. The usher keeps no cookie, so
+/// such a page can ask nothing in a person's name; what it could do is
+/// what anyone may do who has not signed in, from inside a network the
+/// usher is kept to, through the browser of somebody there. A program
+/// that is no browser says nothing of the kind and is judged as any
+/// caller is; so is what only reads, and so is a browser that says
+/// something this does not know, or nothing: what the usher's routes
+/// take is JSON and said to be, which such a page cannot have a browser
+/// say either.
+fn from_another_site(request: &Request) -> bool {
+    let reads =
+        [Method::GET, Method::HEAD, Method::OPTIONS].contains(request.method());
+    !reads
+        && request.headers().get(WHERE_FROM).is_some_and(|from| {
+            from.as_bytes() == b"cross-site" || from.as_bytes() == b"same-site"
+        })
+}
+
+/// Send an answer out with what tells a browser how it may use it: not
+/// in a frame of any page, which keeps another site from laying the
+/// usher's pages under its own to have a person press what they do not
+/// see; as the kind of file it says it is and no other; and with
+/// nothing said to another site of where a person came from. The site's
+/// proxy says how long a browser is to insist on HTTPS: that is said of
+/// a name, and the name is the site's.
+fn guarded(mut answer: Response) -> Response {
+    // A line that is opened is no page.
+    if answer.status() == StatusCode::SWITCHING_PROTOCOLS {
+        return answer;
+    }
+    let headers = answer.headers_mut();
+    for (name, value) in [
+        (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        (header::X_FRAME_OPTIONS, "DENY"),
+        (header::REFERRER_POLICY, "no-referrer"),
+        (header::CONTENT_SECURITY_POLICY, "frame-ancestors 'none'"),
+    ] {
+        if !headers.contains_key(&name) {
+            headers.insert(name, HeaderValue::from_static(value));
+        }
+    }
+    answer
+}
+
+async fn admitted(gate: Gate, mut request: Request, next: Next) -> Response {
     let asked = asked(request.uri().path(), &gate.api);
     // A file of the face that is read: a browser is told to ask again
     // each time whether it is still the file it has.
@@ -359,7 +423,10 @@ async fn admit(
         }
     }
 
-    let on_the_line = asked == Asked::Evo(SOCKET.to_string());
+    // The line counts as the line however its name is spelt, as the
+    // request of a shelf does.
+    let on_the_line = matches!(&asked, Asked::Evo(operation)
+        if operation == SOCKET || unescaped(operation) == SOCKET);
     let to_evo = match &who {
         // A person's line is opened on a bearer made for it, good for
         // hearing what their role may read.

@@ -256,6 +256,40 @@ pub fn read(file: &Value) -> Result<Carried, Why> {
     serde_json::from_value(file.clone()).map_err(|_| no_file())
 }
 
+/// The sealed part of a file a unit is to be set up from, read off the
+/// file as it came; nothing where the file carries none. It is held to
+/// what [`read`] holds a file to. What else the file carries is passed
+/// over and never built: a file is as long as [`MOST`] and comes from
+/// whoever sends one to a unit nobody has set up, so no more is made of
+/// it in memory than its sealed part.
+pub fn read_unit(file: &str) -> Result<Option<Sealed>, Why> {
+    #[derive(Deserialize)]
+    struct OfAUnit {
+        usher_file: u64,
+        #[serde(default)]
+        unit: Option<Sealed>,
+    }
+    let no_file = || {
+        why(
+            "file_not_one",
+            "That is not a file an usher made: it is exported on the page \
+             Site.",
+        )
+    };
+    let of: OfAUnit = serde_json::from_str(file).map_err(|_| no_file())?;
+    if of.usher_file > VERSION {
+        return Err(why(
+            "file_too_new",
+            "That file was made by a later version of the usher than this \
+             one. Update this usher first.",
+        ));
+    }
+    if of.usher_file == 0 {
+        return Err(no_file());
+    }
+    Ok(of.unit)
+}
+
 /// Where the files of a unit are kept: the steward's state directory,
 /// and the root under which each plugin keeps its own.
 #[derive(Debug, Clone)]
@@ -1351,6 +1385,41 @@ mod tests {
             ),
         ] {
             assert_eq!(read(&file).unwrap_err().code, code, "{file}");
+            // The sealed part is read off the file's text under the
+            // same rules.
+            assert_eq!(
+                read_unit(&file.to_string()).unwrap_err().code,
+                code,
+                "{file}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_sealed_part_is_read_off_a_file_and_nothing_else_of_it_is() {
+        let sealed =
+            seal(b"what a unit keeps", "five small owls sing").unwrap();
+        let file = serde_json::json!({
+            "usher_file": 1, "made_by": "0.3.25", "made_ms": 5,
+            "settings": { "site": { "name": "Market Hall" } },
+            "unit": sealed,
+        });
+        assert_eq!(read_unit(&file.to_string()).unwrap(), Some(sealed.clone()));
+        // A profile carries no unit.
+        let profile = serde_json::json!({ "usher_file": 1, "settings": {} });
+        assert_eq!(read_unit(&profile.to_string()).unwrap(), None);
+        // Whatever else stands in the file is passed over, also where
+        // it is nothing a file carries there: it was never read as
+        // anything.
+        let padded = format!(
+            r#"{{"usher_file":1,"settings":[{}0],"unit":{}}}"#,
+            "0,".repeat(100_000),
+            serde_json::to_string(&sealed).unwrap()
+        );
+        assert_eq!(read_unit(&padded).unwrap(), Some(sealed));
+        // What is no text of a file at all is none.
+        for text in ["", "{", "null", "[0,0,0]", r#"{"usher_file":"1"}"#] {
+            assert_eq!(read_unit(text).unwrap_err().code, "file_not_one");
         }
     }
 

@@ -1,0 +1,11 @@
+# What is offered to whoever opens an issue: the three forms beside this
+# file, a blank issue for what fits none of them, and two ways that are
+# no public issue.
+blank_issues_enabled: true
+contact_links:
+  - name: A flaw in security
+    url: https://github.com/foonerd/unifi-evo-usher/security/advisories/new
+    about: Something that lets someone in who should be kept out, or lets someone do more than they may, is reported in private, not in a public issue. SECURITY.md says how.
+  - name: The manual, when something does not work
+    url: https://github.com/foonerd/unifi-evo-usher/wiki/Troubleshooting
+    about: Every message the usher shows, and what to do about it. Worth a look before an issue is opened.

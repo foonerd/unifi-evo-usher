@@ -1,0 +1,52 @@
+name: A better translation
+description: A text of the usher's pages that is wrong, or reads oddly, in one of its languages.
+labels: [documentation]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The translations were made for the usher, and not every one has been read by someone whose language it is: a correction is welcome. [Translating](https://github.com/foonerd/unifi-evo-usher/wiki/Translating) says how a language's file is made, for whoever would sooner send a pull request.
+  - type: dropdown
+    id: language
+    attributes:
+      label: The language
+      options:
+        - English (en)
+        - German (de)
+        - Spanish (es)
+        - French (fr)
+        - Italian (it)
+        - Japanese (ja)
+        - Dutch (nl)
+        - Polish (pl)
+        - Portuguese (pt)
+        - Russian (ru)
+        - Chinese, simplified (zh)
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Where it stands
+      description: The page and the place on it, or the text's key in the language's file.
+      placeholder: The page Counter, on the button under a voucher
+    validations:
+      required: true
+  - type: textarea
+    id: stands
+    attributes:
+      label: The text as it stands
+      description: As the screen shows it.
+    validations:
+      required: true
+  - type: textarea
+    id: better
+    attributes:
+      label: The better text
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it is better
+      description: A word that names a thing of the usher's, as the voucher or the front desk, is the same word everywhere in a language. Say so where the correction is of such a word.

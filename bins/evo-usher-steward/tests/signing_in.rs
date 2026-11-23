@@ -121,6 +121,19 @@ fn a_new_unit_is_set_up_by_whoever_opens_it_first() {
     assert_eq!(me["name"], "Anna", "{me}");
     assert_eq!(me["role"], "administrator", "{me}");
     assert_eq!(me["unit"], false, "{me}");
+    // An administrator is told which usher the unit runs, to see after
+    // an update that it was updated; nobody who has not signed in is.
+    assert_eq!(me["runs"]["version"], env!("CARGO_PKG_VERSION"), "{me}");
+    assert!(
+        me["runs"]["commit"].as_str().is_some_and(|c| !c.is_empty()),
+        "{me}"
+    );
+    let told = steward.usher("GET", "state", None, &nobody).1;
+    assert!(told.get("runs").is_none(), "{told}");
+    assert!(
+        !told.to_string().contains(env!("CARGO_PKG_VERSION")),
+        "{told}"
+    );
     assert_eq!(
         types(&steward, &anna),
         (
@@ -1764,6 +1777,8 @@ fn the_front_desk_signs_in_with_a_pin_and_hands_vouchers_out() {
     assert_eq!(me["name"], "Ben", "{me}");
     assert_eq!(me["role"], "front_desk", "{me}");
     assert_eq!(me["unit"], false, "{me}");
+    // Which usher the unit runs is an administrator's to know.
+    assert!(me.get("runs").is_none(), "{me}");
 
     // The session is good, at evo, for asking a shelf and for issuing
     // a voucher, and for nothing else: not for the plugins as such, not
@@ -2427,5 +2442,226 @@ fn at_the_extended_level_a_pin_that_is_set_is_longer_too() {
     // one to say.
     let (_, me) = steward.usher("GET", "me", None, &anna);
     assert_eq!((&me["least_pin"], &me["most_pin"]), (&json!(8), &json!(12)));
+    assert_eq!(steward.stop(), Some(0));
+}
+
+#[test]
+fn wrong_tries_sent_at_once_are_held_as_wrong_tries_in_a_row_are() {
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+    let anna = steward.set_up("Anna", PASSWORD);
+    let pin = steward.add_front_desk(&anna, "Ben");
+    let wrong = if pin == "000000" { "111111" } else { "000000" };
+
+    // Thirty tries at a PIN, none of them right, sent in the same
+    // moment: five are held against the PIN, as five in a row are, and
+    // the name is held for the rest before anything is checked. Tries
+    // that are sent together are not let past the hold together.
+    let at_once = 30;
+    let together = std::sync::Barrier::new(at_once);
+    let answered: Vec<u16> = std::thread::scope(|scope| {
+        let tries: Vec<_> = (0..at_once)
+            .map(|_| {
+                scope.spawn(|| {
+                    together.wait();
+                    steward.sign_in("Ben", wrong).0
+                })
+            })
+            .collect();
+        tries.into_iter().map(|one| one.join().unwrap()).collect()
+    });
+    let checked = answered.iter().filter(|status| **status == 401).count();
+    let held = answered.iter().filter(|status| **status == 429).count();
+    assert_eq!((checked, held), (5, at_once - 5), "{answered:?}");
+
+    // The name is held: the right PIN is not let in either.
+    let (status, said) = steward.sign_in("Ben", &pin);
+    assert_eq!(status, 429, "{said}");
+    assert_eq!(subclass(&said), "held", "{said}");
+    assert_eq!(steward.stop(), Some(0));
+}
+
+#[test]
+fn what_another_sites_page_has_a_browser_ask_is_refused_and_no_answer_goes_in_a_frame(
+) {
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+    let nobody = Caller::beyond();
+    let setting_up = json!({ "name": "Anna", "password": PASSWORD });
+    let set_up = |steward: &Steward| {
+        steward.usher("GET", "state", None, &nobody).1["set_up"] == true
+    };
+    let from = |site: &'static str| [("Sec-Fetch-Site", site)];
+    let coded = |said: &str| {
+        let said: Value = serde_json::from_str(said).unwrap_or(Value::Null);
+        subclass(&said).to_string()
+    };
+
+    // A new unit is set up by whoever opens it first. A page of another
+    // site has the browser of somebody on the unit's network ask it:
+    // the browser says where the request comes from, and the unit
+    // refuses it; a page under a neighbouring name of the site's is
+    // another site's. So with a screen's code. Nothing is set up, and
+    // no code is given.
+    for site in ["cross-site", "same-site"] {
+        let (status, said) = steward.put_to(
+            "POST",
+            "/usher/v1/set_up",
+            Some(&setting_up),
+            &from(site),
+            &nobody,
+        );
+        assert_eq!(
+            (status, coded(&said).as_str()),
+            (403, "from_another_site"),
+            "{site}: {said}"
+        );
+        let (status, said) = steward.put_to(
+            "POST",
+            "/usher/v1/satellite_code",
+            Some(&json!({})),
+            &from(site),
+            &nobody,
+        );
+        assert_eq!(
+            (status, coded(&said).as_str()),
+            (403, "from_another_site"),
+            "{site}: {said}"
+        );
+    }
+    assert!(!set_up(&steward));
+
+    // What such a page can have a browser send unasked is a form or
+    // text. A browser that says nothing of where a request comes from
+    // sends it; the unit reads what is said to be JSON and nothing
+    // else, which no page of another site can have a browser say
+    // without the unit's leave.
+    for kind in [
+        Some("text/plain"),
+        Some("application/x-www-form-urlencoded"),
+        Some("multipart/form-data; boundary=x"),
+        Some("application/jsonp"),
+        None,
+    ] {
+        let (status, said) = steward.text_sent(
+            "/usher/v1/set_up",
+            kind,
+            &setting_up.to_string(),
+            &[],
+        );
+        assert_eq!(
+            (status, coded(&said).as_str()),
+            (415, "not_as_asked"),
+            "{kind:?}: {said}"
+        );
+    }
+    assert!(!set_up(&steward));
+    // A screen's code is asked for with an empty object, as JSON: with
+    // nothing sent, or with text, none is given.
+    for (kind, text) in [(None, ""), (Some("text/plain"), "{}")] {
+        let (status, said) =
+            steward.text_sent("/usher/v1/satellite_code", kind, text, &[]);
+        assert_eq!(
+            (status, coded(&said).as_str()),
+            (415, "not_as_asked"),
+            "{kind:?}: {said}"
+        );
+    }
+
+    // What only reads is answered wherever it is asked from: a browser
+    // gives no page of another site what it reads.
+    let (status, _) = steward.put_to(
+        "GET",
+        "/usher/v1/state",
+        None,
+        &from("cross-site"),
+        &nobody,
+    );
+    assert_eq!(status, 200);
+
+    // The usher's own pages, what a person does themselves, and a
+    // program that is no browser are let through, as they were.
+    let (status, said) = steward.put_to(
+        "POST",
+        "/usher/v1/set_up",
+        Some(&setting_up),
+        &from("same-origin"),
+        &nobody,
+    );
+    assert_eq!(status, 200, "{said}");
+    assert!(set_up(&steward));
+    let (status, said) = steward.put_to(
+        "POST",
+        "/usher/v1/sign_in",
+        Some(&setting_up),
+        &from("none"),
+        &nobody,
+    );
+    assert_eq!(status, 200, "{said}");
+    let (status, said) = steward.text_sent(
+        "/usher/v1/sign_in",
+        Some("Application/JSON; charset=utf-8"),
+        &setting_up.to_string(),
+        &[],
+    );
+    assert_eq!(status, 200, "{said}");
+    let anna = steward.signed_in("Anna", PASSWORD);
+
+    // Every answer says how a browser may use it: in no frame of any
+    // page, as the kind of file it says it is, and with nothing told to
+    // another site of where a person came from. A file of the face, a
+    // satellite's page, an answer and a refusal alike.
+    for (path, status) in [
+        ("/", 200),
+        ("/org.evoframework.usher.shell/", 200),
+        ("/org.evoframework.usher.shell/shell.js", 200),
+        ("/satellite/", 200),
+        ("/usher/v1/state", 200),
+        ("/usher/v1/people", 401),
+        ("/api/v1/list_plugins", 401),
+    ] {
+        let (answered, sent) = steward.file_sent(path, &[]);
+        assert_eq!(answered, status, "{path}");
+        assert_eq!(sent("x-frame-options").as_deref(), Some("DENY"), "{path}");
+        assert_eq!(
+            sent("x-content-type-options").as_deref(),
+            Some("nosniff"),
+            "{path}"
+        );
+        assert_eq!(
+            sent("referrer-policy").as_deref(),
+            Some("no-referrer"),
+            "{path}"
+        );
+        assert!(
+            sent("content-security-policy")
+                .is_some_and(|policy| policy.contains("frame-ancestors 'none'")),
+            "{path}"
+        );
+    }
+
+    // The line counts as the line however its name is spelt: a person
+    // at the front desk who asks for it under another spelling than
+    // the pages use is given no more than the pages are, and a
+    // satellite, which has no line, has none under any spelling.
+    let pin = steward.add_front_desk(&anna, "Ben");
+    let ben = steward.signed_in("Ben", &pin);
+    let (secret, _) = steward.adopt(&anna, "Lobby");
+    let lobby = steward.as_satellite(&secret);
+    for spelt in ["/api/v1/%77s", "/api/v1/w%73", "/api/v1/%77%73"] {
+        let (status, said) = steward.put_to("GET", spelt, None, &[], &lobby);
+        assert_eq!(
+            (status, coded(&said).as_str()),
+            (403, "not_for_satellite"),
+            "{spelt}: {said}"
+        );
+        // Asked with no line to open, it is not one: whatever evo says
+        // of it, nothing is opened, for the front desk and for an
+        // administrator.
+        for who in [&ben, &anna] {
+            let (status, said) = steward.put_to("GET", spelt, None, &[], who);
+            assert!((400..500).contains(&status), "{spelt}: {status} {said}");
+        }
+    }
     assert_eq!(steward.stop(), Some(0));
 }

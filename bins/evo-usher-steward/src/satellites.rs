@@ -507,11 +507,14 @@ impl Satellites {
     }
 
     /// Give a screen a code to show and a secret to keep. The code is
-    /// good for [`CODE_MS`], and is no other waiting screen's.
-    pub fn begin(&mut self, now: u64) -> Begun {
+    /// good for [`CODE_MS`], and is no other waiting screen's. Nothing
+    /// where as many screens wait as may: a screen that shows a code is
+    /// not let go to make room for another, so nobody takes a screen's
+    /// code from it by asking for codes.
+    pub fn begin(&mut self, now: u64) -> Option<Begun> {
         self.forget_late(now);
-        while self.waiting.len() >= MOST_WAITING {
-            self.waiting.pop_front();
+        if self.waiting.len() >= MOST_WAITING {
+            return None;
         }
         let code = loop {
             let code = people::pin(CODE_DIGITS);
@@ -526,11 +529,11 @@ impl Satellites {
             hash: hashed(&secret),
             until_ms,
         });
-        Begun {
+        Some(Begun {
             code,
             secret,
             until_ms,
-        }
+        })
     }
 
     /// Whose a secret is.
@@ -942,7 +945,7 @@ mod tests {
     fn a_screen_is_adopted_by_the_code_it_shows() {
         let dir = tempfile::tempdir().unwrap();
         let mut satellites = Satellites::open(dir.path()).unwrap();
-        let begun = satellites.begin(1_000);
+        let begun = satellites.begin(1_000).expect("room for a screen");
         assert_eq!(begun.code.len(), CODE_DIGITS);
         assert!(begun.code.chars().all(|c| c.is_ascii_digit()));
         assert_eq!(begun.secret.len(), 64, "256 bits, in hexadecimal");
@@ -1014,7 +1017,7 @@ mod tests {
     fn a_code_is_good_for_twenty_minutes_and_nobody_fills_the_memory() {
         let dir = tempfile::tempdir().unwrap();
         let mut satellites = Satellites::open(dir.path()).unwrap();
-        let begun = satellites.begin(0);
+        let begun = satellites.begin(0).expect("room for a screen");
         // A moment before its time is up it adopts; at its time, not.
         assert_eq!(
             rule(satellites.adopt(
@@ -1028,7 +1031,7 @@ mod tests {
             satellites.of_secret(&begun.secret, CODE_MS),
             Known::Unknown
         );
-        let begun = satellites.begin(CODE_MS);
+        let begun = satellites.begin(CODE_MS).expect("room for a screen");
         satellites
             .adopt(
                 &begun.code,
@@ -1037,19 +1040,24 @@ mod tests {
             )
             .unwrap();
 
-        // However many codes are asked for, so many screens wait and no
-        // more: the one that waited longest is let go, and every code is
-        // one screen's alone.
-        let first = satellites.begin(10 * CODE_MS);
-        for _ in 0..(3 * MOST_WAITING) {
-            satellites.begin(10 * CODE_MS);
-            assert!(satellites.waiting() <= MOST_WAITING);
+        // So many screens wait and no more. One more is given no code,
+        // and is told so: a screen that shows a code is not let go to
+        // make room, so the code an administrator reads on it adopts
+        // it, however many ask for a code meanwhile. Every code is one
+        // screen's alone.
+        let first = satellites.begin(10 * CODE_MS).expect("room for a screen");
+        for _ in 1..MOST_WAITING {
+            assert!(satellites.begin(10 * CODE_MS).is_some());
         }
         assert_eq!(satellites.waiting(), MOST_WAITING);
-        assert_eq!(
+        for _ in 0..(2 * MOST_WAITING) {
+            assert_eq!(satellites.begin(10 * CODE_MS), None);
+        }
+        assert_eq!(satellites.waiting(), MOST_WAITING);
+        assert!(matches!(
             satellites.of_secret(&first.secret, 10 * CODE_MS),
-            Known::Unknown
-        );
+            Known::Waiting { .. }
+        ));
         let shown: Vec<String> = satellites
             .waiting
             .iter()
@@ -1057,8 +1065,17 @@ mod tests {
             .collect();
         let alone: std::collections::BTreeSet<&String> = shown.iter().collect();
         assert_eq!(alone.len(), shown.len());
+        // One of them adopted, there is room for one more.
+        let adopted = satellites.adopt(
+            &first.code,
+            &Adopting::named("Lobby", ""),
+            10 * CODE_MS,
+        );
+        assert!(adopted.is_ok(), "{adopted:?}");
+        assert!(satellites.begin(10 * CODE_MS).is_some());
+        assert_eq!(satellites.begin(10 * CODE_MS), None);
         // Their time up, none waits.
-        satellites.begin(12 * CODE_MS);
+        assert!(satellites.begin(12 * CODE_MS).is_some());
         assert_eq!(satellites.waiting(), 1);
     }
 
@@ -1067,7 +1084,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut satellites = Satellites::open(dir.path()).unwrap();
         let adopt = |satellites: &mut Satellites, name: &str| {
-            let begun = satellites.begin(0);
+            let begun = satellites.begin(0).expect("room for a screen");
             let adopted =
                 satellites.adopt(&begun.code, &Adopting::named(name, ""), 1);
             (begun.secret, adopted)
@@ -1180,7 +1197,7 @@ mod tests {
     fn a_satellite_hands_out_so_many_vouchers_an_hour() {
         let dir = tempfile::tempdir().unwrap();
         let mut satellites = Satellites::open(dir.path()).unwrap();
-        let begun = satellites.begin(0);
+        let begun = satellites.begin(0).expect("room for a screen");
         let lobby = satellites
             .adopt(&begun.code, &Adopting::named("Lobby", ""), 0)
             .unwrap();
@@ -1229,7 +1246,7 @@ mod tests {
         satellites: &mut Satellites,
         adopting: Adopting,
     ) -> Result<Satellite, Unkept> {
-        let begun = satellites.begin(0);
+        let begun = satellites.begin(0).expect("room for a screen");
         satellites.adopt(&begun.code, &adopting, 1)
     }
 

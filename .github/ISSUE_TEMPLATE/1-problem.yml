@@ -1,0 +1,91 @@
+name: Something does not work
+description: The usher does something other than the manual says, or says something that does not help.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time. The more of this is filled in, the sooner the cause is found.
+
+        A flaw in security is not reported here: see [SECURITY.md](https://github.com/foonerd/unifi-evo-usher/blob/main/SECURITY.md).
+
+        Before it is sent, take out of what is pasted whatever is your site's own: names of people, addresses, the name of the network. No key, password, PIN or voucher code belongs in an issue.
+  - type: input
+    id: version
+    attributes:
+      label: The usher's version
+      description: The image's tag, the package's version, what `evo-usher-steward --version` says, or the line "it runs unifi-evo-usher ..." of `scripts/go-live.sh`.
+      placeholder: 0.3.25
+    validations:
+      required: true
+  - type: dropdown
+    id: run
+    attributes:
+      label: How the unit is run
+      options:
+        - Docker or Compose
+        - The Debian package
+        - The RPM
+        - On a Synology
+        - From a checkout of the repository
+        - Another way, said below
+    validations:
+      required: true
+  - type: dropdown
+    id: proxy
+    attributes:
+      label: What stands before the unit
+      options:
+        - Nothing
+        - nginx
+        - Apache httpd
+        - Caddy
+        - Traefik
+        - The proxy of a Synology
+        - Another proxy, said below
+    validations:
+      required: true
+  - type: input
+    id: controller
+    attributes:
+      label: The UniFi controller
+      description: What it is (a console, a Cloud Key, your own Network application) and the version of UniFi Network, as the page Controller shows it. "A demo" for a unit started as one.
+      placeholder: a console, UniFi Network 11.0.99
+  - type: input
+    id: browser
+    attributes:
+      label: The browser, where it is a matter of a page
+      description: Its name and version, and what it runs on. For a satellite, the screen's own.
+      placeholder: Firefox 150 on Windows 11
+  - type: textarea
+    id: done
+    attributes:
+      label: What was done
+      description: Step by step, from a point anyone can get to, so that it can be done again.
+    validations:
+      required: true
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+      description: What the screen said, word for word, with what stands in brackets after it. A picture of the screen helps.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should have happened
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: What the unit's log says of it
+      description: The lines of that moment, from `docker compose logs usher` or `journalctl -u evo`. The usher writes no key, password or PIN into its log.
+      render: text
+  - type: textarea
+    id: check
+    attributes:
+      label: What the going-live check says
+      description: Where the unit is set up, what `scripts/go-live.sh --no-voucher https://<the usher>` prints. It makes no voucher and changes nothing.
+      render: text

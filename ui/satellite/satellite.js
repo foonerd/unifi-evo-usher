@@ -735,7 +735,7 @@ async function start() {
     const secret = kept();
     try {
       if (secret === null) {
-        const begun = await ask("/usher/v1/satellite_code", "POST", null, null);
+        const begun = await ask("/usher/v1/satellite_code", "POST", {}, null);
         keep(String(begun.secret));
         session = null;
         unadopted();

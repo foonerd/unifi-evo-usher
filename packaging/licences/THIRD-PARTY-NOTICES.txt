@@ -1605,7 +1605,7 @@ For these and/or other purposes and motivations, and without any expectation of 
 Community Data License Agreement Permissive 2.0 (CDLA-Permissive-2.0)
 
   webpki-roots 0.26.11, https://github.com/rustls/webpki-roots
-  webpki-roots 1.0.9, https://github.com/rustls/webpki-roots
+  webpki-roots 1.0.12, https://github.com/rustls/webpki-roots
 
 # Community Data License Agreement - Permissive - Version 2.0
 
@@ -2432,7 +2432,7 @@ THIS SOFTWARE.
 ------------------------------------------------------------------------
 ISC License (ISC)
 
-  rustls-webpki 0.103.15, https://github.com/rustls/webpki
+  rustls-webpki 0.103.17, https://github.com/rustls/webpki
 
 Except as otherwise noted, this project is licensed under the following
 (ISC-style) terms:
@@ -2619,7 +2619,7 @@ SOFTWARE.
 ------------------------------------------------------------------------
 MIT License (MIT)
 
-  form_urlencoded 1.2.2, https://github.com/servo/rust-url
+  form_urlencoded 1.2.3, https://github.com/servo/rust-url
 
 Copyright (c) 2013-2016 The rust-url developers
 
@@ -2653,7 +2653,7 @@ MIT License (MIT)
 
   idna 1.1.0, https://github.com/servo/rust-url/
   percent-encoding 2.3.2, https://github.com/servo/rust-url/
-  url 2.5.8, https://github.com/servo/rust-url
+  url 2.5.9, https://github.com/servo/rust-url
 
 Copyright (c) 2013-2025 The rust-url developers
 
@@ -3512,7 +3512,7 @@ MIT License (MIT)
   hyper-rustls 0.27.9, https://github.com/rustls/hyper-rustls
   rustls-native-certs 0.8.4, https://github.com/rustls/rustls-native-certs
   rustls-pemfile 2.2.0, https://github.com/rustls/pemfile
-  rustls 0.23.44, https://github.com/rustls/rustls
+  rustls 0.23.46, https://github.com/rustls/rustls
 
 Copyright (c) 2016 Joseph Birr-Pixton <jpixton@gmail.com>
 
@@ -4247,8 +4247,8 @@ DEALINGS IN THE SOFTWARE.
 ------------------------------------------------------------------------
 MIT License (MIT)
 
-  quinn-proto 0.11.17, https://github.com/quinn-rs/quinn
-  quinn-udp 0.5.15, https://github.com/quinn-rs/quinn
+  quinn-proto 0.11.19, https://github.com/quinn-rs/quinn
+  quinn-udp 0.5.16, https://github.com/quinn-rs/quinn
   quinn 0.11.11, https://github.com/quinn-rs/quinn
 
 Copyright (c) 2018 The quinn Developers
@@ -5399,32 +5399,6 @@ DEALINGS IN THE SOFTWARE.
 ------------------------------------------------------------------------
 MIT License (MIT)
 
-  num-conv 0.1.0, https://github.com/jhpratt/num-conv
-
-Copyright (c) 2023 Jacob Pratt
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-
-------------------------------------------------------------------------
-MIT License (MIT)
-
   powerfmt 0.2.0, https://github.com/jhpratt/powerfmt
 
 Copyright (c) 2023 Jacob Pratt et al.
@@ -5560,9 +5534,35 @@ SOFTWARE.
 ------------------------------------------------------------------------
 MIT License (MIT)
 
-  time-core 0.1.7, https://github.com/time-rs/time
-  time-macros 0.2.25, https://github.com/time-rs/time
-  time 0.3.45, https://github.com/time-rs/time
+  num-conv 0.2.2, https://github.com/jhpratt/num-conv
+
+Copyright (c) Jacob Pratt
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+------------------------------------------------------------------------
+MIT License (MIT)
+
+  time-core 0.1.9, https://github.com/time-rs/time
+  time-macros 0.2.32, https://github.com/time-rs/time
+  time 0.3.55, https://github.com/time-rs/time
 
 Copyright (c) Jacob Pratt et al.
 
@@ -6317,7 +6317,7 @@ MIT License (MIT)
 
   tokio-stream 0.1.19, https://github.com/tokio-rs/tokio
   tokio-util 0.7.19, https://github.com/tokio-rs/tokio
-  tokio 1.53.1, https://github.com/tokio-rs/tokio
+  tokio 1.53.3, https://github.com/tokio-rs/tokio
 
 MIT License
 
@@ -6520,7 +6520,7 @@ MIT License (MIT)
   proc-macro2 1.0.107, https://github.com/dtolnay/proc-macro2
   quote 1.0.47, https://github.com/dtolnay/quote
   rustix 0.38.44, https://github.com/bytecodealliance/rustix
-  rustix 1.1.4, https://github.com/bytecodealliance/rustix
+  rustix 1.1.6, https://github.com/bytecodealliance/rustix
   rustversion 1.0.23, https://github.com/dtolnay/rustversion
   semver 1.0.28, https://github.com/dtolnay/semver
   serde 1.0.229, https://github.com/serde-rs/serde

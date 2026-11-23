@@ -209,6 +209,10 @@ The satellites are kept in `/var/lib/evo/state/usher/satellites.json`, for the s
 
 **Wrong tries.** Five wrong passwords in a row for a name hold that name for fifteen minutes, whoever tries and from wherever. A wrong name and a wrong password are answered alike. A new password or PIN lifts the hold at once, whether it is set on the page People or on the unit itself: whoever sets one is not then kept waiting (**proven** by tests). Anyone who can reach the unit can hold a name that way, which is one more reason to let only the networks the usher is used from reach it.
 
+A try is refused or counted before anything is checked, so tries that are sent in the same moment are counted as tries in a row are: five are checked and the rest are refused, however many arrive together (**proven** by tests, for a person's PIN and for a satellite's). The same holds the unit's code, a satellite's PIN, the password an administrator is asked for again, and the passphrase of a file a unit is set up from. Nobody lifts a hold by trying other names: what was tried at a name somebody has is never forgotten before its time. Checking a password is work, so two are checked at a time at each of two doors, one for whoever has not signed in and one for satellites and for those who have, and thirty-two wait at each; one more is answered `503` with `Retry-After` and was not counted as a try.
+
+**What a browser is told, and what another site's page is refused.** The usher keeps no cookie: a session is a bearer the page holds and sends itself, so no page of another site asks anything in a person's name. What such a page could do is what anyone may do who has not signed in, through the browser of somebody on the unit's network. That is closed twice. A request that changes something and that the browser marks as coming from another site (`Sec-Fetch-Site: cross-site` or `same-site`) is refused with `403`; and what the usher's own routes take is JSON and has to be said to be, `Content-Type: application/json`, which a page of another site cannot have a browser say without the unit's leave, and is refused with `415` otherwise. Every answer goes out with `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. **Proven** by a test. How long a browser is to insist on HTTPS (`Strict-Transport-Security`) is said of a name, and is the site's proxy's to say.
+
 **The two levels.** How strict a unit is, is its administrator's choice, made where the unit is started, in `USHER_SECURITY`:
 
 | | `standard`, the ordinary level | `extended` |
@@ -384,6 +388,68 @@ A Synology has a proxy and a certificate store of its own, so the unit runs alon
 6. **The firewall.** Control Panel, Security, Firewall: port 443 from the networks the usher is used from. The unit's own port is on the loopback address and needs no rule.
 
 Synology's documentation does not say whether DSM's proxy checks the certificate of an HTTPS destination. If it does not, the unit is not held to its authority there; with the unit on the loopback address of the same machine, nothing stands between the two.
+
+## Going live
+
+For the day a site starts to depend on a unit: the check that says the unit is ready, the copy that is kept of it, a newer version and the way back, and what is watched afterwards.
+
+**The check.** `scripts/go-live.sh` asks a unit what an administrator's browser asks it, and walks one voucher the whole way. It needs `curl`, `jq` and `base64`, and nothing else of the repository: the one file is enough on the machine it is run from.
+
+```sh
+scripts/go-live.sh https://usher.example.org
+```
+
+It asks for an administrator's name and password on the terminal and does not show the password; with no terminal it takes them from `USHER_NAME` and `USHER_PASSWORD`. Neither the password nor the session is put on a command line. It says of each thing whether it is in place:
+
+- the unit answers, is a unit and no demo, and is set up; which version it runs; its level, its site's name and the language of its forms;
+- the controller is set and answers, with its version, and what it is believed by;
+- a wireless network is chosen for vouchers;
+- voucher types are defined, and one is the default;
+- how many administrators and how many people at the front desk there are, with a note where one administrator stands alone;
+- which satellites are adopted, and when each was last seen;
+- one voucher of the default type is handed out, is found on the controller, and is revoked again;
+- signing out ends the session.
+
+It ends with `0` where nothing failed, and with `1` and the count where something did. The one thing it changes: the voucher it hands out is written into the record of hand-outs, in the name of whoever ran the check, and is revoked on the controller at once. `--no-voucher` leaves that out, and the check says that the way to the controller was not walked.
+
+The unit is believed as a browser believes it: by the certificate the site's proxy shows. A unit with no proxy before it is asked on its own machine, as `https://localhost:8443` with `--cacert unit-ca.crt`: its own certificate names it `localhost` and nothing else. `--insecure` asks nobody who the unit is, and the check says so.
+
+**Proven** by tests that run the script against a unit with a simulated controller that is ready, against one with nothing set, and against a demo. What no script can check is checked by a person on the day: a phone joins the guests' network with a voucher that was handed out, and every satellite gives one at its button.
+
+**A copy.** Two ways, and a site keeps to one.
+
+- *The unit's file.* "Export everything" on the page Site gives everything the unit keeps, sealed under a passphrase: see [What travels](#what-travels-a-profile-and-a-unit-that-is-moved). It is taken while the unit runs, and is taken in by a unit that nobody has set up, of the same version or a later one. Taken again after people or satellites change.
+- *The volume.* With the unit stopped, what it keeps is copied as it lies. From the Compose project's folder, with the container called `usher` (**run here**):
+
+  ```sh
+  docker compose stop usher
+  docker run --rm --volumes-from usher -v "$PWD":/backup busybox tar cf /backup/usher-kept.tar -C /var/lib/evo .
+  docker compose start usher
+  ```
+
+  The copy is put into a new volume before its unit is first started (**run here**: the unit came up as the unit of the copy, and its administrator signed in):
+
+  ```sh
+  docker compose create usher
+  docker run --rm --volumes-from usher -v "$PWD":/backup busybox tar xf /backup/usher-kept.tar -C /var/lib/evo
+  docker compose start usher
+  ```
+
+  For an installed unit the same is `/var/lib/evo`, copied as root with the service stopped (`sudo systemctl stop evo`), with its owners kept.
+
+Either copy is the unit: the key to the controller, the hashes of the passwords, the authority's key. It is kept as `/var/lib/evo` is kept.
+
+**A newer version.** The release's notes say what changes for a unit that is updated; a copy is taken; the version is named, in `USHER_VERSION` and `docker compose up -d`, or by installing the newer package; and the check is run again. What the unit keeps stays where it is. **Proven** on every push by the case `update` of `scripts/prove-proxy.sh`, from the newest release to the version of the push: the people sign in with what they had, the voucher types and the site stand, a screen protected by a PIN hands out a voucher with the secret and the PIN it has, a browser believes the unit by the authority it believed it by, and the record keeps what was handed out before.
+
+**The way back.** The version the unit ran before is named again, on the same volume, and the unit is the unit it was, with what was handed out meanwhile in its record. **Proven** on every push by the same case, from the version of the push back to the newest release. A release from which a unit cannot be put back says so in its notes; the copy taken before the update is the way back that holds whatever a release changes.
+
+**What is watched.**
+
+- *Whether it is up.* Docker's health check, `evo-usher-steward --healthy` in the container, or `GET /` on the unit's port from a monitor: see [whether it is up](#in-docker).
+- *The log.* `docker compose logs usher`, or `journalctl -u evo`. A unit that ends as it is started says why in its last lines. `a name is held after wrong tries in a row` and `the PIN of a satellite is held after wrong tries in a row` say that somebody tried five times; many of them say that somebody is guessing, and that the unit is reached from where it should not be.
+- *The satellites.* The page Satellites says when each was last seen; the check lists the same.
+- *The controller.* Where it is away the counter says so and nothing is handed out, but for the vouchers set aside on the unit, which are handed out all the same. A site that cannot do without sets some aside on the page Vouchers. After the controller itself is updated the check is run again: it is the controller's API the usher speaks.
+- *New versions.* The repository's releases; and the workflow `advisories`, which holds the libraries the usher is built from against the advisories published for them once a week.
 
 ## The least to set
 
