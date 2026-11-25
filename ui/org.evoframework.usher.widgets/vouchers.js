@@ -7,12 +7,15 @@
 // it for the voucher type its note names, and gives it to a guest before
 // it has another made. One the counter handed out is shown as handed out
 // until its guest uses it, and is not set aside; it says when it was
-// handed out, and by whom where the counter's record names them.
+// handed out, and by whom where the counter's record names them. Where
+// the unit's counter prints, one that was handed out here is put on
+// paper again from its row.
 
 import { el, id, placeOf, words } from "./dom.js";
-import { HELD_CHANGED, TYPES_KEPT, VOUCHER_HANDED } from "./events.js";
+import { HELD_CHANGED, PLUGIN_EVENT, TYPES_KEPT, VOUCHER_HANDED } from "./events.js";
 import { CONTROLLER_SET } from "./networks.js";
-import { COUNTER, RESERVE } from "./shelves.js";
+import { notPrinted, offeredOf, printedAt, saysPrintersChanged } from "./printing.js";
+import { COUNTER, PRINTING, RESERVE } from "./shelves.js";
 import { number, say } from "./words.js";
 
 /** What stands in words where a moment is to go, until it is put there. */
@@ -249,6 +252,27 @@ export function vouchers(element, context) {
   /** The others on the page are told that what is held has changed. */
   const heldChanged = () => document.dispatchEvent(new Event(HELD_CHANGED));
 
+  /** The printers the unit's counter prints on; none where no print is offered. @type {import("./printing.js").Offered[]} */
+  let printsOn = [];
+
+  /**
+   * The printers the unit's counter prints on, as the printing says;
+   * none where it does not say.
+   *
+   * @returns {Promise<import("./printing.js").Offered[]>}
+   */
+  const printersNow = async () => {
+    try {
+      return offeredOf((await context.steward.request(PRINTING, "offered", {}))?.printers);
+    } catch (why) {
+      console.warn("vouchers: where a voucher is printed:", why);
+      return [];
+    }
+  };
+
+  /** Whether a label is on its way to a printer: one press, one label. */
+  let printing = false;
+
   /** @param {string} text @param {boolean} [trouble] */
   const tell = (text, trouble = false) => {
     if (gone) return;
@@ -323,6 +347,37 @@ export function vouchers(element, context) {
       );
     };
 
+    /**
+     * Put on paper again, at the unit's counter: one that was handed
+     * out here, where the counter prints.
+     */
+    const onPaper = () => {
+      if (out === undefined || isHeld || printsOn.length === 0) return null;
+      return el(
+        "button",
+        {
+          type: "button",
+          class: "quiet",
+          "aria-label": say("vouchers.print_named", { code }),
+          onclick: async () => {
+            if (printing) return;
+            printing = true;
+            tell(say("vouchers.printing", { code }));
+            try {
+              tell(
+                printedAt(await context.steward.request(PRINTING, "print", { id: voucher.id })),
+              );
+            } catch (why) {
+              tell(notPrinted(why), true);
+            } finally {
+              printing = false;
+            }
+          },
+        },
+        say("vouchers.print"),
+      );
+    };
+
     const offer = () => {
       option.replaceChildren(
         el(
@@ -330,6 +385,7 @@ export function vouchers(element, context) {
           { class: "usher-options" },
           ...[
           assigning(),
+          onPaper(),
           el(
             "button",
             {
@@ -482,6 +538,7 @@ export function vouchers(element, context) {
           String(b.created ?? "").localeCompare(String(a.created ?? "")),
         );
       const heldThen = await heldNow();
+      const printsThen = await printersNow();
       const valid = listed.filter((/** @type {any} */ voucher) => voucher.expired !== true);
       const expired = listed.filter((/** @type {any} */ voucher) => voucher.expired === true);
       const handedThen = await handedOf(
@@ -490,6 +547,7 @@ export function vouchers(element, context) {
       if (late()) return;
       held = heldThen;
       handed = handedThen;
+      printsOn = printsThen;
       const parts = [];
       // A voucher held for handing out that the controller no longer has,
       // or that has been used or has expired, would let no guest in. With
@@ -591,8 +649,23 @@ export function vouchers(element, context) {
 
   // Another controller, other vouchers; a voucher handed out, one more.
   const again = () => look();
+  /**
+   * The printing said that the printers changed: where the counter
+   * prints now and did not, or does not and did, the rows are drawn
+   * anew, with what is printed with or without it.
+   *
+   * @param {Event} event
+   */
+  const printingSaid = async (event) => {
+    if (!saysPrintersChanged(event)) return;
+    const now = await printersNow();
+    if (gone) return;
+    if ((now.length > 0) !== (printsOn.length > 0)) look();
+    else printsOn = now;
+  };
   document.addEventListener(CONTROLLER_SET, again);
   document.addEventListener(VOUCHER_HANDED, again);
+  document.addEventListener(PLUGIN_EVENT, printingSaid);
   // A place that keeps another time than it did: the times are written
   // anew.
   const unwatch = place.watch(again);
@@ -602,6 +675,7 @@ export function vouchers(element, context) {
     gone = true;
     document.removeEventListener(CONTROLLER_SET, again);
     document.removeEventListener(VOUCHER_HANDED, again);
+    document.removeEventListener(PLUGIN_EVENT, printingSaid);
     unwatch();
     element.replaceChildren();
   };

@@ -1478,11 +1478,11 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-about"
-version = "0.3.27"
+version = "0.3.28"
 
 [[package]]
 name = "evo-usher-controller-unifi"
-version = "0.3.27"
+version = "0.3.28"
 dependencies = [
  "evo-plugin-sdk",
  "evo-plugin-test",
@@ -1507,14 +1507,14 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-core"
-version = "0.3.27"
+version = "0.3.28"
 dependencies = [
  "evo-usher-about",
 ]
 
 [[package]]
 name = "evo-usher-counter"
-version = "0.3.27"
+version = "0.3.28"
 dependencies = [
  "evo-plugin-sdk",
  "evo-plugin-test",
@@ -1532,14 +1532,34 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-printer"
-version = "0.3.27"
+version = "0.3.28"
 dependencies = [
  "rustix 1.1.6",
+ "tempfile",
+]
+
+[[package]]
+name = "evo-usher-printing"
+version = "0.3.28"
+dependencies = [
+ "base64 0.22.1",
+ "evo-plugin-sdk",
+ "evo-plugin-test",
+ "evo-usher-printer",
+ "evo-usher-render",
+ "evo-usher-why",
+ "semver",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml",
+ "tracing",
 ]
 
 [[package]]
 name = "evo-usher-render"
-version = "0.3.27"
+version = "0.3.28"
 dependencies = [
  "ab_glyph",
  "qrcode",
@@ -1548,7 +1568,7 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-site"
-version = "0.3.27"
+version = "0.3.28"
 dependencies = [
  "base64 0.22.1",
  "evo-plugin-sdk",
@@ -1565,7 +1585,7 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-station"
-version = "0.3.27"
+version = "0.3.28"
 dependencies = [
  "evo-usher-about",
  "evo-usher-printer",
@@ -1574,7 +1594,7 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-steward"
-version = "0.3.27"
+version = "0.3.28"
 dependencies = [
  "anyhow",
  "argon2",
@@ -1590,6 +1610,7 @@ dependencies = [
  "evo-usher-about",
  "evo-usher-controller-unifi",
  "evo-usher-counter",
+ "evo-usher-printing",
  "evo-usher-site",
  "evo-usher-stock",
  "evo-usher-why",
@@ -1611,7 +1632,7 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-stock"
-version = "0.3.27"
+version = "0.3.28"
 dependencies = [
  "evo-plugin-sdk",
  "evo-plugin-test",
@@ -1627,7 +1648,7 @@ dependencies = [
 
 [[package]]
 name = "evo-usher-why"
-version = "0.3.27"
+version = "0.3.28"
 dependencies = [
  "evo-plugin-sdk",
  "serde_json",

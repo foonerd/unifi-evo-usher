@@ -20,6 +20,12 @@
 // gives written on it as the Counter page writes it. It is told its own
 // types with what it asks every half minute, and no others.
 //
+// A satellite that was given printers puts the voucher it handed out on
+// paper: a button stands with the voucher, the screen waits for the
+// printer, and says where the label came out, or why it did not. A
+// voucher is printed once. It is told its printers with what it asks
+// every half minute; with none, nothing of printing shows.
+//
 // A satellite wears a logo: its own, or the site's. It is told a stamp
 // of the picture with what it asks every half minute, and fetches the
 // picture only when the stamp is not the one it has. The logo stands
@@ -37,6 +43,7 @@ import { offer, ready, refusal, say } from "/org.evoframework.usher.shell/words.
 import { demoVoucher, gives, symbol } from "/org.evoframework.usher.widgets/counter.js";
 import { el } from "/org.evoframework.usher.widgets/dom.js";
 import { plateOf } from "/org.evoframework.usher.widgets/plate.js";
+import { away, notPrinted, reports } from "/org.evoframework.usher.widgets/printing.js";
 import { written } from "/org.evoframework.usher.widgets/vouchers.js";
 
 /** Where the screen keeps its secret. It is no session of a person's. */
@@ -96,6 +103,21 @@ export function shown(code) {
  */
 export function typedMore(typed, key, most) {
   return /^[0-9]$/.test(key) && typed.length < most ? typed + key : typed;
+}
+
+/**
+ * Why a label did not come out, in words for the guest who stands at
+ * the screen: what the printer reports, or that it does not answer, and
+ * whom to ask.
+ *
+ * @param {unknown} why what was thrown
+ * @returns {string}
+ */
+export function notOnPaper(why) {
+  const told = /** @type {any} */ (why);
+  const said = told?.reason === "printer_reports" ? reports(told?.values?.complaints) : "";
+  if (said !== "") return say("satellite.print_reports", { reports: said });
+  return away(told?.reason) ? say("satellite.print_away") : say("satellite.print_failed");
 }
 
 /** @returns {string | null} the secret this screen keeps */
@@ -203,6 +225,8 @@ async function start() {
   let types = [];
   /** What the buttons were last drawn from. */
   let typesAs = "[]";
+  /** The printers the screen prints on, each by its name and its place; none where it offers no print. @type {any[]} */
+  let printers = [];
   /** How many digits a PIN has at least and at most. */
   let digits = { least: 6, most: 12 };
   /**
@@ -342,6 +366,9 @@ async function start() {
     types = Array.isArray(told?.types)
       ? told.types.filter((/** @type {any} */ kind) => typeof kind?.name === "string")
       : [];
+    printers = Array.isArray(told?.printers)
+      ? told.printers.filter((/** @type {any} */ one) => typeof one?.name === "string")
+      : [];
     if (Number(told?.pin?.least) > 0 && Number(told?.pin?.most) > 0) {
       digits = { least: Number(told.pin.least), most: Number(told.pin.most) };
     }
@@ -467,6 +494,45 @@ async function start() {
     });
   }
 
+  /**
+   * Ask a shelf with the screen's session, and read what it answers.
+   *
+   * @param {string} shelf
+   * @param {string} type the request
+   * @param {Record<string, unknown>} payload what the request takes
+   * @returns {Promise<any>}
+   * @throws {Refusal}
+   */
+  const request = async (shelf, type, payload) => {
+    const said = await ask(
+      "/api/v1/request",
+      "POST",
+      { shelf, request_type: type, payload_b64: toBase64(JSON.stringify(payload)) },
+      session?.token ?? null,
+    );
+    return JSON.parse(fromBase64(String(said?.payload_b64 ?? "")));
+  };
+
+  /**
+   * Put the voucher the screen handed out on paper. A session that has
+   * ended is exchanged for another, and it is asked once more.
+   *
+   * @param {unknown} voucher the voucher's identifier
+   * @returns {Promise<any>} where the label came out
+   * @throws {Refusal}
+   */
+  const onPaper = async (voucher) => {
+    try {
+      return await request("printing.labels", "print_here", { id: voucher });
+    } catch (why) {
+      if (!(why instanceof Refusal) || why.status !== 401) throw why;
+      session = null;
+      await come();
+      if (session === null) throw why;
+      return request("printing.labels", "print_here", { id: voucher });
+    }
+  };
+
   /** @param {any} got the answer to `hand_default` */
   const showVoucher = (got) => {
     const network = String(got?.network ?? "");
@@ -474,6 +540,65 @@ async function start() {
       "button",
       { type: "button", id: "satellite-done", onclick: () => showButton() },
       say("common.done"),
+    );
+    // Where the label came out, or why it did not, and what a member of
+    // staff is told of it.
+    const paper = el("p", { class: "satellite-said", id: "satellite-printed", role: "status" });
+    const more = el("p", { class: "satellite-detail", id: "satellite-printed-more" });
+    /** Whether a label is on its way: one press, one label. */
+    let printing = false;
+    const print = el(
+      "button",
+      {
+        type: "button",
+        id: "satellite-print",
+        onclick: async () => {
+          if (printing) return;
+          printing = true;
+          // The screen waits for the printer: it does not go back to
+          // its button meanwhile, whether it is touched or not.
+          clearTimeout(clearing);
+          clearing = undefined;
+          print.textContent = say("satellite.printing");
+          print.setAttribute("aria-disabled", "true");
+          paper.textContent = "";
+          more.textContent = "";
+          /** Whether the voucher is on paper, and is not printed again. */
+          let printed = false;
+          try {
+            const at = (await onPaper(got?.voucher?.id))?.printed?.printer;
+            const name = String(at?.name ?? "");
+            const place = String(at?.place ?? "");
+            paper.textContent =
+              place === ""
+                ? say("satellite.printed_at", { name })
+                : say("satellite.printed_at_place", { name, place });
+            printed = true;
+          } catch (why) {
+            if (why instanceof Refusal && why.reason === "voucher_on_paper_already") {
+              paper.textContent = refusal(why);
+              printed = true;
+            } else {
+              paper.textContent = notOnPaper(why);
+              more.textContent = notPrinted(why);
+            }
+          }
+          printing = false;
+          // The voucher may have been taken off the screen meanwhile.
+          if (!print.isConnected) return;
+          if (printed) {
+            // Whoever pressed it stands at what puts the voucher away.
+            const stood = document.activeElement === print;
+            print.remove();
+            if (stood) done.focus();
+          } else {
+            print.textContent = say("satellite.print");
+            print.removeAttribute("aria-disabled");
+          }
+          clearLater();
+        },
+      },
+      say("satellite.print"),
     );
     draw(
       "voucher",
@@ -489,7 +614,9 @@ async function start() {
         el("p", { class: "usher-hint" }, gives(got?.type)),
         demoVoucher(),
         el("p", { class: "satellite-detail" }, say("satellite.goes_away")),
-        done,
+        paper,
+        more,
+        el("div", { class: "satellite-does" }, printers.length === 0 ? null : print, done),
       ),
     );
     done.focus();
@@ -628,22 +755,12 @@ async function start() {
     clearing = undefined;
     tell(say("satellite.asking"));
     try {
-      const said = await ask(
-        "/api/v1/request",
-        "POST",
-        {
-          shelf: "issue.counter",
-          request_type: kind === undefined ? "hand_default" : "hand_type",
-          payload_b64: toBase64(
-            JSON.stringify({
-              ...(kind === undefined ? {} : { type: kind }),
-              ...(pin === undefined ? {} : { pin }),
-            }),
-          ),
-        },
-        session.token,
+      showVoucher(
+        await request("issue.counter", kind === undefined ? "hand_default" : "hand_type", {
+          ...(kind === undefined ? {} : { type: kind }),
+          ...(pin === undefined ? {} : { pin }),
+        }),
       );
-      showVoucher(JSON.parse(fromBase64(String(said?.payload_b64 ?? ""))));
     } catch (why) {
       if (why instanceof Refusal && why.status === 401) {
         // The session ended: the screen comes in again, and says what it
@@ -724,6 +841,7 @@ async function start() {
     logo = null;
     asksPin = false;
     types = [];
+    printers = [];
     typing = null;
     siteAs = "";
     dress();

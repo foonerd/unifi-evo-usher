@@ -194,6 +194,10 @@ pub const OF_A_SATELLITE_WITH_TYPES: [&str; 3] =
 const THE_COUNTER: &str = "issue.counter";
 const OFFERED: &str = "offered";
 
+/// The shelf the printers are kept on: it is asked which of them a
+/// satellite prints on.
+const THE_PRINTING: &str = "printing.labels";
+
 /// The operation of evo's that says what is stocked on which UI shelf,
 /// and the widget kind the counter is drawn with: what a front desk's
 /// one page is drawn from.
@@ -1260,11 +1264,23 @@ impl Usher {
         request_type: &str,
         who: &Principal,
     ) -> Option<Value> {
+        self.read_with(shelf, request_type, &json!({}), who).await
+    }
+
+    /// What a shelf answers a request with `payload`, asked as `who`;
+    /// nothing where it does not answer, or answers nothing to read.
+    async fn read_with(
+        &self,
+        shelf: &str,
+        request_type: &str,
+        payload: &Value,
+        who: &Principal,
+    ) -> Option<Value> {
         let operation = WireOpId::new(ASK_A_SHELF).ok()?;
         let asked = json!({
             "shelf": shelf,
             "request_type": request_type,
-            "payload_b64": STANDARD.encode("{}"),
+            "payload_b64": STANDARD.encode(payload.to_string()),
         });
         let said = match self.shelves.dispatch(&operation, asked, who).await {
             Ok(said) => said,
@@ -1345,6 +1361,28 @@ impl Usher {
             })
             .cloned()
             .collect()
+    }
+
+    /// The printers a satellite prints on that are switched on, in
+    /// their order, as the satellite is told them: each by its name and
+    /// its place, and nothing of where it hangs. None, for a satellite
+    /// that offers no print, and where the printing does not answer.
+    async fn printers_of(&self, satellite: &str) -> Vec<Value> {
+        let who = asking_as(AS_THE_USHER, &[ISSUING]);
+        self.read_with(
+            THE_PRINTING,
+            "offered",
+            &json!({ "point": format!("satellite:{satellite}") }),
+            &who,
+        )
+        .await
+        .and_then(|said| said["printers"].as_array().cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|printer| {
+            json!({ "name": printer["name"], "place": printer["place"] })
+        })
+        .collect()
     }
 
     /// Whether a satellite gives what it is asked for: the default
@@ -3226,6 +3264,7 @@ async fn satellite_sign_in(
     usher.satellites().saw(&satellite.id, now_ms());
     let site = usher.site_for_satellites().await;
     let types = usher.types_of(&satellite.id).await;
+    let printers = usher.printers_of(&satellite.id).await;
     answer(
         StatusCode::OK,
         &json!({
@@ -3237,6 +3276,7 @@ async fn satellite_sign_in(
             "protected": satellite.protected(),
             "pin": pin_typed(),
             "types": types,
+            "printers": printers,
             "logo": logo_told(&satellite, &site),
             "site": site.brief,
         }),
@@ -3286,6 +3326,7 @@ async fn satellite(
     };
     let site = usher.site_for_satellites().await;
     let types = usher.types_of(&satellite.id).await;
+    let printers = usher.printers_of(&satellite.id).await;
     answer(
         StatusCode::OK,
         &json!({
@@ -3297,6 +3338,7 @@ async fn satellite(
             "protected": satellite.protected(),
             "pin": pin_typed(),
             "types": types,
+            "printers": printers,
             "logo": logo_told(&satellite, &site),
             "site": site.brief,
         }),

@@ -2,6 +2,22 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## [0.3.28] - 2026-11-25
+
+- A voucher is put on paper. The usher draws a label with the network's name, the code, what the voucher gives, the site's name and the symbol a phone joins an open network from, and sends it to a printer in the printer's own language: no driver, no spooler and no browser's print dialog stands between the two
+- A site has as many printers as it needs, each with a name and a place. A printer hangs on a USB port of the unit, where it is known by what it told the unit of itself and found again wherever it is plugged in; or stands on the network; or is simulated, taking a label and showing it, for trying the usher with no printer at hand. The page Printers, an administrator's, keeps them: it adds, changes, switches off and removes a printer, asks one how it is, and prints a specimen on it
+- Each point of issue, the unit's counter and every satellite, is given printers in order. The first is where its labels go; the others are where a label goes when the first is away or reports trouble, and the answer says where the label came out and which printer did not print, and why
+- Print stands with a voucher wherever its point of issue has a printer: at the counter, with a choice of printer that the browser remembers where there are several; on a satellite's screen, which prints the voucher it handed out itself, once; and on the page Vouchers, for a voucher handed out in the last half hour. A printer's own trouble is said in words: the cover is open, no paper is loaded
+- A satellite is told which printers it prints on where it signs in and where it says it is there, as `printers`, and asks `printing.labels` `print_here` for its own voucher: `docs/satellite.md` has the request, its answers and its refusals. A page of an earlier version goes on as it did
+- Three printer languages are spoken, and a printer's type is chosen: Brother QL raster, as before; ZPL, with generic types by resolution and head width, Zebra's ZD421, ZD621, GX420t, GX430t and GK420d, and Brother's TD-4420TN and TD-4520TN; and ESC/POS, with generic types for 80 mm and 58 mm paper by their dots across, Epson's TM-T20II, TM-T20III and TM-T88IV to TM-T88VII, and Star printers in their ESC/POS mode. Every type is written from its maker's documents and held to them by tests, and says so: none has printed yet
+- What a printer speaks is never guessed by sending it something, for a word of one printer language is a command of another: a printer nobody has said the language of is sent nothing. `evo-usher-station` takes `--speaks` and lists the printers on its machine's USB ports with `printer found`; `printer status` and `printer test` over TCP now name the language or the model
+- A printer whose labels come out upside down as they are read is said to print the other way round
+- A label for a network that is not open has no symbol: its lines have the label to themselves
+- A TCP line to a printer is hung up in order. Closed with something of the printer's unread on it, the line was reset, and the reset could take the end of a label with it
+- The counter remembers what it handed out in the last half hour, whole, so that a voucher is printed after it was shown, also while the controller is away. It is kept in memory and nowhere else: a voucher's code is still written to no file of the unit
+- A demo has a simulated printer on its counter
+- The face has 191 new texts, in all eleven languages
+
 ## [0.3.27] - 2026-11-23
 
 - What is done with a voucher stays in view. In the list of the controller's vouchers the buttons of a row stay at the edge of the list's box however wide the list is, and what is moved under them fades at that edge. Before, a list that was wider than its box had to be moved sideways before Revoke was seen, and nothing said that it was there. The list of voucher types keeps its buttons in view in the same way

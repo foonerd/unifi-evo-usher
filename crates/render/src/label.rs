@@ -53,6 +53,10 @@ pub struct Voucher<'a> {
     pub network: &'a str,
     /// The passphrase of the guest network, if it has one.
     pub passphrase: Option<&'a str>,
+    /// Whether the label carries the symbol a phone joins the network
+    /// from. A network that is joined with a passphrase the label does
+    /// not know has none: the lines then have the label to themselves.
+    pub symbol: bool,
     /// The code the guest types into the portal, as it is to be read.
     pub code: &'a str,
     /// What the voucher gives, in a few words.
@@ -68,6 +72,7 @@ impl Voucher<'static> {
         Voucher {
             network: "SPECIMEN",
             passphrase: None,
+            symbol: true,
             code: "00000-00000",
             terms: "1 day, 1 device",
             footer: "SPECIMEN - NOT VALID",
@@ -172,9 +177,17 @@ pub fn label(voucher: &Voucher<'_>, sheet: &Sheet) -> Result<Frame, Refusal> {
         Some(along) => (true, Some(along), sheet.across),
     };
 
-    let symbol = Symbol::new(&voucher.payload()).ok_or(Refusal::TooMuch)?;
-    let modules = symbol.side() + 2 * QUIET;
-    let (edge, gutter) = (dots(EDGE), dots(GUTTER));
+    let symbol = match voucher.symbol {
+        true => Some(Symbol::new(&voucher.payload()).ok_or(Refusal::TooMuch)?),
+        false => None,
+    };
+    // With no symbol there is no column for one, and no gutter beside
+    // it: a symbol of no modules, each as small as a module may be.
+    let modules = symbol
+        .as_ref()
+        .map_or(0, |symbol| symbol.side() + 2 * QUIET);
+    let edge = dots(EDGE);
+    let gutter = if symbol.is_some() { dots(GUTTER) } else { 0 };
     let smallest = (SMALLEST_MODULE * unit - 0.001).ceil() as u32;
     let code_width = text::measure(Weight::SemiBold, 1.0, voucher.code);
     let narrowest = (CODE_EM.0 * unit * code_width).ceil() as u32;
@@ -195,7 +208,10 @@ pub fn label(voucher: &Voucher<'_>, sheet: &Sheet) -> Result<Frame, Refusal> {
     };
 
     let inner = height.checked_sub(2 * edge).ok_or_else(too_small)?;
-    let largest = (inner / modules).min(dots(LARGEST_SYMBOL) / modules);
+    let largest = match modules {
+        0 => smallest,
+        modules => (inner / modules).min(dots(LARGEST_SYMBOL) / modules),
+    };
     if largest < smallest {
         return Err(too_small());
     }
@@ -268,13 +284,15 @@ pub fn label(voucher: &Voucher<'_>, sheet: &Sheet) -> Result<Frame, Refusal> {
     }
 
     let mut frame = Frame::new(width, height);
-    let span = symbol.span(module);
-    symbol.draw(
-        &mut frame,
-        i64::from(edge),
-        i64::from(edge + (inner - span) / 2),
-        module,
-    );
+    if let Some(symbol) = &symbol {
+        let span = symbol.span(module);
+        symbol.draw(
+            &mut frame,
+            i64::from(edge),
+            i64::from(edge + (inner - span) / 2),
+            module,
+        );
+    }
     let left = column(module) as f32;
     let mut top = edge as f32 + (inner as f32 - stack(&lines, leading)) / 2.0;
     for line in &lines {

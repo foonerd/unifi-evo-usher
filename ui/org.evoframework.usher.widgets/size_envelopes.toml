@@ -26,6 +26,14 @@ max_size = "full"
 mode = "inline"
 schema_version = 1
 
+["usher.printers"]
+id = "usher.printers"
+min_size = "half"
+ideal_size = "full"
+max_size = "full"
+mode = "inline"
+schema_version = 1
+
 ["usher.reserve"]
 id = "usher.reserve"
 min_size = "third"

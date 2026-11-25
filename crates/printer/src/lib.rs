@@ -12,14 +12,29 @@
 //!
 //! - [`brother`]: the Brother QL label printers, in their raster
 //!   language.
+//! - [`zpl`]: the label printers that take ZPL, Zebra's own and those
+//!   of other makers that take it as an emulation.
+//! - [`escpos`]: the receipt and ticket printers that take ESC/POS,
+//!   Epson's and those of the makers that follow them.
+//!
+//! Whatever a printer speaks, a label is seen through it the same way,
+//! in [`job`]: the printer is asked what it is and what it has loaded,
+//! or is told; it says how it is; a page is sent, and what became of it
+//! is said. [`usb`] finds the printers on this machine's USB ports and
+//! reads what each says it is, without sending it anything.
 
 use std::fmt;
 
 pub mod brother;
+pub mod escpos;
+pub mod job;
 pub mod line;
 pub mod model;
+pub mod usb;
+pub mod zpl;
 
-pub use model::{Evidence, Model, Speaks};
+pub use job::{Note, Paper, Ready, Said, Told, Unready, Unsettled};
+pub use model::{Evidence, Language, Model, Speaks};
 
 /// A page of dots as a printer takes it: `across` the print head and
 /// `along` the feed, each dot inked or not.
@@ -99,6 +114,30 @@ pub enum Delivery {
     Sent,
 }
 
+/// One thing a printer reports wrong, as any family names it: under a
+/// code a program goes by, and in words an operator can act on.
+///
+/// The codes are the same whatever the printer speaks: `no_media`,
+/// `media_end`, `ribbon_out`, `cover_open`, `cutter_jam`, `cannot_feed`,
+/// `wrong_media`, `in_use`, `paused`, `diagnostic_mode`, `turned_off`,
+/// `offline`, `buffer_full`, `communication`, `too_hot`, `too_cold`,
+/// `fan`, `recoverable_error`, `system`, `stopped`, and `unnamed` for
+/// what no reference names. A family reports under the codes its
+/// printers have a report for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Complaint {
+    /// The code a program goes by.
+    pub code: &'static str,
+    /// The words for an operator.
+    pub words: String,
+}
+
+impl fmt::Display for Complaint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.words)
+    }
+}
+
 /// Why a printer was not spoken to, or a label not printed.
 #[derive(Debug)]
 pub enum Fault {
@@ -111,9 +150,13 @@ pub enum Fault {
     Garbled(String),
     /// The printer reports trouble, each one in words an operator can
     /// act on.
-    Printer(Vec<String>),
+    Printer(Vec<Complaint>),
     /// The media and the job do not go together.
     Media(String),
+    /// What the printer is, or what it has loaded, is not settled: it
+    /// does not say, or what it says and what it is told do not go
+    /// together.
+    Unsettled(Unsettled),
 }
 
 impl fmt::Display for Fault {
@@ -127,9 +170,12 @@ impl fmt::Display for Fault {
                 write!(f, "the printer's answer is not understood: {what}")
             }
             Fault::Printer(troubles) => {
-                write!(f, "the printer reports: {}", troubles.join("; "))
+                let words: Vec<&str> =
+                    troubles.iter().map(|one| one.words.as_str()).collect();
+                write!(f, "the printer reports: {}", words.join("; "))
             }
             Fault::Media(what) => write!(f, "{what}"),
+            Fault::Unsettled(why) => write!(f, "{why}"),
         }
     }
 }
@@ -178,8 +224,14 @@ mod tests {
     #[test]
     fn a_fault_reads_as_a_sentence() {
         let fault = Fault::Printer(vec![
-            "the cover is open".to_string(),
-            "no media is loaded".to_string(),
+            Complaint {
+                code: "cover_open",
+                words: "the cover is open".to_string(),
+            },
+            Complaint {
+                code: "no_media",
+                words: "no media is loaded".to_string(),
+            },
         ]);
         assert_eq!(
             fault.to_string(),

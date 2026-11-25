@@ -12,9 +12,10 @@ It is a contract. Within `/usher/v1` and the requests named here, fields are add
 2. An administrator types the code on the page Satellites. The satellite is adopted: named, held to so many vouchers an hour, unlocked or protected by a PIN, and given voucher types of its own or none.
 3. Exchange the secret for a session, good for twelve hours, and again when it runs out.
 4. Hand out a voucher with the session: the default voucher, or one of the types the satellite was given.
-5. Say now and then that the satellite is there, and be told what it is.
+5. Where the satellite was assigned a printer, put the voucher it handed out on paper.
+6. Say now and then that the satellite is there, and be told what it is.
 
-Every answer shown here is as a unit of version 0.3.26 gives it.
+Every answer shown here is as a unit of version 0.3.28 gives it.
 
 The secret is all a satellite keeps. It is good for these requests and for nothing else on the unit, and stops being good the moment an administrator switches the satellite off or removes it.
 
@@ -62,6 +63,7 @@ Once adopted:
   "name": "Lobby", "place": "By the lifts",
   "protected": false, "pin": { "least": 6, "most": 12 },
   "types": [],
+  "printers": [],
   "logo": { "stamp": "9f3a...", "own": false },
   "site": { "name": "Market Hall", "language": "en", "follows_browser": false } }
 ```
@@ -73,6 +75,7 @@ Once adopted:
 | `protected` | Whether a voucher is given for the satellite's PIN and not without. |
 | `pin` | Of how many digits a PIN is, at least and at most: for a keypad. |
 | `types` | The voucher types this satellite was given, each as below, in the order they are offered. Empty where it gives the default voucher. |
+| `printers` | The printers this satellite prints on that are switched on, each `{ "name": "...", "place": "..." }`, in the order a label is tried on them. Empty where it prints nowhere: such a satellite offers no print. A unit before 0.3.28 does not send the field. |
 | `logo` | Which logo the satellite wears: a `stamp` to fetch it by, and whether it is the satellite's `own` or the site's. `null` where there is none. |
 | `site` | What the site is called, the language it speaks by its tag, and whether a browser's own language goes before it. |
 
@@ -89,7 +92,7 @@ Once adopted:
 ```json
 { "name": "Lobby", "place": "By the lifts", "limit": 20, "handed": 3,
   "until_ms": 1795443200000, "protected": false, "pin": { "least": 6, "most": 12 },
-  "types": [], "logo": null,
+  "types": [], "printers": [], "logo": null,
   "site": { "name": "Market Hall", "language": "en", "follows_browser": false } }
 ```
 
@@ -144,6 +147,42 @@ A voucher that is handed out is written down by the unit with the satellite's na
 | `503` `no_session` | The unit cannot check a PIN just now. Ask again in a moment. |
 | others, with `no_default_type`, `no_network_chosen`, `no_controller_set`, or a code that begins `controller_` | No voucher can be made, and the code says why: it is an administrator's to put right. Where the controller is away, vouchers set aside on the unit are handed out all the same. |
 
+### A voucher on paper
+
+`POST /api/v1/request`, with the session, for a voucher this satellite handed out in the last half hour:
+
+```json
+{ "shelf": "printing.labels", "request_type": "print_here", "payload_b64": "eyJpZCI6Ii4uLiJ9" }
+```
+
+The JSON in `payload_b64` is `{ "id": "..." }`, the `voucher.id` of the hand-out. Nothing else is read: which satellite asks, and so which printers the label may go to, the unit takes from the session. The label is drawn by the unit, for the paper the printer has, and says what the voucher's screen said: the network, the code, what the voucher gives, the site's name, and the symbol a phone joins an open network from.
+
+The request is answered when the printer has the label, which can take half a minute; a satellite waits for it and does not ask twice. The answer is `{ "payload_b64": "..." }`, and the JSON in it:
+
+```json
+{ "printed": { "printer": { "id": "p2", "name": "Hall", "place": "Building A, lobby" },
+               "delivery": "confirmed", "media": "62 mm continuous tape" },
+  "passed": [] }
+```
+
+| Field | What it is |
+| --- | --- |
+| `printed.printer` | Where the label came out: the printer's name and place are what a guest is told. |
+| `printed.delivery` | `confirmed` where the printer reported the label printed; `sent` where it was sent and the printer says nothing more. |
+| `passed` | The printers the label was tried on before, each `{ "printer": {...}, "code": "..." }` with the code it was refused under: a satellite with more than one printer prints on the first that sees the label through. |
+
+| Refused | Means |
+| --- | --- |
+| `400` `printing_not_offered` | The satellite prints on no printer that is switched on. |
+| `400` `voucher_not_recent` | The voucher was not handed out by this satellite in the last half hour. |
+| `400` `voucher_on_paper_already` | This satellite printed that voucher already. A satellite puts a voucher on paper once; a voucher that no printer printed can be asked for again. An administrator prints a voucher again. |
+| `503` `printer_reports` | The printer reports trouble: `values.complaints` lists each as `{ "code": "...", "words": "..." }`, `values.first` is the code of the first: `no_media`, `media_end`, `cover_open`, `cutter_jam`, `cannot_feed`, `wrong_media` and others. A member of staff puts it right. |
+| `503` `printer_not_reached`, `printer_not_plugged_in`, `printer_silent`, `printer_garbled` | The printer is away, or does not answer as a printer does. |
+| `400` a code that begins `printer_` or `label_` | The printer is not set up so that a label can be drawn for it: an administrator's to put right on the page Printers. |
+| `401` `bearer_required` | The session has ended. Exchange the secret again, and ask once more. |
+
+Where every printer of the satellite was tried and none printed, the refusal is the first printer's, and `values.passed` lists them all.
+
 ### The logo
 
 `GET /usher/v1/satellite_logo?stamp=<stamp>`, with the session: the PNG file the satellite wears, 1024 by 512 pixels and 256 KiB at most. A file under a stamp never changes, so it is kept for as long as the stamp is told. `404` `no_such_logo`: there is none under that stamp any more; the next asking tells which there is.
@@ -160,5 +199,6 @@ A satellite has no request that ends its session. A session ends when its time i
 
 - **Its hour.** So many vouchers an hour, set by the administrator, twenty unless said otherwise.
 - **Its PIN, where it is protected.** Typed for each voucher, sent with the one request, kept nowhere by the usher's own page.
+- **Its printers.** The voucher it handed out itself, on the printers it was assigned, and nothing else on paper: no other voucher, no other printer, no words of its own.
 - **Its types.** The default voucher, or the types it was given, and no other. Types are given to a protected satellite alone. Of the types it was given, a satellite is told and gives those that are on offer now and have nothing to choose; with none of them left it gives the default until one is back.
 - **Nothing else.** A satellite hears nothing of what happens on the unit, reads nothing of the site but what is above, and is refused every other request, by the usher and by the framework under it.

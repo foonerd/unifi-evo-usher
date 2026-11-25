@@ -96,11 +96,13 @@ const ASK_A_SHELF: &str = "request";
 /// page says beside the type; and what the site is called, how it looks,
 /// what time it keeps and what language it speaks, which every page
 /// wears.
-pub const OF_THE_COUNTER: [(&str, &str); 4] = [
+pub const OF_THE_COUNTER: [(&str, &str); 6] = [
     ("issue.counter", "offered"),
     ("issue.counter", "hand"),
     ("stock.reserve", "count"),
     ("site.settings", "get"),
+    ("printing.labels", "offered"),
+    ("printing.labels", "print"),
 ];
 
 /// What a satellite may ask of a shelf: the default voucher handed out,
@@ -108,10 +110,23 @@ pub const OF_THE_COUNTER: [(&str, &str); 4] = [
 /// types the satellite was given. What the site is called, how it looks
 /// and what language it speaks, it is told by the usher's own route,
 /// where it says that it is there.
-pub const OF_A_SATELLITE: [(&str, &str); 2] = [
+pub const OF_A_SATELLITE: [(&str, &str); 3] = [
     ("issue.counter", "hand_default"),
     ("issue.counter", "hand_type"),
+    ("printing.labels", "print_here"),
 ];
+
+/// The shelf and the request that tell which printers a point of issue
+/// prints on.
+const PRINTERS_OFFERED: (&str, &str) = ("printing.labels", "offered");
+
+/// The shelf and the request a voucher is put on paper with at the
+/// counter.
+const PRINTING: (&str, &str) = ("printing.labels", "print");
+
+/// The shelf and the request a satellite puts the voucher it handed out
+/// on paper with.
+const PRINTING_HERE: (&str, &str) = ("printing.labels", "print_here");
 
 /// The shelf and the request a voucher is handed out with.
 const HANDING: (&str, &str) = ("issue.counter", "hand");
@@ -818,6 +833,59 @@ async fn of_a_shelf(
             "payload_b64".to_string(),
             Value::String(STANDARD.encode(Value::Object(handing).to_string())),
         );
+    }
+    // Where a voucher is put on paper is the session's to say, as who
+    // hands one out is. A satellite prints the voucher it handed out
+    // itself, on the printers it was assigned: its request is written
+    // anew with the voucher it names, its own name and its own point of
+    // issue, and nothing else of what its screen sent counts. A person
+    // at the front desk prints at the unit's counter and asks about no
+    // other point of issue: one that is named is taken off. What an
+    // administrator asks goes on as it was asked.
+    if asking == PRINTERS_OFFERED
+        || asking == PRINTING
+        || asking == PRINTING_HERE
+    {
+        let sent = asked
+            .get("payload_b64")
+            .and_then(Value::as_str)
+            .and_then(|payload| STANDARD.decode(payload).ok())
+            .and_then(|payload| {
+                serde_json::from_slice::<Map<String, Value>>(&payload).ok()
+            });
+        let printing = match (sent, who) {
+            (Some(sent), Asking::Satellite { id, name, .. }) => {
+                let Some(voucher) = sent.get("id").and_then(Value::as_str)
+                else {
+                    return Err(unread());
+                };
+                let mut printing = Map::new();
+                printing.insert("id".to_string(), Value::from(voucher));
+                printing
+                    .insert("satellite".to_string(), Value::from(name.clone()));
+                printing.insert(
+                    "point".to_string(),
+                    Value::from(format!("satellite:{id}")),
+                );
+                Some(printing)
+            }
+            (Some(mut sent), _) if at_the_desk => {
+                sent.remove("point");
+                Some(sent)
+            }
+            (None, _) if at_the_desk || at_a_satellite => {
+                return Err(unread());
+            }
+            _ => None,
+        };
+        if let Some(printing) = printing {
+            asked.insert(
+                "payload_b64".to_string(),
+                Value::String(
+                    STANDARD.encode(Value::Object(printing).to_string()),
+                ),
+            );
+        }
     }
     let written = Value::Object(asked).to_string().into_bytes();
     parts.headers.remove(header::TRANSFER_ENCODING);
@@ -1570,11 +1638,116 @@ mod tests {
         assert!(!let_in_satellite(&get, &usher("")));
     }
 
+    /// Where a voucher is put on paper is the session's to say. A
+    /// satellite's request is written anew: the voucher it names, its
+    /// own name and its own point of issue, whatever its screen sent. A
+    /// person at the front desk prints at the unit's counter and names
+    /// no other point of issue. An administrator asks as they ask.
+    #[tokio::test]
+    async fn where_a_voucher_is_printed_is_the_sessions_to_say() {
+        let sent = r#"{"id": "v-1", "satellite": "Other", "point": "unit", "printer": "p9"}"#;
+        let read = of_a_shelf(
+            asking_a_shelf("printing.labels", "print_here", sent),
+            &satellite(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            read.1,
+            Some(("printing.labels".to_string(), "print_here".to_string()))
+        );
+        assert_eq!(
+            given(read.0).await.2,
+            serde_json::json!({
+                "id": "v-1",
+                "satellite": "Lobby",
+                "point": "satellite:0011223344556677",
+            })
+        );
+        // A satellite that names no voucher, or sends what is no JSON,
+        // prints nothing; and it asks about no printers.
+        for sent in [r#"{"point": "unit"}"#, r#"{"id": 7}"#, "not json"] {
+            assert!(
+                of_a_shelf(
+                    asking_a_shelf("printing.labels", "print_here", sent),
+                    &satellite(),
+                )
+                .await
+                .is_err(),
+                "{sent}"
+            );
+        }
+        for request_type in ["print", "offered", "printers", "test"] {
+            assert!(
+                of_a_shelf(
+                    asking_a_shelf("printing.labels", request_type, "{}"),
+                    &satellite(),
+                )
+                .await
+                .is_err(),
+                "{request_type}"
+            );
+        }
+
+        // The front desk: the unit's counter, and the printer it chose.
+        let sent = r#"{"id": "v-1", "printer": "p2", "point": "satellite:0011223344556677"}"#;
+        let read = of_a_shelf(
+            asking_a_shelf("printing.labels", "print", sent),
+            &desk(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            given(read.0).await.2,
+            serde_json::json!({ "id": "v-1", "printer": "p2" })
+        );
+        let read = of_a_shelf(
+            asking_a_shelf(
+                "printing.labels",
+                "offered",
+                r#"{"point": "satellite:0011223344556677"}"#,
+            ),
+            &desk(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(given(read.0).await.2, serde_json::json!({}));
+        for request_type in
+            ["print_here", "printers", "add", "assign", "status", "test"]
+        {
+            assert!(
+                of_a_shelf(
+                    asking_a_shelf("printing.labels", request_type, "{}"),
+                    &desk(),
+                )
+                .await
+                .is_err(),
+                "{request_type}"
+            );
+        }
+
+        // An administrator: as asked.
+        let read = of_a_shelf(
+            asking_a_shelf("printing.labels", "print", sent),
+            &administrator(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            given(read.0).await.2,
+            serde_json::from_str::<Value>(sent).unwrap()
+        );
+    }
+
     #[tokio::test]
     async fn a_satellite_asks_a_shelf_for_the_vouchers_it_gives_and_no_more() {
         for (shelf, request_type) in OF_A_SATELLITE {
             let read = of_a_shelf(
-                asking_a_shelf(shelf, request_type, r#"{"type": "Week"}"#),
+                asking_a_shelf(
+                    shelf,
+                    request_type,
+                    r#"{"type": "Week", "id": "v-1"}"#,
+                ),
                 &satellite(),
             )
             .await;

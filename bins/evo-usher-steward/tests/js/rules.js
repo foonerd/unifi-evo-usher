@@ -912,6 +912,308 @@ hold(
 );
 hold("what is no error", words.refusal("said plainly"), "said plainly");
 
+// A voucher put on paper. What a printer reports wrong is said by the
+// code it comes under, and in the words it came in where the face has
+// none for the code.
+const printing = await import("/org.evoframework.usher.widgets/printing.js");
+hold(
+  "a complaint by its code",
+  ["cover_open", "no_media", "media_end", "paused", "diagnostic_mode", "unnamed"].map((code) =>
+    printing.complaint({ code, words: "as the printer crate says it" }),
+  ),
+  [
+    "the cover is open",
+    "no paper is loaded",
+    "the paper has run out",
+    "it is paused",
+    "it is in its diagnostic mode",
+    "it reports an error it does not name",
+  ],
+);
+hold(
+  "a complaint the face has no words for, in the words it came in",
+  [printing.complaint({ code: "door_ajar", words: "the door is ajar" }), printing.complaint({})],
+  ["the door is ajar", "it reports an error it does not name"],
+);
+hold(
+  "everything a printer reports, in a line",
+  [
+    printing.reports([{ code: "cover_open" }, { code: "no_media" }]),
+    printing.reports([]),
+    printing.reports(undefined),
+  ],
+  ["the cover is open; no paper is loaded", "", ""],
+);
+// A refusal of the printing: a printer's own trouble by what it
+// reports, anything else by its code.
+const reported = refused_("printer_reports", "the printer reports: the cover is open", {
+  values: {
+    first: "cover_open",
+    complaints: [{ code: "cover_open", words: "the cover is open" }],
+    passed: [{ printer: { id: "p1", name: "Reception", place: "" }, code: "printer_reports" }],
+  },
+});
+hold("a printer's own trouble", printing.refusedFor(reported), "The printer reports: the cover is open.");
+hold(
+  "a voucher that is not of the last half hour",
+  printing.refusedFor(refused_("voucher_not_recent", "that voucher was not handed out here")),
+  "It was handed out more than half an hour ago; only a voucher handed out in the last half hour is printed.",
+);
+hold(
+  "a voucher a satellite printed already",
+  printing.refusedFor(refused_("voucher_on_paper_already", "printed already")),
+  "This voucher is printed already. A member of staff can print it again.",
+);
+// What became of a label: where it came out, whether the printer
+// reported it printed, and which printers were tried before.
+const at = (name) => ({ id: name, name, place: "" });
+hold(
+  "a label the printer reported printed",
+  printing.printedAt({ printed: { printer: at("Reception"), delivery: "confirmed" }, passed: [] }),
+  "Printed at Reception.",
+);
+hold(
+  "a label that was sent, and nothing says more",
+  printing.printedAt({ printed: { printer: at("Reception"), delivery: "sent" }, passed: [] }),
+  "Sent to Reception. The printer does not say whether it printed.",
+);
+hold(
+  "a label that came out at the second printer",
+  printing.printedAt({
+    printed: { printer: at("Hall"), delivery: "confirmed" },
+    passed: [
+      { printer: at("Reception"), code: "printer_not_reached" },
+      { printer: at("Ward 3"), code: "printer_reports" },
+      { printer: at("Yard"), code: "printer_media_untold" },
+      { printer: at("Gate"), code: "printer_models_alike" },
+    ],
+  }),
+  "Reception did not print. The printer could not be reached. It is switched off, or the way to it is down. " +
+    "Ward 3 did not print: it reports trouble. " +
+    "Yard did not print. The printer does not say which paper is loaded. An administrator says it on the page Printers. " +
+    "Gate did not print. " +
+    "Printed at Hall.",
+);
+hold(
+  "a label that came out nowhere: every printer it was tried on, the first with all it reports",
+  printing.notPrinted(
+    Object.assign(reported, {
+      values: {
+        ...reported.values,
+        passed: [
+          { printer: at("Reception"), code: "printer_reports" },
+          { printer: at("Hall"), code: "printer_not_plugged_in" },
+        ],
+      },
+    }),
+  ),
+  "Reception did not print: the cover is open. " +
+    "Hall did not print. The printer is on no USB port of the unit: it is unplugged, or switched off.",
+);
+hold(
+  "a label that was tried on no printer: why not",
+  printing.notPrinted(refused_("printing_not_offered", "this point of issue prints nowhere")),
+  "No printer that is switched on prints here.",
+);
+// The printers to choose among: under their places where more than one
+// place is said, those that say none last.
+const offered_ = [
+  { id: "p1", name: "Reception", place: "Building B" },
+  { id: "p2", name: "Hall", place: "" },
+  { id: "p3", name: "Ward 10", place: "Building A" },
+  { id: "p4", name: "Ward 3", place: "Building A" },
+];
+hold(
+  "printers under their places",
+  printing.byPlace(offered_).map(({ place, printers }) => [place, printers.map((one) => one.id)]),
+  [
+    ["Building A", ["p3", "p4"]],
+    ["Building B", ["p1"]],
+    ["", ["p2"]],
+  ],
+);
+hold(
+  "the choice among them, with the one chosen",
+  printing.choices(offered_, "p4").map((group) => [
+    group.tagName,
+    group.label,
+    [...group.children].map((entry) => [entry.value, entry.textContent, entry.selected]),
+  ]),
+  [
+    ["OPTGROUP", "Building A", [["p3", "Ward 10", false], ["p4", "Ward 3", true]]],
+    ["OPTGROUP", "Building B", [["p1", "Reception", false]]],
+    ["OPTGROUP", "No place said", [["p2", "Hall", false]]],
+  ],
+);
+hold(
+  "with one place there is nothing to head",
+  printing.choices(offered_.slice(2)).map((entry) => [entry.tagName, entry.textContent]),
+  [
+    ["OPTION", "Ward 10"],
+    ["OPTION", "Ward 3"],
+  ],
+);
+hold(
+  "what is told as printers, and is none, is passed over",
+  printing.offeredOf([{ id: "p1", name: "Hall" }, { name: "No identifier" }, null, "p2"]),
+  [{ id: "p1", name: "Hall", place: "" }],
+);
+hold("what is no list is no printers", printing.offeredOf({ id: "p1" }), []);
+// A portable bitmap, read: a row of ten dots in two bytes, the first
+// dot the highest bit.
+const pbm = (text, ...rows) => new Uint8Array([...text].map((c) => c.charCodeAt(0)).concat(rows));
+const small = printing.bitmap(pbm("P4\n10 2\n", 0x80, 0x40, 0x00, 0x00));
+hold("a bitmap's measures", [small.width, small.height, small.row], [10, 2, 2]);
+hold(
+  "its dots",
+  [
+    printing.inked(small, 0, 0),
+    printing.inked(small, 1, 0),
+    printing.inked(small, 9, 0),
+    printing.inked(small, 8, 0),
+    printing.inked(small, 0, 1),
+  ],
+  [true, false, true, false, false],
+);
+hold(
+  "a remark in its head is passed over",
+  printing.bitmap(pbm("P4\n# a remark\n8 1\n", 0xff))?.width,
+  8,
+);
+hold(
+  "what is no such bitmap",
+  [
+    printing.bitmap(pbm("P1\n8 1\n", 0xff)),
+    printing.bitmap(pbm("P4\n8 2\n", 0xff)),
+    printing.bitmap(pbm("P4\n0 1\n")),
+    printing.bitmap(pbm("P4\nwide 1\n", 0xff)),
+    printing.bitmap(new Uint8Array(0)),
+  ],
+  [null, null, null, null, null],
+);
+hold(
+  "the bytes of a text in base64",
+  [...printing.bytesOf("UDQKOCAxCv8=")],
+  [80, 52, 10, 56, 32, 49, 10, 255],
+);
+const sheet = printing.drawn(small, "A label");
+hold(
+  "a label drawn dot for dot, black on white",
+  [
+    sheet.width,
+    sheet.height,
+    sheet.getAttribute("role"),
+    sheet.getAttribute("aria-label"),
+    [...sheet.getContext("2d").getImageData(0, 0, 2, 1).data],
+  ],
+  [10, 2, "img", "A label", [0, 0, 0, 255, 255, 255, 255, 255]],
+);
+// The printer a desk prints at: the one chosen on its browser where the
+// counter still prints on it, and the first otherwise.
+const { printsAt } = await import("/org.evoframework.usher.widgets/counter.js");
+hold(
+  "the printer a label goes to",
+  [
+    printsAt(offered_, "p3")?.id,
+    printsAt(offered_, "p9")?.id,
+    printsAt(offered_, null)?.id,
+    printsAt([], "p1"),
+  ],
+  ["p3", "p1", "p1", null],
+);
+// The page of the printers: the order they are listed in, where each
+// hangs and what it is, in words.
+const printersPage = await import("/org.evoframework.usher.widgets/printers.js");
+hold(
+  "printers by place, and by name within a place",
+  printersPage.ordered(offered_).map((one) => one.name),
+  ["Ward 3", "Ward 10", "Reception", "Hall"],
+);
+hold(
+  "where a printer hangs",
+  [
+    { usb: { maker: "Maker", model: "LP-1", serial: "000A1B" } },
+    { usb: { maker: "", model: "LP-1", serial: "" } },
+    { usb: { maker: "", model: "", serial: "000A1B" } },
+    { tcp: { address: "printer.example:9100" } },
+    { simulated: {} },
+  ].map(printersPage.hangs),
+  [
+    "On a USB port of this unit: Maker LP-1, serial number 000A1B",
+    "On a USB port of this unit: LP-1",
+    "On a USB port of this unit: serial number 000A1B",
+    "On the network, at printer.example:9100",
+    "Simulated",
+  ],
+);
+const spoken_ = [
+  {
+    name: "label-raster",
+    words: "Label raster",
+    models: [{ name: "LP-1", evidence: "proven" }],
+    media: [{ name: "62", words: "62 mm continuous tape" }],
+  },
+];
+hold(
+  "what a printer is",
+  [
+    { at: { tcp: { address: "a" } }, speaks: "label-raster", model: "LP-1", media: "62" },
+    { at: { usb: {} }, model: "LP-1" },
+    { at: { usb: {} } },
+    { at: { simulated: {} } },
+    { at: { tcp: { address: "a" } }, speaks: "another", media: "as it was typed" },
+  ].map((printer) => printersPage.whatItIs(printer, spoken_)),
+  [
+    "Label raster, LP-1, 62 mm continuous tape",
+    "LP-1",
+    "The printer says itself",
+    "Takes a label and shows it here",
+    "another, as it was typed",
+  ],
+);
+hold(
+  "how far the evidence for a type goes",
+  ["proven", "to reference", "to specification"].map(printersPage.evidence),
+  ["proven", "to reference", "to specification"],
+);
+hold(
+  "a printer moved one place among those a point of issue prints on",
+  [
+    printersPage.moved(["p1", "p2", "p3"], "p2", -1),
+    printersPage.moved(["p1", "p2", "p3"], "p2", 1),
+    printersPage.moved(["p1", "p2", "p3"], "p1", -1),
+    printersPage.moved(["p1", "p2", "p3"], "p3", 1),
+    printersPage.moved(["p1", "p2", "p3"], "p9", 1),
+  ],
+  [["p2", "p1", "p3"], ["p1", "p3", "p2"], null, null, null],
+);
+hold(
+  "a printer found on a USB port, in a line",
+  [
+    printersPage.foundSaid({ maker: "Maker", model: "LP-1", serial: "000A1B", device: "/dev/usb/lp0" }),
+    printersPage.foundSaid({ maker: "", model: "", serial: "", device: "/dev/usb/lp0" }),
+  ],
+  ["Maker LP-1, serial number 000A1B", "/dev/usb/lp0"],
+);
+// Why a label did not come out, in words for the guest at a satellite.
+hold(
+  "what the printer reports, and whom to ask",
+  screen.notOnPaper(reported),
+  "The printer cannot print: the cover is open. Please ask a member of staff.",
+);
+hold(
+  "a printer that is away",
+  ["printer_not_reached", "printer_not_plugged_in", "printer_silent", "printer_garbled"].map((code) =>
+    screen.notOnPaper(refused_(code, "x")),
+  ),
+  Array(4).fill("The printer does not answer. Please ask a member of staff."),
+);
+hold(
+  "anything else",
+  [screen.notOnPaper(refused_("printer_media_untold", "x")), screen.notOnPaper(new Error("x"))],
+  Array(2).fill("The voucher could not be printed here. Please ask a member of staff."),
+);
+
 // The site is asked for by more than one part of a page. An answer is
 // taken unless one that was asked for later has been taken already: an
 // answer that was asked for earlier and comes later puts nothing back

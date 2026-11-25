@@ -8,7 +8,7 @@
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::{Shutdown, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -182,6 +182,43 @@ impl TcpLine {
     }
 }
 
+/// How long a line that is hung up goes on listening after the printer
+/// last said something.
+const QUIET: Duration = Duration::from_millis(300);
+
+/// How long a line that is hung up listens at the most.
+const HANGING_UP: Duration = Duration::from_secs(2);
+
+impl Drop for TcpLine {
+    /// Hangs up in order. The printer is told that nothing more comes,
+    /// and what it still sends is taken until it hangs up too, or has
+    /// been quiet for a moment.
+    ///
+    /// A line that is closed with something unread on it is not closed
+    /// but reset by the system, and a reset may take with it what the
+    /// printer has received and not yet read: the end of a label.
+    fn drop(&mut self) {
+        if self.stream.shutdown(Shutdown::Write).is_err() {
+            return;
+        }
+        let until = Instant::now() + HANGING_UP;
+        let mut unread = [0u8; 256];
+        loop {
+            let left = until.saturating_duration_since(Instant::now());
+            if left.is_zero()
+                || self.stream.set_read_timeout(Some(left.min(QUIET))).is_err()
+            {
+                return;
+            }
+            match self.stream.read(&mut unread) {
+                // The printer hung up, or is quiet, or the line failed.
+                Ok(0) | Err(_) => return,
+                Ok(_) => {}
+            }
+        }
+    }
+}
+
 impl Line for TcpLine {
     fn send(&mut self, bytes: &[u8]) -> io::Result<()> {
         self.stream.write_all(bytes)?;
@@ -243,6 +280,40 @@ mod tests {
             "USB device /dev/usb/lp0"
         );
         assert_eq!(Address::tcp("192.0.2.7").to_string(), "TCP 192.0.2.7:9100");
+    }
+
+    /// A printer that has said something nobody read is not cut off in
+    /// the middle of a label: the line is hung up, not reset, and the
+    /// printer reads the label to its end.
+    #[test]
+    fn a_line_is_hung_up_in_order_with_something_unread_on_it() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap().to_string();
+        let label = vec![0x5au8; 300_000];
+        let whole = label.len();
+        let printer = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            // It says something at once, which the sender never reads,
+            // and reads slowly.
+            stream.write_all(&[0xaa; 32]).unwrap();
+            let mut heard = 0;
+            let mut chunk = [0u8; 4096];
+            loop {
+                match stream.read(&mut chunk) {
+                    Ok(0) => return Ok(heard),
+                    Ok(taken) => heard += taken,
+                    Err(error) => return Err((heard, error.kind())),
+                }
+                if heard < 50_000 {
+                    thread::sleep(Duration::from_millis(1));
+                }
+            }
+        });
+        {
+            let mut line = TcpLine::open(&address).unwrap();
+            line.send(&label).unwrap();
+        }
+        assert_eq!(printer.join().unwrap(), Ok(whole));
     }
 
     #[test]

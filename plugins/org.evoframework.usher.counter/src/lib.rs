@@ -78,6 +78,12 @@
 //!   person handed it out, `"unit": true` where the unit's keeper did
 //!   and `"satellite"` where it was handed out at a satellite; with no
 //!   `ids`, the newest hundred, the newest first.
+//! - `recent`: `{"id": "..."}` answers `{"recent": hand-out}`: the
+//!   hand-out of that voucher whole, as `hand` answered it, with `"by"`,
+//!   `"unit"` or `"satellite"` for who handed it out; `null` where the
+//!   voucher was not handed out here in the last half hour. It is what
+//!   puts a voucher on paper after it was shown. The hand-outs it tells
+//!   are kept in memory and nowhere else.
 //!
 //! A refusal is given under a code, as its subclass, beside its words
 //! and the values they speak of: the code is what a screen finds words
@@ -122,7 +128,7 @@ pub use types::{Types, Unkept, VoucherType, DAY, LONGEST_NAME, MOST};
 pub const NAME: &str = "org.evoframework.usher.counter";
 
 /// The requests the plugin takes.
-pub const REQUESTS: [&str; 12] = [
+pub const REQUESTS: [&str; 13] = [
     "types",
     "offered",
     "put_type",
@@ -135,6 +141,7 @@ pub const REQUESTS: [&str; 12] = [
     "hand_type",
     "assign",
     "handed",
+    "recent",
 ];
 
 /// The event the counter emits when what a front desk is offered is not
@@ -802,13 +809,14 @@ mod tests {
     #[test]
     fn the_counter_says_the_offer_changed_after_what_changes_it_and_nothing_else(
     ) {
-        let leaves_it: [&str; 6] = [
+        let leaves_it: [&str; 7] = [
             "types",
             "offered",
             "hand",
             "hand_default",
             "hand_type",
             "handed",
+            "recent",
         ];
         for request in REQUESTS {
             assert_ne!(

@@ -335,7 +335,7 @@ fn a_screen_is_adopted_by_its_code_and_hands_out_the_default_voucher() {
             // It gives a voucher at the press of its button, and wears
             // no logo: it has none of its own, and the site has none.
             "protected": false, "pin": { "least": 6, "most": 12 },
-            "types": [], "logo": null,
+            "types": [], "printers": [], "logo": null,
             "site": {
                 "name": "", "language": "en", "follows_browser": false,
             },

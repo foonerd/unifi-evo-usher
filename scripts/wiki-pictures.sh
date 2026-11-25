@@ -75,6 +75,12 @@ face-demo-counter.png:demo-counter.png
 face-site-travel.png:site-travel.png
 face-site-apply-profile.png:site-apply-profile.png
 face-set-up-from-file.png:set-up-from-file.png
+face-printers.png:printers.png
+face-printers-add.png:printers-add.png
+face-printers-who.png:printers-who.png
+face-counter-print.png:counter-print.png
+face-satellite-print.png:satellite-print.png
+face-satellite-printed.png:satellite-printed.png
 "
 for pair in $pictures; do
   from=${pair%%:*}

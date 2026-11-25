@@ -1,0 +1,199 @@
+# Schema for the `printing.labels` shelf at shape version 1.
+#
+# The request types and payloads a plugin stocking `printing.labels` at
+# shape 1 answers. Payloads are JSON objects, in and out.
+
+schema_version = 1
+rack = "printing"
+shelf = "labels"
+shape = 1
+
+description = """
+The printers a voucher is put on paper by, and which point of issue
+prints on which. A site has as many printers as it needs, each with a
+name and a place. A printer is `{ id: string, name: string, place:
+string, enabled: boolean, at: where, speaks: string, model: string,
+media: string, turned: boolean }`; `speaks`, `model` and `media` only
+where they were said, and `turned: true` only where the printer's labels
+are printed the other way round, for a printer a label leaves upside
+down as it is read; `where` is
+`{ usb: { maker: string, model: string, serial: string } }` for a
+printer on a USB port of the unit, known by what it told the unit of
+itself, `{ tcp: { address: string } }` for one on the network, or `{
+simulated: {} }` for one that takes a label and keeps it to be looked
+at.
+
+A point of issue is `unit`, the unit's own counter, or `satellite:<id>`,
+a satellite by its identifier. It prints on the printers it is assigned,
+in their order.
+
+What a printer speaks is never guessed by sending it something. It is
+said, by a language or a model, or read off what a printer on a USB port
+told the unit.
+
+A refusal carries a code as its subclass, beside its words in English
+and the values they speak of. A printer's own trouble is
+`printer_reports`, with `values.complaints`, a list of `{ code: string,
+words: string }`, and `values.first`, the code of the first of them.
+Where a label went to several printers and none printed it,
+`values.passed` lists them, each `{ printer, code }`.
+"""
+
+[[requests]]
+request_type = "printers"
+description = """
+Every printer, and who prints on which. Returns `{ printers: [printer],
+prints_on: { <point>: [string] } }`, the printers in the order they were
+added, and for each point of issue the identifiers of its printers in
+their order.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "known"
+description = """
+What a printer can be said to speak, to be and to have loaded. Returns `{
+languages: [{ name: string, words: string, models: [{ name: string,
+family: string, evidence: string }], media: [{ name: string, words:
+string }] }] }`. `evidence` says how far it goes that the usher prints
+on that model: `proven`, `to reference` or `to specification`. `media`
+is empty for a language whose media is said by its measures.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "found"
+description = """
+The printers on the unit's USB ports. Returns `{ found: [{ device:
+string, maker: string, model: string, commands: string, serial: string,
+speaks: string or null, printer: string or null }] }`: what each told
+the unit of itself, the language that settles where it does, and the
+identifier of the printer it is kept as where it is kept. Nothing is
+sent to a printer for this.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "add"
+description = """
+Add a printer. Payload `{ name: string, place: string, enabled:
+boolean, at: where, speaks: string, model: string, media: string,
+turned: boolean }`;
+the name and `at` are needed, and a printer is switched on unless it is
+said not to be. Returns `{ printer: printer }`.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "change"
+description = """
+Change a printer. Payload as `add`, with `id: string`; what is left out
+stays as it is, and an empty `speaks`, `model` or `media` takes what was
+said away. Returns `{ printer: printer }`.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "remove"
+description = """
+Remove a printer. Payload `{ id: string }`. No point of issue prints on
+it any more. Returns `{ removed: printer }`.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "assign"
+description = """
+Say which printers a point of issue prints on. Payload `{ point: string,
+printers: [string] }`, the identifiers in the order the printers are
+tried in; none, for a point of issue that prints nowhere. Returns `{
+point: string, printers: [string] }`.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "status"
+description = """
+Ask a printer how it is. Payload `{ id: string }`. Returns `{ printer: {
+id, name, place }, reached: boolean, ready: boolean, model: { name,
+family, evidence, note } or null, unsettled: { code, words } or null,
+media: string, complaints: [{ code: string, words: string }], raw:
+string }` for a printer that answered; `{ printer, reached: false,
+ready: false, why: { code, words, values } }` for one that was not
+reached or could not be asked.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "test"
+description = """
+Print the specimen label: every part of a voucher label in its place,
+and nothing on it that lets anyone in. Payload `{ id: string }`. Returns
+as `print`.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "printed"
+description = """
+The label a simulated printer printed last. Payload `{ id: string }`.
+Returns `{ printer: { id, name, place }, label: { pbm_b64: string } }`,
+the label as a binary portable bitmap (P4) in base64, for a page to
+show; `label: null` for a printer that printed none since the unit was
+started, and for every printer that is not simulated.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "offered"
+description = """
+The printers a point of issue prints on that are switched on. Payload `{
+point: string }`; the unit's counter where none is named. Returns `{
+point: string, printers: [{ id: string, name: string, place: string }]
+}`, in their order.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "print"
+description = """
+Put a voucher on paper at the unit's counter. Payload `{ id: string,
+printer: string, point: string }`: the controller's identifier of a
+voucher that was handed out here in the last half hour; optionally the
+printer, one the point of issue prints on; and the point of issue, the
+unit's counter where none is named. With no printer named the label goes
+to the first of the point's printers that sees it through. Returns `{
+printed: { printer: { id, name, place }, delivery: "confirmed" or
+"sent", media: string }, passed: [{ printer, code }] }`: `confirmed`
+where the printer reported the label printed, `sent` where it was sent
+and nothing says more; `passed` names the printers tried before it and
+why each did not print.
+"""
+payload_in = "json"
+payload_out = "json"
+
+[[requests]]
+request_type = "print_here"
+description = """
+Put on paper the voucher a satellite handed out itself. Payload `{ id:
+string, satellite: string, point: string }`: the voucher, the
+satellite's name as the hand-out has it, and its point of issue. The
+steward writes the last two from the session: what a satellite's screen
+says of them is not read. Returns as `print`. A satellite puts a voucher
+on paper once: asked again for a voucher that was printed, it is refused
+with `voucher_on_paper_already`; a voucher no printer printed can be
+asked for again.
+"""
+payload_in = "json"
+payload_out = "json"

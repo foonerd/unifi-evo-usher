@@ -417,7 +417,10 @@ button.danger {
   border-color: var(--destructive);
 }
 
-button:disabled {
+/* One that cannot be pressed now: switched off, or waiting for what it
+   was pressed for, which keeps whoever pressed it where they are. */
+button:disabled,
+button[aria-disabled="true"] {
   border-color: var(--evo-hairline);
   background: transparent;
   color: var(--evo-text-muted);

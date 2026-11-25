@@ -195,3 +195,19 @@
   font-size: 1.0625rem;
   font-weight: 400;
 }
+
+/* What is done with a voucher that is shown: it is printed, where the
+   screen prints, and put away. */
+.satellite-does {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+}
+
+/* What is said of the label takes no room until there is something to
+   say. */
+.satellite-voucher p:empty {
+  display: none;
+}

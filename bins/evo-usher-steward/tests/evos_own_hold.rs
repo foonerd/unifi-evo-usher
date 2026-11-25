@@ -166,6 +166,7 @@ fn every_request_of_the_ushers_plugins_declares_a_capability() {
     for (plugin, manifest) in [
         ("controller", evo_usher_controller_unifi::MANIFEST_TOML),
         ("counter", evo_usher_counter::MANIFEST_TOML),
+        ("printing", evo_usher_printing::MANIFEST_TOML),
         ("site", evo_usher_site::MANIFEST_TOML),
         ("stock", evo_usher_stock::MANIFEST_TOML),
     ] {
@@ -203,7 +204,7 @@ fn every_request_of_the_ushers_plugins_declares_a_capability() {
             "{plugin} declares a capability for a request it does not take"
         );
     }
-    assert_eq!(requests, 31, "the requests the usher's plugins take");
+    assert_eq!(requests, 45, "the requests the usher's plugins take");
 }
 
 /// What evo answered: the status, and the code it refused under, where

@@ -3,7 +3,7 @@ name = "org.evoframework.usher.site"
 # The crate's version, which is the workspace's. The steward refuses a
 # plugin that says another version than its manifest; a test holds the two
 # together.
-version = "0.3.27"
+version = "0.3.28"
 contract = 1
 
 [target]

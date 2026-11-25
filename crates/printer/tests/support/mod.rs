@@ -1,10 +1,15 @@
 //! What the tests of the Brother family share: the page the reference
 //! jobs were recorded from, a reader that takes a job apart into its
-//! commands, and a printer that is not there.
+//! commands, and a printer that is not there. What the tests of the ZPL
+//! family share is in [`zpl`], and what those of the ESC/POS family
+//! share in [`escpos`]; the page is the same for all three.
 //!
 //! Each test file uses its part of this, so what one of them leaves
 //! unused is not a mistake.
 #![allow(dead_code)]
+
+pub mod escpos;
+pub mod zpl;
 
 use std::collections::VecDeque;
 use std::io;

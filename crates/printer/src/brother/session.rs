@@ -9,13 +9,14 @@
 //! With a printer that does not answer, the job is sent whole and that
 //! is all that is known of it.
 
+use std::thread;
 use std::time::{Duration, Instant};
 
 use super::raster;
 use super::status::{About, Phase, Status, LENGTH};
 use super::{Media, Traits};
 use crate::line::Line;
-use crate::{Delivery, Fault, Page};
+use crate::{Complaint, Delivery, Fault, Page};
 
 /// How long a printer is given to answer a status request.
 pub const ANSWER: Duration = Duration::from_secs(3);
@@ -30,6 +31,10 @@ const SETTLING: Duration = Duration::from_secs(2);
 /// How long is waited for anything still on its way before the line is
 /// taken to be quiet.
 const QUIET: Duration = Duration::from_millis(50);
+
+/// How long a line that brought nothing before its wait was over is
+/// left alone before it is tried again.
+const IDLE: Duration = Duration::from_millis(10);
 
 /// Whether a label must be reported printed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,6 +55,10 @@ fn hush(line: &mut dyn Line) -> Result<(), Fault> {
 }
 
 /// The next status on the line, if one comes within `wait`.
+///
+/// A line whose far end has hung up brings nothing, at once, however
+/// often it is tried: one that brought nothing before its wait was over
+/// is left alone for a moment before it is tried again.
 fn hear(line: &mut dyn Line, wait: Duration) -> Result<Option<Status>, Fault> {
     let until = Instant::now() + wait;
     let mut bytes = [0u8; LENGTH];
@@ -59,7 +68,12 @@ fn hear(line: &mut dyn Line, wait: Duration) -> Result<Option<Status>, Fault> {
         if left.is_zero() {
             break;
         }
-        have += line.receive(&mut bytes[have..], left)?;
+        let taken = line.receive(&mut bytes[have..], left)?;
+        have += taken;
+        if taken == 0 {
+            let left = until.saturating_duration_since(Instant::now());
+            thread::sleep(left.min(IDLE));
+        }
     }
     match have {
         0 => Ok(None),
@@ -134,11 +148,14 @@ pub fn print(
                 return Ok(Delivery::Confirmed);
             }
             About::Error | About::TurnedOff => {
-                return Err(Fault::Printer(vec![format!(
-                    "the printer stopped without naming a cause \
-                     (status: {})",
-                    status.hex()
-                )]));
+                return Err(Fault::Printer(vec![Complaint {
+                    code: "stopped",
+                    words: format!(
+                        "the printer stopped without naming a cause \
+                         (status: {})",
+                        status.hex()
+                    ),
+                }]));
             }
             _ => {}
         }

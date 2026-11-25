@@ -9,6 +9,7 @@
 import { controller } from "./controller.js";
 import { counter } from "./counter.js";
 import { networks } from "./networks.js";
+import { printers } from "./printers.js";
 import { reserve } from "./reserve.js";
 import { site } from "./site.js";
 import { types } from "./types.js";
@@ -31,6 +32,10 @@ await ready();
  *   as an `Error` whose message is in words
  * @property {Place} [site] what the shell knows of the place the unit
  *   serves; a shell that knows nothing of it hands none
+ * @property {() => Promise<Array<{ id: string, name: string, place: string }>>} [satellites]
+ *   the satellites of the unit, each by its identifier, its name and
+ *   where it stands, as the shell is told them when it is asked; a shell
+ *   that knows nothing of them hands none
  */
 
 /**
@@ -58,6 +63,7 @@ const drawn = {
   "usher.controller": controller,
   "usher.counter": counter,
   "usher.networks": networks,
+  "usher.printers": printers,
   "usher.reserve": reserve,
   "usher.site": site,
   "usher.types": types,

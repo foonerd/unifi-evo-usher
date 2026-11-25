@@ -7,6 +7,7 @@
 //! This module holds what the three share: what differs from model to
 //! model, and the tapes and labels the printers take.
 
+pub mod job;
 pub mod raster;
 pub mod session;
 pub mod status;
@@ -501,7 +502,8 @@ mod tests {
     fn a_stated_media_is_found_among_those_the_model_takes() {
         let stated = |kind, width, length, model: &str| {
             let model = named(model).unwrap();
-            media_stated(kind, width, length, model.name, brother_traits(model))
+            let traits = brother_traits(model).unwrap();
+            media_stated(kind, width, length, model.name, traits)
                 .map(|media| media.name)
         };
         let (tape, cut) = (Kind::Continuous, Kind::DieCut);
@@ -524,7 +526,7 @@ mod tests {
         let red = media_named("62-red").unwrap();
         let goes = |model: &str| {
             let model = named(model).unwrap();
-            red.goes_into(model.name, brother_traits(model))
+            red.goes_into(model.name, brother_traits(model).unwrap())
         };
         assert!(goes("QL-800") && goes("QL-820NWB") && goes("QL-820NWBc"));
         assert!(!goes("QL-720NW") && !goes("QL-570") && !goes("QL-1100"));

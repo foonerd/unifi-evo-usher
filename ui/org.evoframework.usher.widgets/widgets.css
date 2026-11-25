@@ -696,3 +696,150 @@ input[type="file"].usher-file::file-selector-button {
 .usher-look-plate[data-plate="dark"] {
   background: #0a0e14;
 }
+
+/* What a voucher is printed with: the button, and beside it the
+   printers to choose among where there are several. */
+.usher-print {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.usher-print select,
+.usher-adds select {
+  width: auto;
+  max-width: 100%;
+}
+
+/* A choice of one among a few, in a form: each on a line of its own,
+   and under each what belongs to it, set in. */
+.usher-choice {
+  min-width: 0;
+  margin: 1rem 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.usher-choice legend {
+  padding: 0;
+  font-weight: 600;
+}
+
+.usher-under-choice {
+  margin: 0 0 0.5rem 2rem;
+}
+
+.usher-under-choice > p:first-child {
+  margin-top: 0;
+}
+
+/* What is wrong with a field, said at the field: with nothing to say
+   it takes no room. */
+.usher-at-field {
+  min-height: 0;
+  margin: 0.25rem 0 0;
+}
+
+.usher-at-field:empty {
+  display: none;
+}
+
+/* Where a thing stands, small under its name. */
+.usher-at {
+  display: block;
+  font-weight: 400;
+}
+
+/* The place a group of rows stands under: across the whole list. */
+.usher-scroll .usher-place th {
+  position: static;
+  padding: 1.125rem 0 0.375rem;
+  background: none;
+}
+
+/* What stands under a row, across the whole list: the row keeps no
+   hairline between itself and what is said of it. */
+.usher-scroll tr:has(+ .usher-under) td {
+  border-bottom: 0;
+}
+
+.usher-scroll .usher-under td {
+  position: static;
+  padding: 0 0 0.75rem;
+  background: none;
+}
+
+.usher-under p {
+  margin: 0.25rem 0;
+}
+
+/* The label a simulated printer printed: black on white whatever the
+   theme, and no wider than there is room. */
+.usher-label {
+  display: block;
+  max-width: min(100%, 30rem);
+  height: auto;
+  margin: 0.25rem 0;
+  border: 1px solid var(--evo-hairline, #6b6b6b);
+  border-radius: 2px;
+  background: #ffffff;
+}
+
+/* Who prints where: each point of issue with the printers it prints on,
+   numbered in their order, a hairline between one and the next. */
+.usher-points {
+  margin-top: 1.5rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--evo-hairline, #6b6b6b);
+}
+
+.usher-point {
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--evo-hairline, #6b6b6b);
+}
+
+.usher-point:last-child {
+  border-bottom: 0;
+}
+
+[data-widget^="usher."] .usher-point-name {
+  margin: 0;
+}
+
+.usher-point .usher-hint {
+  margin: 0;
+}
+
+.usher-prints {
+  margin: 0.5rem 0;
+  padding: 0 0 0 1.5rem;
+}
+
+.usher-prints li {
+  padding: 0.25rem 0;
+}
+
+.usher-prints-one {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+
+.usher-prints-name {
+  font-weight: 600;
+}
+
+.usher-prints-name .usher-pill {
+  margin-top: 0.25rem;
+}
+
+.usher-adds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.5rem;
+}

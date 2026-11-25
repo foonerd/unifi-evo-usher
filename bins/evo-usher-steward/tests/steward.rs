@@ -318,7 +318,7 @@ fn what_no_plugin_stocks_is_refused_by_the_steward() {
     let steward = Steward::start(dir.path());
     let verb = steward.ask("stock.reserve", "burn", json!({}));
     assert_eq!(verb["error"]["class"], "not_found", "{verb}");
-    let shelf = steward.ask("printing.labels", "print", json!({}));
+    let shelf = steward.ask("printing.posters", "print", json!({}));
     assert_eq!(shelf["error"]["class"], "not_found", "{shelf}");
     assert_eq!(steward.stop(), Some(0));
 }

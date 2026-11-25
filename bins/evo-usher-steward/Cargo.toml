@@ -18,6 +18,7 @@ evo-usher-about = { path = "../../crates/about" }
 # in the place of a controller.
 evo-usher-controller-unifi = { path = "../../plugins/org.evoframework.usher.controller.unifi", features = ["simulated"] }
 evo-usher-counter = { path = "../../plugins/org.evoframework.usher.counter" }
+evo-usher-printing = { path = "../../plugins/org.evoframework.usher.printing" }
 evo-usher-site = { path = "../../plugins/org.evoframework.usher.site" }
 evo-usher-stock = { path = "../../plugins/org.evoframework.usher.stock" }
 evo-usher-why = { path = "../../crates/why" }

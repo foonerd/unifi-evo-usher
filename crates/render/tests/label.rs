@@ -116,6 +116,7 @@ fn a_network_with_a_passphrase_and_a_long_name_still_reads() {
     let voucher = Voucher {
         network: "Northern Works: visitors and contractors",
         passphrase: Some("correct;horse,battery"),
+        symbol: true,
         code: "48213-90657",
         terms: "30 days, up to 3 devices",
         footer: "Scan to join, then enter the code",
@@ -123,6 +124,68 @@ fn a_network_with_a_passphrase_and_a_long_name_still_reads() {
     let frame = label(&voucher, &TAPE_62).unwrap();
     assert_eq!(read(&frame), voucher.payload());
     assert!(voucher.payload().contains(r"Works\: visitors"));
+}
+
+/// A network that is joined with a passphrase the label does not know
+/// has no symbol on its label: the lines have the label to themselves,
+/// and the label is as it would be with one in every other way.
+#[test]
+fn a_label_with_no_symbol_gives_its_lines_the_whole_label() {
+    let with = Voucher::specimen();
+    let without = Voucher {
+        symbol: false,
+        ..Voucher::specimen()
+    };
+    let with_symbol = label(&with, &TAPE_62).unwrap();
+    let lines_only = label(&without, &TAPE_62).unwrap();
+    assert_eq!(
+        (lines_only.width(), lines_only.height()),
+        (with_symbol.width(), with_symbol.height())
+    );
+    // Nothing in it reads as a symbol, and it is not blank.
+    let mut picture = rqrr::PreparedImage::prepare_from_greyscale(
+        lines_only.width() as usize,
+        lines_only.height() as usize,
+        |x, y| {
+            if lines_only.inked(x as u32, y as u32) {
+                0
+            } else {
+                255
+            }
+        },
+    );
+    assert!(picture.detect_grids().is_empty());
+    assert!(inked(&lines_only) > 0);
+    assert!(inked(&lines_only) < inked(&with_symbol));
+    // The lines start at the label's edge, where the symbol stood.
+    let first_inked = |frame: &Frame| {
+        (0..frame.width())
+            .find(|x| (0..frame.height()).any(|y| frame.inked(*x, y)))
+            .unwrap()
+    };
+    assert!(first_inked(&lines_only) <= first_inked(&with_symbol) + 8);
+
+    // On the narrowest paper a symbol goes on, the lines alone go too.
+    for sheet in [
+        Sheet {
+            across: 271,
+            along: None,
+            dpi: 300,
+        },
+        Sheet {
+            across: 696,
+            along: Some(271),
+            dpi: 300,
+        },
+        Sheet {
+            across: 576,
+            along: None,
+            dpi: 203,
+        },
+    ] {
+        let frame = label(&without, &sheet).unwrap();
+        assert!(inked(&frame) > 0, "{sheet:?}");
+    }
 }
 
 #[test]

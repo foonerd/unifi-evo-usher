@@ -8,7 +8,7 @@
 use std::fmt;
 
 use super::Kind;
-use crate::Fault;
+use crate::{Complaint, Fault};
 
 /// The length of a status.
 pub const LENGTH: usize = 32;
@@ -109,6 +109,36 @@ impl fmt::Display for Trouble {
                 "bit {bit} of error information {byte}, which no reference \
                  names"
             ),
+        }
+    }
+}
+
+impl Trouble {
+    /// The code the trouble goes under, the same whatever a printer
+    /// speaks.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Trouble::NoMedia => "no_media",
+            Trouble::EndOfMedia => "media_end",
+            Trouble::CutterJam => "cutter_jam",
+            Trouble::InUse => "in_use",
+            Trouble::TurnedOff => "turned_off",
+            Trouble::Fan => "fan",
+            Trouble::WrongMedia => "wrong_media",
+            Trouble::BufferFull => "buffer_full",
+            Trouble::Communication => "communication",
+            Trouble::CoverOpen => "cover_open",
+            Trouble::CannotFeed => "cannot_feed",
+            Trouble::System => "system",
+            Trouble::Unnamed(..) => "unnamed",
+        }
+    }
+
+    /// The trouble as any family's is said.
+    pub fn complaint(&self) -> Complaint {
+        Complaint {
+            code: self.code(),
+            words: self.to_string(),
         }
     }
 }
@@ -221,7 +251,7 @@ impl Status {
     pub fn fault(&self) -> Option<Fault> {
         (!self.troubles.is_empty()).then(|| {
             Fault::Printer(
-                self.troubles.iter().map(Trouble::to_string).collect(),
+                self.troubles.iter().map(Trouble::complaint).collect(),
             )
         })
     }

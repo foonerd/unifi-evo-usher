@@ -138,7 +138,7 @@ What it needs: a UniFi Network controller with an API key and a guest network wh
 
 The usher is young and moves fast: [the releases](https://github.com/foonerd/unifi-evo-usher/releases) come with what each one brought, and [CHANGELOG.md](CHANGELOG.md) lists every version. Every release is built for `amd64` and `arm64` and proven before it is published: the tests pass, and the unit is installed and run as a service on a machine made for the proof, from the Debian package and from the RPM. Every change to the main branch is also run in a container, alone and behind each of four proxies, and as an update: a unit of the newest release is updated to the change and put back again, and is the unit it was both times.
 
-Not in it yet: a voucher printed on a label. The groundwork for label printers is in the repository, under [Printers](#printers).
+A voucher is put on paper, on label and ticket printers of three printer languages: [Printers](#printers). Every printer type is written from its maker's documents and held to them by tests, and is marked as not yet compared with a print until it has printed. Not in it yet: a printer that hangs on a satellite's own machine.
 
 The ten translations were made for the usher and not every one has been read by someone whose language it is: a correction is welcome, and [Translating](https://github.com/foonerd/unifi-evo-usher/wiki/Translating) says how.
 
@@ -158,7 +158,7 @@ A core that holds the UniFi key, mints the vouchers on the controller and keeps 
 
 ## Status
 
-0.3.27 stands on the evo steward, has a face, and is installed as a service. `evo-usher-steward` is the steward with the usher's catalogue and four plugins: the controller, which mints vouchers on a UniFi Network controller; the counter, which keeps the voucher types on offer and hands a guest a voucher of one of them, one assigned for handing out before one minted for the asking; the stock, which holds the vouchers assigned; and the site, which keeps what the place a unit serves is called, its logo, its time zone and its language. It serves the usher's face to a browser, in any of eleven languages, in which a controller is looked at and set, its vouchers are listed, assigned for handing out and revoked, the wireless network vouchers are for is chosen, the voucher types are kept and a guest is handed a voucher. It is in the archive, in a package of its own, which makes a machine a unit, and in the image; the package is proven on a machine made for it, where it is installed, started as a service, asked as a browser asks, started again and removed. `evo-usher-station` lists the label printers it knows, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else.
+0.3.28 stands on the evo steward, has a face, and is installed as a service. `evo-usher-steward` is the steward with the usher's catalogue and five plugins: the controller, which mints vouchers on a UniFi Network controller; the counter, which keeps the voucher types on offer and hands a guest a voucher of one of them, one assigned for handing out before one minted for the asking; the stock, which holds the vouchers assigned; the site, which keeps what the place a unit serves is called, its logo, its time zone and its language; and the printing, which keeps the printers a voucher is put on paper by and which point of issue prints on which. It serves the usher's face to a browser, in any of eleven languages, in which a controller is looked at and set, its vouchers are listed, assigned for handing out and revoked, the wireless network vouchers are for is chosen, the voucher types are kept, a guest is handed a voucher, and the voucher is printed. It is in the archive, in a package of its own, which makes a machine a unit, and in the image; the package is proven on a machine made for it, where it is installed, started as a service, asked as a browser asks, started again and removed. `evo-usher-station` lists the printers it knows and those on its machine's USB ports, asks one how it is, and prints a specimen voucher label on it. `evo-usher-core` answers `--version` and nothing else.
 
 The controller plugin is written from Ubiquiti's published description of the UniFi Network API, version 11.0.97, and is held to a simulated controller written from the same description. It has been run from the usher's face against a UniFi Network application, version 11.0.99: the controller set, its version, its sites, its vouchers and its wireless networks read, a wireless network chosen, and vouchers assigned and handed out.
 
@@ -179,7 +179,7 @@ The catalogue, `catalogue/usher.toml`, declares what an usher is concerned with:
 
 It also declares the subjects the usher speaks of (controller, guest network, voucher type, voucher, point of issue, printer, place, person) and the relations between them. No rack, shelf or relation is named after a vendor or a plugin.
 
-Plugins stock the shelves. Four do so far:
+Plugins stock the shelves:
 
 | Plugin | Shelf | What it does |
 | --- | --- | --- |
@@ -187,6 +187,7 @@ Plugins stock the shelves. Four do so far:
 | | `networks.directory` | Lists the wireless networks of a site, each with what the controller says of it, and keeps the choice of the one vouchers are for. |
 | `org.evoframework.usher.counter` | `issue.counter` | Keeps the voucher types on offer, each the terms a voucher is minted on under a name; assigns a voucher the controller has for handing out; hands out a voucher of a type, one assigned before one minted for the asking; and writes every hand-out down. |
 | `org.evoframework.usher.stock` | `stock.reserve` | Takes vouchers in by type, hands each out once, oldest first, gives one up again, and says how many and which it holds. What it holds is kept through a restart. How many it holds asks for `voucher_issue`; everything else for `network_admin`. |
+| `org.evoframework.usher.printing` | `printing.labels` | Keeps the printers, each with its name, its place, where it hangs and what it is; says which point of issue, the unit's counter or a satellite, prints on which, in order; asks a printer how it is; and puts a voucher that was just handed out on paper, on the first of its point's printers that sees the label through. A front desk prints at the counter under `voucher_issue`; a satellite prints its own voucher, once, under `voucher_default`; everything else asks for `network_admin`. |
 | `org.evoframework.usher.site` | `site.settings` | Keeps what the place a unit serves is called, up to 64 characters; its logo, a PNG file of at most 256 KiB whose picture is at most 1024 by 512 pixels, kept as the file it was given; and the time zone it keeps, by its name, as `Europe/Warsaw`, or each browser's own. Reading asks for `voucher_issue`; changing asks for `network_admin`. |
 
 `evo-usher-steward` is the steward with these plugins compiled in. It is started as the evo steward is, with a configuration that names the catalogue, and is asked over the steward's client socket; `bins/evo-usher-steward/tests/steward.rs` starts it, sets a simulated controller, mints on it, puts the vouchers in the stock, hands one out, stops the steward and starts it again. It also keeps a voucher type at the counter and has a voucher of it handed out, which the counter mints through the steward.
@@ -369,32 +370,50 @@ A unit in a container is set up from a browser as any other is. At the extended 
 
 ## Printers
 
-The station draws the label itself, dot by dot, and sends it to the printer in the printer's own language. No driver, spooler or vendor software stands between the two.
+The usher draws the label itself, dot by dot, and sends it to the printer in the printer's own language. No driver, spooler, vendor software or browser's print dialog stands between the two.
+
+A site has as many printers as it needs, each with a name and a place. A printer hangs on a USB port of the unit, stands on the network, or is simulated, for trying the usher with no printer at hand. Each point of issue, the unit's counter and every satellite, is given printers in order: the first is where its labels go, the others where a label goes when the first is away. The page **Printers** of the face keeps them; the manual's page [Printers](https://github.com/foonerd/unifi-evo-usher/wiki/Printers) shows it. `schemas/org.evoframework.usher/printing/labels.v1.toml` is every request of the shelf.
+
+Three printer languages are spoken:
+
+| Language | Typed | Printers |
+| --- | --- | --- |
+| Brother QL raster | `brother-ql` | Brother's QL label printers. |
+| ZPL | `zpl` | Zebra's label printers, and the printers of other makers that take ZPL. |
+| ESC/POS | `escpos` | Ticket printers: Epson's TM printers and the many that follow them. |
+
+What a printer speaks is never guessed by sending it something: a word of one language is a command of another. A printer on a USB port tells the machine what it is; any other is said to speak a language, or to be a model. A printer's type is chosen from the models and, where the model is not among them, from generic types named by what the printer's own self-test page says: its resolution and its dots across.
+
+`evo-usher-station` tries a printer from a command line:
 
 ```text
 evo-usher-station printer models
+evo-usher-station printer found
 evo-usher-station printer status --usb /dev/usb/lp0
 evo-usher-station printer test --usb /dev/usb/lp0
 evo-usher-station printer test --tcp 192.0.2.7 --model QL-720NW --media 62
+evo-usher-station printer test --tcp 192.0.2.8 --model "Generic ZPL 203 dpi, 4 inch head (832 dots)" --media 57x32
+evo-usher-station printer test --tcp 192.0.2.9 --speaks escpos --model TM-T20III
 ```
 
-`printer models` lists every model the station knows, with the evidence that it prints on it. `printer status` asks a printer how it is and says what it answers: the model, the media, its state, and the status as it came, byte for byte. `printer test` prints a specimen voucher label on what the printer has loaded: every part of a voucher label in its place, and nothing on it that lets anyone in.
+`printer models` lists every model the station knows, with the evidence that it prints on it. `printer found` lists the printers on the machine's USB ports, each with what it says it is; nothing is sent to them. `printer status` asks a printer how it is and says what it answers: the model, the media, its state, and the status as it came, byte for byte. `printer test` prints a specimen voucher label on what the printer has loaded: every part of a voucher label in its place, and nothing on it that lets anyone in.
 
 A printer is reached over its USB printer device, which the kernel's `usblp` driver puts at `/dev/usb/lp0` and up, or over a TCP port, 9100 unless another is named.
 
-- Over USB a printer names itself and its media. It is not sent a label while it reports trouble, and a label counts as printed when the printer says so.
-- Over TCP a printer that answers is treated the same. One that does not is told what it is, with `--model` and `--media`, and is sent the label on trust: the station then says the label was sent, not that it was printed.
+- A Brother QL over USB names itself and its media. It is not sent a label while it reports trouble, and a label counts as printed when the printer says so. Over TCP one that answers is treated the same; one that does not is told what it is, with `--model` and `--media`, and is sent the label on trust: the label is then said to be sent, not printed.
+- A ZPL printer is asked what it is and how it is; the label's size is told, as `57x32` in millimetres, or `57` for paper that is cut or torn where the label ends. Nothing in ZPL says that a label was printed, so a label is said to be sent.
+- An ESC/POS printer is asked how it is where it answers, and is sent the label on trust where it does not, as many of them do not. The paper's width is told, `80` or `58`, where the type takes both. An Epson model that reports what it has printed is asked to, and its label then counts as printed.
 
-A model the printer names itself as, in a code no reference has, is reported and not guessed; `--model` says what it is to be treated as.
+A model the printer names itself as, in a way no reference has, is reported and not guessed; `--model` says what it is to be treated as. A TCP line is hung up in order when a label was sent, so that nothing still on its way to the printer is lost.
 
 ### The evidence
 
-Every model is listed with how far the evidence goes that the station prints on it, and no model is given a step it has not taken.
+Every model is listed with how far the evidence goes that the usher prints on it, and no model is given a step it has not taken.
 
 | Evidence | What it means |
 | --- | --- |
 | proven | Printed on the printer itself with this program. |
-| to reference | The station sends, byte for byte, what a program confirmed on the model sends. |
+| to reference | What is sent is, byte for byte, what a program confirmed on the model sends. |
 | to specification | Written from the maker's command reference and held to it by tests; not yet compared with a print. |
 
 | Models | Evidence | Written from |
@@ -404,16 +423,22 @@ Every model is listed with how far the evidence goes that the station prints on 
 | QL-600, QL-710W, QL-720NW | to specification | Brother Raster Command Reference QL-600/QL-710W/QL-720NW, version 1.02 |
 | QL-500, QL-550, QL-560, QL-570, QL-580N, QL-650TD, QL-700, QL-1050, QL-1060N | to specification | Brother QL Series Command Reference, version 6.0 |
 | QL-1100, QL-1110NWB, QL-1115NWB | to specification | Brother Raster Command Reference QL-1100/1110NWB/1115NWB, version 1.00 |
+| Generic ZPL types at 203 and 300 dpi with a 2 inch or a 4 inch head; ZD421, ZD621, GX420t, GX430t, GK420d | to specification | Zebra's ZPL II programming guide, and the user guides of the models for their dots |
+| TD-4420TN, TD-4520TN | to specification | Brother's ZPL II emulation guide and the models' user's guide; their dots across are computed from the print width and the dots to the millimetre Brother states |
+| Generic ESC/POS types for 80 mm paper (576 or 512 dots) and 58 mm paper (384, 420 or 360 dots); TM-T20II, TM-T20III, TM-T88IV, TM-T88V, TM-T88VI, TM-T88VII | to specification | Epson's ESC/POS quick reference for the TM-T20 and the technical reference guides of the models; the raster command's bytes from Star's ESC/POS mode specification |
+| Star in ESC/POS mode | to specification | Star's Line Thermal Printer ESC/POS Mode Command Specifications |
 
-No model is proven yet. The reference the QL-800 series is held to is the `brother_ql` crate, version 3.0.6; `crates/printer/tests/fixtures/README.md` says how its jobs were recorded. It is not a dependency.
+No model is proven yet. `evo-usher-station printer models` names the document for every model. The reference the QL-800 series is held to is the `brother_ql` crate, version 3.0.6; `crates/printer/tests/fixtures/README.md` says how its jobs were recorded. It is not a dependency.
 
 ### Media
 
-Continuous tape of 12, 29, 38, 50, 54 and 62 mm, and of 102 and 103 mm on the wide models; labels of a fixed length from 17 x 54 mm to 103 x 164 mm. `--media` takes the names the station lists when it is given one it does not know.
+For a Brother QL: continuous tape of 12, 29, 38, 50, 54 and 62 mm, and of 102 and 103 mm on the wide models; labels of a fixed length from 17 x 54 mm to 103 x 164 mm. `--media` takes the names the station lists when it is given one it does not know. A printer says what it has loaded, with one exception: it does not say whether a 62 mm roll is black, or red and black. A red and black roll is named, `--media 62-red`, on the models that print it.
 
-A printer says what it has loaded, with one exception: it does not say whether a 62 mm roll is black, or red and black. A red and black roll is named, `--media 62-red`, on the models that print it.
+For a ZPL printer the label's size is told, and a label wider than the printer's head is refused by name. For an ESC/POS printer the paper is a roll of 80 or 58 mm, cut or torn where the label ends.
 
-The specimen needs 36 x 13.2 mm of printable paper; a long network name, or a passphrase, makes the symbol and with it the label larger. On tape of 50 mm and wider it is read across the tape and takes 27 mm of it; on narrower tape it is laid along the tape. 12 mm tape, the smallest labels and round labels are refused, by name.
+The specimen needs 36 x 13.2 mm of printable paper; a long network name makes the symbol and with it the label larger. On paper of 50 mm and wider the label is read across the paper and takes 27 mm of it; on narrower tape it is laid along the tape. 12 mm tape, the smallest labels and round labels are refused, by name. A network that is not open has no symbol on its label: its lines have the label to themselves.
+
+Which edge of a label leaves a printer first differs from printer to printer. A printer whose labels come out upside down as they are read is said to print the other way round, on the page Printers.
 
 ## Getting it
 

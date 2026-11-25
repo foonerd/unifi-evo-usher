@@ -1,0 +1,14 @@
+# Rack-level metadata for the `printing` rack.
+
+rack = "printing"
+namespace = "org.evoframework.usher"
+
+description = """
+Put a voucher on paper.
+"""
+
+# Shelves under this rack and their current shape version. Each entry has
+# a `<shelf>.v<N>.toml` file in this directory.
+[[shelves]]
+name = "labels"
+current_shape = 1

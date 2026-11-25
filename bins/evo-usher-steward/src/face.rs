@@ -39,6 +39,9 @@ pub const RESERVE: &str = "usher.reserve";
 /// The widget the site's name, logo and time zone are set with.
 pub const SITE: &str = "usher.site";
 
+/// The widget the printers are kept with, and who prints where is said.
+pub const PRINTERS: &str = "usher.printers";
+
 /// The widget pack's own word on the sizes of its kinds.
 const ENVELOPES: &str = include_str!(
     "../../../ui/org.evoframework.usher.widgets/size_envelopes.toml"
@@ -103,6 +106,12 @@ pub fn shelves() -> Vec<ShelfContract> {
             &[SITE],
             &[UiSize::Half, UiSize::Full],
         ),
+        shelf(
+            "printing.labels",
+            "Printers",
+            &[PRINTERS],
+            &[UiSize::Half, UiSize::Full],
+        ),
     ]
 }
 
@@ -158,7 +167,10 @@ mod tests {
         assert_eq!(declared, provided);
         assert_eq!(
             declared,
-            [CONTROLLER, COUNTER, NETWORKS, RESERVE, SITE, TYPES, VOUCHERS]
+            [
+                CONTROLLER, COUNTER, NETWORKS, PRINTERS, RESERVE, SITE, TYPES,
+                VOUCHERS
+            ]
         );
     }
 

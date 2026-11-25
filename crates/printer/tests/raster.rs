@@ -7,12 +7,13 @@
 mod support;
 
 use evo_usher_printer::brother::{media_named, raster, Head, Media, Traits};
-use evo_usher_printer::model::{brother_traits, named, MODELS};
+use evo_usher_printer::model::{brother_traits, named, speaking, Language};
 use evo_usher_printer::{Fault, Page};
 use support::{controls, pattern, read, Command};
 
 fn traits(model: &str) -> &'static Traits {
     brother_traits(named(model).expect("the model is in the table"))
+        .expect("the model is a Brother QL")
 }
 
 fn media(name: &str) -> &'static Media {
@@ -226,11 +227,17 @@ fn every_model_is_sent_the_commands_its_reference_lists() {
             covered.push(*model);
         }
     }
-    let all: Vec<&str> = MODELS.iter().map(|model| model.name).collect();
+    let all: Vec<&str> = speaking(Language::BrotherQl)
+        .iter()
+        .map(|model| model.name)
+        .collect();
     covered.sort_unstable();
     let mut all_sorted = all.clone();
     all_sorted.sort_unstable();
-    assert_eq!(covered, all_sorted, "every model in the table is held");
+    assert_eq!(
+        covered, all_sorted,
+        "every Brother QL model in the table is held"
+    );
 }
 
 #[test]

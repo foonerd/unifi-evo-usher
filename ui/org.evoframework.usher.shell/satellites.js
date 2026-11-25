@@ -20,6 +20,7 @@
 
 import { gives as givesOf } from "/org.evoframework.usher.widgets/counter.js";
 import { cropper } from "/org.evoframework.usher.widgets/cropper.js";
+import { SATELLITES_CHANGED } from "/org.evoframework.usher.widgets/events.js";
 import { plateOf } from "/org.evoframework.usher.widgets/plate.js";
 import { time } from "./site.js";
 import { refusal, say } from "./words.js";
@@ -195,13 +196,19 @@ export function satellites(element, hands) {
     if (back !== null && back.isConnected) back.focus();
   };
 
-  /** Say what was done, and draw the satellites as they now are. @param {string} words */
+  /**
+   * Say what was done, and draw the satellites as they now are. Whatever
+   * else on the page names the satellites is told that they changed.
+   *
+   * @param {string} words
+   */
   const done = async (words) => {
     shut();
     drawnAs = "";
     await look();
     said.textContent = words;
     said.focus();
+    document.dispatchEvent(new Event(SATELLITES_CHANGED));
   };
 
   /**

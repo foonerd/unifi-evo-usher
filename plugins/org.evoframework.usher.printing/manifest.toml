@@ -1,0 +1,75 @@
+[plugin]
+name = "org.evoframework.usher.printing"
+# The crate's version, which is the workspace's. The steward refuses a
+# plugin that says another version than its manifest; a test holds the two
+# together.
+version = "0.3.28"
+contract = 1
+
+[target]
+shelf = "printing.labels"
+shape = 1
+
+[kind]
+instance = "singleton"
+interaction = "respondent"
+
+[transport]
+type = "in-process"
+exec = "<compiled-in>"
+
+[trust]
+class = "platform"
+
+[prerequisites]
+evo_min_version = "0.1.13"
+os_family = "linux"
+# Speaks to printers on the network, on their own port, and to the
+# steward's other shelves.
+outbound_network = true
+# Reads and writes its own state directory; reads what the kernel lists
+# of the printers on the unit's USB ports, and reads and writes their
+# devices.
+filesystem_scopes = ["/sys/class/usbmisc", "/dev/usb"]
+
+[resources]
+max_memory_mb = 32
+max_cpu_percent = 5
+
+[lifecycle]
+hot_reload = "restart"
+autostart = true
+restart_on_crash = true
+restart_budget = 5
+
+# Printing waits on the printer: for its answer, and for its word that
+# the label is printed. A point of issue with more than one printer is
+# seen through them in turn within the same budget.
+[capabilities.respondent]
+request_types = ["printers", "known", "found", "add", "change", "remove", "assign", "status", "test", "printed", "offered", "print", "print_here"]
+response_budget_ms = 60000
+
+# Who may ask. Which printers there are, where they hang and who prints
+# on which is an administrator's to say and to read: those requests ask
+# for network_admin. Putting a voucher that was just handed out on paper
+# is what a front desk does with it: `offered`, which printers the
+# counter prints on, and `print` ask for voucher_issue, the capability
+# the session of a person at the front desk holds, and an
+# administrator's with it. A satellite prints the voucher it handed out
+# itself, on the printers it was assigned: `print_here` asks for
+# voucher_default, which a satellite's session is given, and the gate
+# writes into the request which satellite asks.
+[capabilities.respondent.verb_capabilities]
+printers = { kind = "read", scope = "network_admin" }
+known = { kind = "read", scope = "network_admin" }
+found = { kind = "read", scope = "network_admin" }
+add = { kind = "write", scope = "network_admin" }
+change = { kind = "write", scope = "network_admin" }
+remove = { kind = "write", scope = "network_admin" }
+assign = { kind = "write", scope = "network_admin" }
+status = { kind = "read", scope = "network_admin" }
+test = { kind = "write", scope = "network_admin" }
+printed = { kind = "read", scope = "network_admin" }
+offered = { kind = "read", scope = "voucher_issue" }
+print = { kind = "write", scope = "voucher_issue" }
+print_here = { kind = "write", scope = "voucher_default" }

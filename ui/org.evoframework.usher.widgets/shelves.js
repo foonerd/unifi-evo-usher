@@ -6,3 +6,6 @@ export const COUNTER = "issue.counter";
 
 /** Where the vouchers assigned for handing out are held. */
 export const RESERVE = "stock.reserve";
+
+/** Where the printers are kept, and a voucher is put on paper. */
+export const PRINTING = "printing.labels";

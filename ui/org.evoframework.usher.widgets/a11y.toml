@@ -29,6 +29,15 @@ keyboard = { focusable = true, interactions = [] }
 screen_reader = { announces = ["usher.networks.changed"] }
 motion = { animates = true, honours_prefers_reduced_motion = true }
 
+["usher.printers"]
+kind_id = "usher.printers"
+aria_role = "region"
+aria_label_source = "inner_text"
+contrast = "aaa"
+keyboard = { focusable = true, interactions = [] }
+screen_reader = { announces = ["usher.printers.changed"] }
+motion = { animates = true, honours_prefers_reduced_motion = true }
+
 ["usher.reserve"]
 kind_id = "usher.reserve"
 aria_role = "region"

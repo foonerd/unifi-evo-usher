@@ -1,7 +1,7 @@
 //! The counter itself: the voucher types on offer, and the handing out of
 //! a voucher of one of them.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 use std::future::Future;
 use std::io;
@@ -289,6 +289,12 @@ struct Looking {
     ids: Option<Vec<String>>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Recently {
+    id: String,
+}
+
 fn asked<T: DeserializeOwned>(payload: &[u8]) -> Result<T, Refusal> {
     serde_json::from_slice(payload).map_err(|e| {
         Refusal::AsAsked(why(
@@ -329,8 +335,19 @@ fn unkept(e: Unkept) -> Refusal {
 pub struct Counter {
     types: Mutex<Types>,
     handed: Mutex<Handed>,
+    /// The hand-outs of the last while, each whole, as it was answered,
+    /// with who handed it out: for whoever is to put one on paper. They
+    /// are kept in memory and nowhere else, so that a voucher's code is
+    /// written down nowhere on the unit.
+    recent: Mutex<VecDeque<Value>>,
     shelves: Option<Arc<dyn Shelves>>,
 }
+
+/// How many hand-outs are remembered whole.
+pub const REMEMBERED: usize = 256;
+
+/// For how long a hand-out is remembered whole, in seconds.
+pub const REMEMBERED_SECS: u64 = 30 * 60;
 
 impl fmt::Debug for Counter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -361,6 +378,7 @@ impl Counter {
         Ok(Self {
             types: Mutex::new(Types::open(state)?),
             handed: Mutex::new(handed),
+            recent: Mutex::new(VecDeque::new()),
             shelves,
         })
     }
@@ -394,6 +412,49 @@ impl Counter {
             );
         }
         at
+    }
+
+    /// Remember a hand-out whole, with who handed it out, and answer
+    /// it.
+    fn remembered(&self, mut whole: Value, issuer: &Issuer) -> Value {
+        let answered = whole.clone();
+        if let Some(kept) = whole.as_object_mut() {
+            if let Some(by) = &issuer.by {
+                kept.insert("by".to_string(), json!(by));
+            }
+            if issuer.unit {
+                kept.insert("unit".to_string(), json!(true));
+            }
+            if let Some(satellite) = &issuer.satellite {
+                kept.insert("satellite".to_string(), json!(satellite));
+            }
+        }
+        let mut recent = self.recent.lock().expect("the memory's lock");
+        recent.push_back(whole);
+        while recent.len() > REMEMBERED {
+            recent.pop_front();
+        }
+        answered
+    }
+
+    /// The hand-out of the voucher `id`, whole, where it was handed out
+    /// here in the last while.
+    fn recent(&self, id: &str) -> Option<Value> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|since| since.as_secs())
+            .unwrap_or(0);
+        let mut recent = self.recent.lock().expect("the memory's lock");
+        recent.retain(|one| {
+            one["at"]
+                .as_u64()
+                .is_some_and(|at| now.saturating_sub(at) <= REMEMBERED_SECS)
+        });
+        recent
+            .iter()
+            .rev()
+            .find(|one| one["voucher"]["id"].as_str() == Some(id))
+            .cloned()
     }
 
     /// Answer one request of the shelf.
@@ -530,6 +591,10 @@ impl Counter {
                 };
                 Ok(json!({ "handed": told }))
             }
+            "recent" => {
+                let looking: Recently = asked(payload)?;
+                Ok(json!({ "recent": self.recent(&looking.id) }))
+            }
             other => Err(Refusal::AsAsked(why(
                 "unknown_request",
                 format!("unknown request type: {other}"),
@@ -620,14 +685,17 @@ impl Counter {
         };
         if let Some(voucher) = held {
             let at = self.note(&voucher.id, &kind.name, true, issuer);
-            return Ok(json!({
-                "voucher": { "id": voucher.id, "code": voucher.code },
-                "type": kind,
-                "network": network.name,
-                "join": network.join(),
-                "held": true,
-                "at": at,
-            }));
+            return Ok(self.remembered(
+                json!({
+                    "voucher": { "id": voucher.id, "code": voucher.code },
+                    "type": kind,
+                    "network": network.name,
+                    "join": network.join(),
+                    "held": true,
+                    "at": at,
+                }),
+                issuer,
+            ));
         }
 
         let minted = shelves
@@ -659,14 +727,17 @@ impl Counter {
                 ))
             })?;
         let at = self.note(&voucher.id, &kind.name, false, issuer);
-        Ok(json!({
-            "voucher": { "id": voucher.id, "code": voucher.code },
-            "type": kind,
-            "network": network.name,
-            "join": network.join(),
-            "held": false,
-            "at": at,
-        }))
+        Ok(self.remembered(
+            json!({
+                "voucher": { "id": voucher.id, "code": voucher.code },
+                "type": kind,
+                "network": network.name,
+                "join": network.join(),
+                "held": false,
+                "at": at,
+            }),
+            issuer,
+        ))
     }
 
     /// Assign a voucher the controller has for handing out. It is held

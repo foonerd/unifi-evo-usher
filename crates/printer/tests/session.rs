@@ -1,15 +1,17 @@
 //! The conversation with a printer, held with a printer that is not
 //! there: one that prints, one with no media, one whose cover is opened,
-//! one that never reports, one that says nothing, and one that stops in
-//! the middle of its answer.
+//! one that never reports, one that says nothing, one that stops in the
+//! middle of its answer, and one whose line has hung up.
 
 mod support;
 
-use std::time::Duration;
+use std::io;
+use std::time::{Duration, Instant};
 
 use evo_usher_printer::brother::session::{self, Report};
 use evo_usher_printer::brother::status::{About, Loaded, Trouble};
 use evo_usher_printer::brother::{media_named, raster, Kind};
+use evo_usher_printer::line::Line;
 use evo_usher_printer::model::{brother_identified, brother_traits, named};
 use evo_usher_printer::{Delivery, Fault, Page};
 use support::{pattern, read, status, Command, Manner, Simulated};
@@ -32,7 +34,7 @@ fn conversation(
         return Err(fault);
     }
     let model = brother_identified(status.series, status.code)[0];
-    let traits = brother_traits(model);
+    let traits = brother_traits(model).unwrap();
     let Loaded::Media(kind) = status.loaded else {
         panic!("nothing loaded and no trouble reported");
     };
@@ -65,7 +67,7 @@ fn a_label_is_printed_when_the_printer_says_so() {
 
     // What went down the line is the charted conversation: the preamble
     // and the request, then the page, and nothing else.
-    let traits = brother_traits(named("QL-820NWB").unwrap());
+    let traits = brother_traits(named("QL-820NWB").unwrap()).unwrap();
     let media = media_named("62").unwrap();
     let mut expected = raster::inquiry();
     expected.extend(raster::page(traits, media, (62, 0), &label()).unwrap());
@@ -118,7 +120,11 @@ fn a_printer_with_no_media_is_not_sent_the_label() {
     let mut printer = Simulated::new(Manner::NoMedia);
     match conversation(&mut printer, Report::Required) {
         Err(Fault::Printer(troubles)) => {
-            assert_eq!(troubles, ["no media is loaded"]);
+            let said: Vec<(&str, &str)> = troubles
+                .iter()
+                .map(|one| (one.code, one.words.as_str()))
+                .collect();
+            assert_eq!(said, [("no_media", "no media is loaded")]);
         }
         other => panic!("answered {other:?}"),
     }
@@ -130,7 +136,11 @@ fn a_cover_opened_while_printing_is_reported_and_nothing_is_confirmed() {
     let mut printer = Simulated::new(Manner::CoverOpened);
     match conversation(&mut printer, Report::Required) {
         Err(Fault::Printer(troubles)) => {
-            assert_eq!(troubles, ["the cover is open"]);
+            let said: Vec<(&str, &str)> = troubles
+                .iter()
+                .map(|one| (one.code, one.words.as_str()))
+                .collect();
+            assert_eq!(said, [("cover_open", "the cover is open")]);
         }
         other => panic!("answered {other:?}"),
     }
@@ -164,6 +174,43 @@ fn a_printer_that_says_nothing_is_a_fault() {
     }
 }
 
+/// A line whose far end has hung up: it brings nothing, at once, and
+/// counts how often it is tried.
+struct HungUp {
+    tried: u32,
+}
+
+impl Line for HungUp {
+    fn send(&mut self, _bytes: &[u8]) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn receive(
+        &mut self,
+        _buffer: &mut [u8],
+        _wait: Duration,
+    ) -> io::Result<usize> {
+        self.tried += 1;
+        Ok(0)
+    }
+}
+
+#[test]
+fn a_line_that_has_hung_up_is_waited_for_and_not_kept_busy() {
+    let mut line = HungUp { tried: 0 };
+    let wait = Duration::from_millis(50);
+    let before = Instant::now();
+    assert!(matches!(
+        session::ask(&mut line, wait),
+        Err(Fault::Silent(_))
+    ));
+    assert!(before.elapsed() >= wait);
+    assert!(before.elapsed() < Duration::from_secs(2));
+    // Once to see that nothing waits on the line, and then every 10 ms
+    // or so for the answer: not as often as the line can be tried.
+    assert!((2..=7).contains(&line.tried), "tried {} times", line.tried);
+}
+
 #[test]
 fn an_answer_cut_short_is_not_taken_for_a_status() {
     let mut printer = Simulated::new(Manner::CutShort);
@@ -178,7 +225,7 @@ fn an_answer_cut_short_is_not_taken_for_a_status() {
 #[test]
 fn a_printer_that_is_not_asked_is_sent_the_whole_job() {
     let mut printer = Simulated::new(Manner::Mute);
-    let traits = brother_traits(named("QL-720NW").unwrap());
+    let traits = brother_traits(named("QL-720NW").unwrap()).unwrap();
     let media = media_named("62").unwrap();
     let delivery =
         session::send(&mut printer, traits, media, (62, 0), &label()).unwrap();

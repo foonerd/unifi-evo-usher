@@ -11,6 +11,12 @@ export const VOUCHER_HANDED = "usher:voucher-handed";
 export const HELD_CHANGED = "usher:held-changed";
 
 /**
+ * The satellites of the unit are not what they were: one was adopted,
+ * changed, switched on or off, or removed.
+ */
+export const SATELLITES_CHANGED = "usher:satellites-changed";
+
+/**
  * What a plugin says happened to it, as a shell that hears it hands it
  * on: the event's `detail` holds the plugin's name as `plugin`, the
  * event's type as the plugin names it as `event_type`, and what it

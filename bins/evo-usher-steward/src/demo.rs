@@ -60,6 +60,11 @@ const ASK_A_SHELF: &str = "request";
 const THE_CONTROLLER: &str = "access.controller";
 const THE_NETWORKS: &str = "networks.directory";
 const THE_COUNTER: &str = "issue.counter";
+const THE_PRINTING: &str = "printing.labels";
+
+/// The name of the simulated printer a demo is given where it has no
+/// printer.
+const SAMPLE_PRINTER: &str = "Demo printer";
 
 /// The voucher types a demo is given where it has none: one that is the
 /// default, one for longer, and one whose days are chosen when a
@@ -270,6 +275,35 @@ impl Demo {
                 THE_COUNTER,
                 "set_default",
                 json!({ "name": SAMPLE_DEFAULT }),
+            )
+            .await?;
+        }
+
+        // A printer to try printing with, where the demo has none: a
+        // simulated one, which takes a label and shows it on the page
+        // Printers. The unit's counter prints on it, so that Print
+        // stands on the first voucher that is handed out.
+        let told = ask(shelves, THE_PRINTING, "printers", json!({})).await?;
+        let none = told["printers"]
+            .as_array()
+            .map(|printers| printers.is_empty())
+            .unwrap_or(false);
+        if none {
+            let added = ask(
+                shelves,
+                THE_PRINTING,
+                "add",
+                json!({ "name": SAMPLE_PRINTER, "at": { "simulated": {} } }),
+            )
+            .await?;
+            ask(
+                shelves,
+                THE_PRINTING,
+                "assign",
+                json!({
+                    "point": "unit",
+                    "printers": [added["printer"]["id"]],
+                }),
             )
             .await?;
         }

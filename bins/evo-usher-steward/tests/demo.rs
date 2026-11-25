@@ -76,6 +76,23 @@ fn a_demo_hands_out_vouchers_with_nothing_set_up_and_says_what_it_is() {
     let handed = ask("issue.counter", "hand", json!({ "type": "Day guest" }));
     assert!(handed["voucher"]["code"].is_string(), "{handed}");
     assert_eq!(handed["network"], "Guests", "{handed}");
+    // A demo has a printer to try printing with: a simulated one, which
+    // the unit's counter prints on and which keeps the label to be
+    // looked at.
+    let printers = ask("printing.labels", "printers", json!({}));
+    assert_eq!(printers["printers"].as_array().map(Vec::len), Some(1));
+    assert_eq!(printers["printers"][0]["name"], "Demo printer");
+    assert_eq!(printers["printers"][0]["at"], json!({ "simulated": {} }));
+    assert_eq!(printers["prints_on"], json!({ "unit": ["p1"] }));
+    let printed = ask(
+        "printing.labels",
+        "print",
+        json!({ "id": handed["voucher"]["id"] }),
+    );
+    assert_eq!(printed["printed"]["printer"]["name"], "Demo printer");
+    assert_eq!(printed["printed"]["delivery"], "confirmed");
+    let shown = ask("printing.labels", "printed", json!({ "id": "p1" }));
+    assert!(shown["label"]["pbm_b64"].is_string(), "{shown}");
     let stay = ask(
         "issue.counter",
         "hand",

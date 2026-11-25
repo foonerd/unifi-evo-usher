@@ -3,7 +3,7 @@ name = "org.evoframework.usher.counter"
 # The crate's version, which is the workspace's. The steward refuses a
 # plugin that says another version than its manifest; a test holds the two
 # together.
-version = "0.3.27"
+version = "0.3.28"
 contract = 1
 
 [target]
@@ -42,7 +42,7 @@ restart_budget = 5
 # Handing out and assigning wait on the controller, through its shelf:
 # the budget is that shelf's, and a little over.
 [capabilities.respondent]
-request_types = ["types", "offered", "put_type", "drop_type", "enable_type", "set_default", "order_types", "hand", "hand_default", "hand_type", "assign", "handed"]
+request_types = ["types", "offered", "put_type", "drop_type", "enable_type", "set_default", "order_types", "hand", "hand_default", "hand_type", "assign", "handed", "recent"]
 response_budget_ms = 35000
 
 # Who may ask. A voucher is what lets a guest on to the network, and its
@@ -65,6 +65,9 @@ response_budget_ms = 35000
 # capability, voucher_named, which only the session of such a satellite
 # is given: no other satellite's session is good for a type that is
 # named.
+# A hand-out of the last while, whole, with its voucher's code, is an
+# administrator's to read and the printing shelf's, which asks as the
+# steward's own: no front desk and no satellite is told it again.
 [capabilities.respondent.verb_capabilities]
 types = { kind = "read", scope = "network_admin" }
 offered = { kind = "read", scope = "voucher_issue" }
@@ -78,6 +81,7 @@ hand_default = { kind = "write", scope = "voucher_default" }
 hand_type = { kind = "write", scope = "voucher_named" }
 assign = { kind = "write", scope = "network_admin" }
 handed = { kind = "read", scope = "network_admin" }
+recent = { kind = "read", scope = "network_admin" }
 
 # On the screen: the counter itself, and the types it offers under it.
 [[ui.stocks]]

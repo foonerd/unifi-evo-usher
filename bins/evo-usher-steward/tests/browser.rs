@@ -148,8 +148,9 @@ fn held(browser: &mut Browser) -> Value {
 }
 
 /// The pages of the face: what the menu calls each, its address, and the
-/// widgets that stand on it. The last two are the shell's own.
-const PAGES: [(&str, &str, &[&str]); 8] = [
+/// widgets that stand on it. Those of the satellites and of the people
+/// are the shell's own.
+const PAGES: [(&str, &str, &[&str]); 9] = [
     ("Counter", "#/counter", &["usher.counter"]),
     (
         "Vouchers",
@@ -161,6 +162,7 @@ const PAGES: [(&str, &str, &[&str]); 8] = [
     ("Controller", "#/controller", &["usher.controller"]),
     ("Site", "#/site", &["usher.site"]),
     ("Satellites", "#/satellites", &[]),
+    ("Printers", "#/printers", &["usher.printers"]),
     ("People", "#/people", &[]),
 ];
 
@@ -368,7 +370,8 @@ fn a_new_usher_is_set_up_and_its_controller_set_from_the_screen() {
             "usher.types",
             "usher.networks",
             "usher.controller",
-            "usher.site"
+            "usher.site",
+            "usher.printers"
         ])
     );
     assert_eq!(
@@ -979,6 +982,10 @@ fn a_new_usher_is_set_up_and_its_controller_set_from_the_screen() {
             continue;
         }
         go_to(&mut browser, label);
+        // And so is the page of the printers.
+        if *label == "Printers" {
+            continue;
+        }
         if let Some(to) = picture_of(Some(&fragment[2..])) {
             browser.picture(&to);
         }
@@ -1826,6 +1833,8 @@ fn the_menu_leads_from_page_to_page() {
     browser.act("history.back();");
     at(&mut browser, "People");
     browser.act("history.back();");
+    at(&mut browser, "Printers");
+    browser.act("history.back();");
     at(&mut browser, "Satellites");
     browser.act("history.back();");
     at(&mut browser, "Site");
@@ -2446,7 +2455,7 @@ fn people_sign_in_and_out_and_are_looked_after_on_a_page_of_their_own() {
     assert_eq!(
         over,
         json!({
-            "fragment": "#/people", "typed": "Half typed", "widgets": 7,
+            "fragment": "#/people", "typed": "Half typed", "widgets": 8,
             "who": false, "line": "Not signed in.",
         })
     );
@@ -3180,7 +3189,7 @@ fn the_front_desk_is_given_a_pin_and_has_the_counter_alone() {
     browser.act(r#"document.getElementById("sign-in-form").requestSubmit();"#);
     browser.wait(
         "her pages",
-        r#"document.getElementById("entry").open === false && menuEntries().length === 8 && document.getElementById("who-name").textContent === "Anna""#,
+        r#"document.getElementById("entry").open === false && menuEntries().length === 9 && document.getElementById("who-name").textContent === "Anna""#,
     );
     assert_eq!(
         browser.look(
@@ -4648,7 +4657,7 @@ fn the_face_speaks_the_language_a_person_a_browser_or_the_site_says() {
             "lang": "de",
             "menu": [
                 "Empfang", "Voucher", "Voucher-Typen", "Netzwerk",
-                "Controller", "Standort", "Satelliten", "Personen",
+                "Controller", "Standort", "Satelliten", "Drucker", "Personen",
             ],
             "chosen": "de",
         })
@@ -4760,7 +4769,7 @@ fn the_face_speaks_the_language_a_person_a_browser_or_the_site_says() {
             "lang": "xx",
             "menu": [
                 "Xcounter", "Vouchers", "Voucher types", "Network",
-                "Controller", "Site", "Satellites", "People",
+                "Controller", "Site", "Satellites", "Printers", "People",
             ],
             "chosen": "xx",
         })
@@ -5246,7 +5255,7 @@ fn a_screen_is_adopted_and_hands_a_guest_the_default_voucher() {
     );
 
     // The administrator adopts it, on the page of the satellites, which
-    // stands before the people in the menu.
+    // stands before the printers and the people in the menu.
     let shell = format!("{}/", steward.address());
     browser.go(&shell);
     go_to(&mut browser, "Satellites");
@@ -5256,9 +5265,9 @@ fn a_screen_is_adopted_and_hands_a_guest_the_default_voucher() {
     );
     assert_eq!(
         browser.look(
-            r#"return menuEntries().slice(-2).map((entry) => entry.textContent);"#
+            r#"return menuEntries().slice(-3).map((entry) => entry.textContent);"#
         ),
-        json!(["Satellites", "People"])
+        json!(["Satellites", "Printers", "People"])
     );
     browser.act(r#"document.getElementById("adopt-satellite").click();"#);
     browser.wait(
@@ -6812,4 +6821,2000 @@ fn settings_travel_as_a_profile_and_a_unit_is_set_up_from_its_file() {
     );
     assert_eq!(old.stop(), Some(0));
     assert_eq!(new.stop(), Some(0));
+}
+
+/// Make a unit hand vouchers out, as its administrator does: a voucher
+/// type, which is the default, the controller set, a network chosen.
+fn hands_out(steward: &Steward, simulated: &Simulated, administrator: &Caller) {
+    let ask = |shelf: &str, request: &str, payload: Value| {
+        let (status, said) =
+            steward.ask_status(administrator, shelf, request, payload);
+        assert_eq!(status, 200, "{shelf} {request}: {said}");
+        said
+    };
+    ask(
+        "issue.counter",
+        "put_type",
+        json!({ "name": "Day guest", "minutes": 1440, "guests": 1 }),
+    );
+    let presented = ask(
+        "access.controller",
+        "probe",
+        json!({ "base": simulated.base() }),
+    );
+    ask(
+        "access.controller",
+        "set",
+        json!({
+            "base": simulated.base(), "key": simulated.key(),
+            "fingerprint": presented["fingerprint"],
+        }),
+    );
+    let networks = ask("networks.directory", "networks", json!({}));
+    let guests = networks["sites"][0]["networks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|network| network["name"] == "Guests")
+        .expect("the simulated controller has a Guests network")["id"]
+        .clone();
+    ask(
+        "networks.directory",
+        "choose",
+        json!({ "site": simulated.site(), "network": guests }),
+    );
+}
+
+/// Ask the printing as `who`, who is answered.
+fn printing(
+    steward: &Steward,
+    who: &Caller,
+    request: &str,
+    payload: Value,
+) -> Value {
+    let (status, said) =
+        steward.ask_status(who, "printing.labels", request, payload);
+    assert_eq!(status, 200, "printing.labels {request}: {said}");
+    said
+}
+
+/// Add a simulated printer as `administrator` does: its identifier.
+fn simulated_printer(
+    steward: &Steward,
+    administrator: &Caller,
+    name: &str,
+    place: &str,
+) -> String {
+    printing(
+        steward,
+        administrator,
+        "add",
+        json!({ "name": name, "place": place, "at": { "simulated": {} } }),
+    )["printer"]["id"]
+        .as_str()
+        .expect("an identifier")
+        .to_string()
+}
+
+/// An address on this machine that nothing listens at: where a printer
+/// on the network is that is away.
+fn nobody_listens() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.local_addr().unwrap().to_string()
+}
+
+/// Press a button of the Printers page, by what a reader of the screen
+/// is told it is: its label where it has one, or what it says.
+fn press_on_printers(browser: &mut Browser, named: &str) {
+    let button = format!(
+        r#"[...widget("usher.printers").querySelectorAll("button")].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === {named})"#,
+        named = json!(named),
+    );
+    browser.wait(named, &format!("onScreen({button})"));
+    browser.act(&format!("{button}.click();"));
+}
+
+/// Wait for what the Printers page says was done with the printers, in
+/// the line under their list.
+fn said_of_printers(browser: &mut Browser, words: &str) {
+    browser.wait(
+        words,
+        &format!(
+            r#"widget("usher.printers").querySelector(":scope > .usher-said")?.textContent === {words}"#,
+            words = json!(words),
+        ),
+    );
+}
+
+/// Wait for what the Printers page says was done with who prints
+/// where, in the line under it.
+fn said_of_points(browser: &mut Browser, words: &str) {
+    browser.wait(
+        words,
+        &format!(
+            r#"widget("usher.printers").querySelector(".usher-points > .usher-said")?.textContent === {words}"#,
+            words = json!(words),
+        ),
+    );
+}
+
+/// The printers of the Printers page as they are listed: for each group
+/// of rows the place that heads it, where one does, and the names under
+/// it.
+const PRINTERS_LISTED: &str = r#"
+    return [...widget("usher.printers").querySelectorAll("tbody")].map((group) => [
+      group.querySelector("tr.usher-place th")?.textContent ?? null,
+      [...group.querySelectorAll("tr:not(.usher-place):not(.usher-under)")]
+        .map((row) => row.cells[0].firstChild.textContent),
+    ]);
+"#;
+
+/// Who prints where, as the Printers page lists it: each point of issue
+/// by its name, with what is said under the name and the printers it
+/// prints on in their order, or the words that say it prints nowhere.
+const POINTS_LISTED: &str = r#"
+    return [...widget("usher.printers").querySelectorAll(".usher-point")].map((point) => [
+      point.querySelector(".usher-point-name").textContent,
+      point.querySelector(":scope > .usher-hint")?.textContent ?? null,
+      point.querySelector("ol") === null
+        ? point.querySelector(":scope > p:not(.usher-point-name):not(.usher-hint)")?.textContent ?? null
+        : [...point.querySelectorAll("ol .usher-prints-name")].map((name) => name.firstChild.textContent),
+    ]);
+"#;
+
+/// Choose a printer among those a point of issue can be given on the
+/// Printers page, and add it, as a person does.
+fn add_for_point(browser: &mut Browser, point: &str, printer: &str) {
+    let group = format!(
+        r#"[...widget("usher.printers").querySelectorAll(".usher-point")].find((point) => point.dataset.point === {point})"#,
+        point = json!(point),
+    );
+    browser.wait(
+        "the printer to add",
+        &format!(
+            r#"[...({group}?.querySelectorAll("select option") ?? [])].some((entry) => entry.value === {printer})"#,
+            printer = json!(printer),
+        ),
+    );
+    browser.act(&format!(
+        r#"
+        const group = {group};
+        const choice = group.querySelector("select");
+        choice.value = {printer};
+        choice.dispatchEvent(new Event("change", {{ bubbles: true }}));
+        group.querySelector(".usher-adds button").click();
+        "#,
+        printer = json!(printer),
+    ));
+}
+
+/// The measures a portable bitmap says it has: how wide, and how high.
+fn measures_of(pbm: &[u8]) -> (u64, u64) {
+    let head = String::from_utf8_lossy(&pbm[..pbm.len().min(32)]).into_owned();
+    let mut words = head.split_ascii_whitespace();
+    assert_eq!(words.next(), Some("P4"), "{head:?}");
+    let mut measure = || {
+        words
+            .next()
+            .and_then(|word| word.parse().ok())
+            .unwrap_or_else(|| panic!("no measure in {head:?}"))
+    };
+    (measure(), measure())
+}
+
+#[test]
+fn an_administrator_keeps_the_printers_and_says_who_prints_where() {
+    use base64::Engine as _;
+    let Some(mut browser) = Browser::open() else {
+        return;
+    };
+    browser.size(1280, 900);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let simulated = runtime.block_on(Simulated::start());
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+    let anna = signed_in_already(&mut browser, &steward);
+    hands_out(&steward, &simulated, &anna);
+    // A screen that is a satellite, by the door.
+    let (lobby_secret, lobby) = steward
+        .adopt_as(&anna, json!({ "name": "Lobby", "place": "By the door" }));
+    let lobby_point =
+        format!("satellite:{}", lobby["id"].as_str().expect("an id"));
+
+    // The page of the printers stands after the satellites in the menu.
+    // With no printer yet it says so, and nobody prints anywhere: the
+    // unit's own counter stands first, then every satellite by its name
+    // and its place.
+    browser.go(&format!("{}/", steward.address()));
+    go_to(&mut browser, "Printers");
+    browser.wait(
+        "no printer yet",
+        r#"widget("usher.printers").innerText.includes("No printer is kept yet.") && widget("usher.printers").querySelectorAll(".usher-point").length === 2"#,
+    );
+    assert_eq!(
+        browser.look(POINTS_LISTED),
+        json!([
+            [
+                "This unit's counter",
+                "Everyone who hands out a voucher signed in as a person.",
+                "Prints nowhere: no print is offered here.",
+            ],
+            [
+                "Lobby",
+                "By the door",
+                "Prints nowhere: no print is offered here."
+            ],
+        ])
+    );
+
+    // A printer is added from a form: its name and its place, and where
+    // it hangs, one of three. A person stands in the first field.
+    press_on_printers(&mut browser, "Add a printer");
+    browser.wait(
+        "the form",
+        r#"onScreen(widget("usher.printers").querySelector('form [name="name"]'))"#,
+    );
+    let form = browser.look(
+        r#"
+        const form = widget("usher.printers").querySelector("form");
+        return {
+          heading: form.querySelector("h4").textContent,
+          named: form.getAttribute("aria-labelledby") === form.querySelector("h4").id,
+          at: document.activeElement.name,
+          ways: [...form.querySelectorAll('input[name="hangs"]')].map((way) =>
+            [way.value, way.labels[0].textContent, way.checked]),
+          asked: [...form.querySelectorAll("legend")].filter(onScreen).map((asked) => asked.textContent),
+          fields: [...form.querySelectorAll("label[for]")].filter(onScreen)
+            .map((label) => label.textContent),
+        };
+        "#,
+    );
+    assert_eq!(form["heading"], "Add a printer", "{form}");
+    assert_eq!(form["named"], true, "{form}");
+    assert_eq!(form["at"], "name", "{form}");
+    assert_eq!(
+        form["ways"],
+        json!([
+            ["usb", "On a USB port of this unit", true],
+            ["tcp", "On the network", false],
+            ["simulated", "Simulated", false],
+        ]),
+        "{form}"
+    );
+    assert_eq!(
+        form["asked"],
+        json!(["Where it hangs", "What it is"]),
+        "{form}"
+    );
+    // On a USB port the printers the unit finds there are offered, or
+    // the form says that it finds none.
+    browser.wait(
+        "what is on the unit's USB ports",
+        r#"(() => {
+          const form = widget("usher.printers").querySelector("form");
+          return onScreen(form.querySelector('[name="found"]'))
+            !== form.innerText.includes("No printer is found on a USB port of this unit. Plug one in, and look again.");
+        })()"#,
+    );
+
+    // On the network a printer does not say what it is: its language,
+    // its type and its paper are said here, from what the printing
+    // knows. What is left unsaid is said at the field it concerns, and
+    // nothing is sent.
+    let known = printing(&steward, &anna, "known", json!({}));
+    let languages = known["languages"].as_array().expect("languages");
+    let words_of = |listed: &Value| -> Vec<String> {
+        listed
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|one| one["words"].as_str().unwrap().to_string())
+            .collect()
+    };
+    browser.act(
+        r#"
+        const form = widget("usher.printers").querySelector("form");
+        type(form.querySelector('[name="name"]'), "Reception");
+        type(form.querySelector('[name="place"]'), "Building A");
+        form.querySelector('input[value="tcp"]').click();
+        type(form.querySelector('[name="address"]'), "printer.example");
+        form.requestSubmit();
+        "#,
+    );
+    let entries = |name: &str| {
+        format!(
+            r#"[...widget("usher.printers").querySelector('form [name="{name}"]').options].map((entry) => entry.textContent)"#
+        )
+    };
+    let wrong_at = |name: &str| {
+        format!(
+            r#"(() => {{
+              const field = widget("usher.printers").querySelector('form [name="{name}"]');
+              return [
+                field.getAttribute("aria-invalid"),
+                document.getElementById(field.getAttribute("aria-describedby")).textContent,
+                document.activeElement === field,
+              ];
+            }})()"#
+        )
+    };
+    let mut spoken = vec!["Choose...".to_string()];
+    spoken.extend(words_of(&known["languages"]));
+    assert_eq!(
+        browser.look(&format!("return {};", entries("speaks"))),
+        json!(spoken)
+    );
+    assert_eq!(
+        browser.look(&format!("return {};", wrong_at("speaks"))),
+        json!([
+            "true",
+            "Choose the language: a printer on the network does not say what it is.",
+            true,
+        ])
+    );
+    // A language is chosen: its types are offered, each with how far it
+    // goes that the usher prints on it, and the paper it names.
+    let choose = |name: &str, value: &str| {
+        format!(
+            r#"
+            const list = widget("usher.printers").querySelector('form [name="{name}"]');
+            list.value = {value};
+            list.dispatchEvent(new Event("change", {{ bubbles: true }}));
+            "#,
+            value = json!(value),
+        )
+    };
+    let named = languages
+        .iter()
+        .find(|language| !language["media"].as_array().unwrap().is_empty())
+        .expect("a language that names its paper");
+    browser.act(&choose("speaks", named["name"].as_str().unwrap()));
+    let mut models = vec!["Choose...".to_string()];
+    models.extend(named["models"].as_array().unwrap().iter().map(|model| {
+        format!(
+            "{} ({})",
+            model["name"].as_str().unwrap(),
+            model["evidence"].as_str().unwrap()
+        )
+    }));
+    assert!(
+        models.len() > 1
+            && models[1..].iter().all(|model| {
+                ["(proven)", "(to reference)", "(to specification)"]
+                    .iter()
+                    .any(|evidence| model.ends_with(evidence))
+            }),
+        "{models:?}"
+    );
+    let mut papers = vec!["Choose...".to_string()];
+    papers.extend(words_of(&named["media"]));
+    assert_eq!(
+        browser.look(&format!(
+            r#"
+            const form = widget("usher.printers").querySelector("form");
+            return {{
+              wrong: form.querySelector('[name="speaks"]').getAttribute("aria-invalid"),
+              models: {models},
+              papers: {papers},
+              hints: [...form.querySelectorAll(".usher-hint")].filter(onScreen).map((hint) => hint.textContent),
+            }};
+            "#,
+            models = entries("model"),
+            papers = entries("media"),
+        )),
+        json!({
+            "wrong": null,
+            "models": models,
+            "papers": papers,
+            "hints": [
+                "A department, a floor, a building. Printers that stand in the same place are listed together.",
+                "The printer's name or address on the network, with a port or without.",
+                "Proven: the usher has printed on that type. To reference: it sends what a program confirmed on that type sends. To specification: written from the maker's command reference, and not yet compared with a print.",
+                "What is loaded in the printer.",
+                "For a printer whose labels come out upside down as you read them. Try it with a test print.",
+            ],
+        })
+    );
+    // For the eye: the form, with the three ways a printer hangs. The
+    // page is looked at from its top, so that the bar stands above the
+    // form and not across it.
+    if let Some(to) = picture_of(Some("printers-add")) {
+        browser.act("window.scrollTo(0, 0);");
+        browser.picture(&to);
+    }
+    browser.act(
+        r#"widget("usher.printers").querySelector("form").requestSubmit();"#,
+    );
+    assert_eq!(
+        browser.look(&format!("return {};", wrong_at("model"))),
+        json!([
+            "true",
+            "Choose the type: a printer on the network does not say what it is.",
+            true,
+        ])
+    );
+    // A language that names no paper has its paper typed, by its
+    // measures.
+    if let Some(measured) = languages
+        .iter()
+        .find(|language| language["media"].as_array().unwrap().is_empty())
+    {
+        browser.act(&choose("speaks", measured["name"].as_str().unwrap()));
+        assert_eq!(
+            browser.look(
+                r#"
+                const form = widget("usher.printers").querySelector("form");
+                const typed = form.querySelector('[name="measures"]');
+                return [
+                  onScreen(form.querySelector('[name="media"]')),
+                  onScreen(typed),
+                  typed.labels[0].textContent,
+                  typed.closest(".usher-field").querySelector(".usher-hint").textContent,
+                ];
+                "#
+            ),
+            json!([
+                false,
+                true,
+                "Paper",
+                "Its measures in millimetres: wide by long for labels, as 57x32; the width alone for continuous paper, as 57.",
+            ])
+        );
+    }
+    assert_eq!(
+        printing(&steward, &anna, "printers", json!({}))["printers"],
+        json!([]),
+        "nothing was sent"
+    );
+
+    // A simulated printer takes a label and shows it on the page: what
+    // a printer is, is not asked of it. It is added, and stands in the
+    // list; whoever added it is back at what a printer is added with.
+    browser.act(
+        r#"widget("usher.printers").querySelector('form input[value="simulated"]').click();"#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"
+            const form = widget("usher.printers").querySelector("form");
+            return [
+              [...form.querySelectorAll("legend")].filter(onScreen).map((asked) => asked.textContent),
+              [...form.querySelectorAll(".usher-hint")].filter(onScreen).map((hint) => hint.textContent),
+              form.querySelector('[name="model"]').getAttribute("aria-invalid"),
+            ];
+            "#
+        ),
+        json!([
+            ["Where it hangs"],
+            [
+                "A department, a floor, a building. Printers that stand in the same place are listed together.",
+                "It takes a label and shows it here; for trying the usher with no printer.",
+                "For a printer whose labels come out upside down as you read them. Try it with a test print.",
+            ],
+            null,
+        ])
+    );
+    browser.act(
+        r#"widget("usher.printers").querySelector("form").requestSubmit();"#,
+    );
+    said_of_printers(&mut browser, "Reception is added.");
+    assert_eq!(
+        browser.look(
+            r#"return [document.activeElement.textContent, onScreen(widget("usher.printers").querySelector("form"))];"#
+        ),
+        json!(["Add a printer", false])
+    );
+    press_on_printers(&mut browser, "Add a printer");
+    browser.act(
+        r#"
+        const form = widget("usher.printers").querySelector("form");
+        type(form.querySelector('[name="name"]'), " Hall ");
+        type(form.querySelector('[name="place"]'), "Building B");
+        form.querySelector('input[value="simulated"]').click();
+        form.requestSubmit();
+        "#,
+    );
+    said_of_printers(&mut browser, "Hall is added.");
+
+    // A name another printer has is refused, and said at the name.
+    press_on_printers(&mut browser, "Add a printer");
+    browser.act(
+        r#"
+        const form = widget("usher.printers").querySelector("form");
+        type(form.querySelector('[name="name"]'), "reception");
+        form.querySelector('input[value="simulated"]').click();
+        form.requestSubmit();
+        "#,
+    );
+    browser.wait(
+        "why not",
+        r#"widget("usher.printers").querySelector('form [name="name"]').getAttribute("aria-invalid") === "true""#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"
+            const field = widget("usher.printers").querySelector('form [name="name"]');
+            return [
+              document.getElementById(field.getAttribute("aria-describedby")).textContent,
+              document.activeElement === field,
+            ];
+            "#
+        ),
+        json!(["Another printer is called reception.", true])
+    );
+    press_on_printers(&mut browser, "Cancel");
+    assert_eq!(
+        browser.look(
+            r#"return [document.activeElement.textContent, onScreen(widget("usher.printers").querySelector("form"))];"#
+        ),
+        json!(["Add a printer", false])
+    );
+
+    // A printer is asked how it is, and says so under its row: ready,
+    // with what it has loaded.
+    let under = |printer: &str| {
+        format!(
+            r#"[...widget("usher.printers").querySelectorAll("tr.usher-under [role=status]")].find((said) => said.dataset.under === {printer})"#,
+            printer = json!(printer),
+        )
+    };
+    press_on_printers(&mut browser, "Ask how Reception is");
+    said_of_printers(&mut browser, "Reception: Ready");
+    assert_eq!(
+        browser.look(&format!(
+            r#"return [...{under}.children].map((part) => part.textContent);"#,
+            under = under("p1"),
+        )),
+        json!(["Ready", "It has 62 mm continuous tape (simulated) loaded."])
+    );
+    // For the eye: the printers under their places.
+    if let Some(to) = picture_of(Some("printers")) {
+        browser.act("document.activeElement?.blur();");
+        browser.picture(&to);
+    }
+
+    // A printer that is added elsewhere stands in the list at once: the
+    // printing says that the printers changed, and the page asks again.
+    // This one stands on the network, where nothing listens.
+    let away = nobody_listens();
+    printing(
+        &steward,
+        &anna,
+        "add",
+        json!({
+            "name": "Ward 3", "place": "Building A",
+            "at": { "tcp": { "address": away } }, "speaks": named["name"],
+        }),
+    );
+    browser.wait(
+        "the printer that was added elsewhere",
+        r#"widget("usher.printers").querySelector("table")?.innerText.includes("Ward 3")"#,
+    );
+
+    // The printers stand under their places, in the order of the places
+    // and of their names; each says where it hangs, what it is and
+    // whether it is switched on, and what can be done with it.
+    assert_eq!(
+        browser.look(PRINTERS_LISTED),
+        json!([
+            ["Building A", ["Reception", "Ward 3"]],
+            ["Building B", ["Hall"]],
+        ])
+    );
+    let rows = browser.look(
+        r#"
+        return [...widget("usher.printers").querySelectorAll("tbody tr:not(.usher-place):not(.usher-under)")]
+          .map((row) => [
+            ...[...row.cells].slice(0, 4).map((cell) => cell.textContent),
+            row.cells[3].querySelector("input").checked,
+            [...row.cells[4].querySelectorAll("button")].map((button) => button.textContent),
+          ]);
+        "#,
+    );
+    let can = ["How it is", "Test print", "Edit", "Remove"];
+    let can_simulated = [
+        "How it is",
+        "Test print",
+        "Show the last label",
+        "Edit",
+        "Remove",
+    ];
+    assert_eq!(
+        rows,
+        json!([
+            [
+                "Reception",
+                "Simulated",
+                "Takes a label and shows it here",
+                "On",
+                true,
+                can_simulated,
+            ],
+            [
+                "Ward 3",
+                format!("On the network, at {away}"),
+                named["words"],
+                "On",
+                true,
+                can,
+            ],
+            [
+                "Hall",
+                "Simulated",
+                "Takes a label and shows it here",
+                "On",
+                true,
+                can_simulated,
+            ],
+        ])
+    );
+    assert_eq!(
+        browser.look(
+            r#"return [...widget("usher.printers").querySelectorAll("thead th")].map((column) => column.textContent);"#
+        ),
+        json!(["Name", "Where it hangs", "What it is", "Switched on", ""])
+    );
+
+    // One that was not reached says why.
+    press_on_printers(&mut browser, "Ask how Ward 3 is");
+    said_of_printers(&mut browser, "Ward 3: Not reached");
+    assert_eq!(
+        browser.look(&format!(
+            r#"return [...{under}.children].map((part) => part.textContent);"#,
+            under = under("p3"),
+        )),
+        json!([
+            "Not reached",
+            "The printer could not be reached. It is switched off, or the way to it is down."
+        ])
+    );
+
+    // A printer is tried with a specimen, and the page says where it
+    // came out and that the printer reported it printed; one that is
+    // away says so.
+    press_on_printers(&mut browser, "Print a specimen at Reception");
+    let tried =
+        "The specimen came out at Reception, and the printer reported it printed.";
+    said_of_printers(&mut browser, tried);
+    assert_eq!(
+        browser.look(&format!(
+            r#"return {under}.textContent;"#,
+            under = under("p1"),
+        )),
+        tried
+    );
+    press_on_printers(&mut browser, "Print a specimen at Ward 3");
+    let not_tried = "Ward 3 did not print. The printer could not be reached. It is switched off, or the way to it is down.";
+    said_of_printers(&mut browser, not_tried);
+    assert_eq!(
+        browser.look(&format!(
+            r#"return [{under}.textContent, widget("usher.printers").querySelector(":scope > .usher-said").classList.contains("usher-trouble")];"#,
+            under = under("p3"),
+        )),
+        json!([not_tried, true])
+    );
+
+    // A simulated printer shows the label it printed last: drawn dot
+    // for dot, black on white whatever the theme, and no wider than
+    // the page has room for.
+    press_on_printers(&mut browser, "Show the last label of Reception");
+    browser.wait(
+        "the label",
+        r#"widget("usher.printers").querySelector("canvas.usher-label") !== null"#,
+    );
+    let label = browser.look(
+        r#"
+        const sheet = widget("usher.printers").querySelector("canvas.usher-label");
+        const dots = sheet.getContext("2d").getImageData(0, 0, sheet.width, sheet.height).data;
+        let black = 0;
+        let white = 0;
+        for (let at = 0; at < dots.length; at += 4) {
+          if (dots[at] === 0 && dots[at + 3] === 255) black += 1;
+          else if (dots[at] === 255 && dots[at + 3] === 255) white += 1;
+        }
+        const box = sheet.getBoundingClientRect();
+        return {
+          measures: [sheet.width, sheet.height],
+          black: black > 0,
+          white: white > black,
+          nothing_else: black + white === sheet.width * sheet.height,
+          says: [sheet.getAttribute("role"), sheet.getAttribute("aria-label")],
+          ground: getComputedStyle(sheet).backgroundColor,
+          fits: box.width > 0 && box.right <= sheet.closest("td").getBoundingClientRect().right + 1
+            && Math.abs(box.width / box.height - sheet.width / sheet.height) < 0.02,
+          hides: [...widget("usher.printers").querySelectorAll("button")]
+            .some((button) => button.getAttribute("aria-label") === "Hide the label of Reception"),
+        };
+        "#,
+    );
+    let printed = printing(&steward, &anna, "printed", json!({ "id": "p1" }));
+    let pbm = base64::engine::general_purpose::STANDARD
+        .decode(printed["label"]["pbm_b64"].as_str().expect("a label"))
+        .unwrap();
+    let (width, height) = measures_of(&pbm);
+    assert_eq!(
+        label,
+        json!({
+            "measures": [width, height],
+            "black": true, "white": true, "nothing_else": true,
+            "says": ["img", "The label Reception printed last"],
+            "ground": "rgb(255, 255, 255)",
+            "fits": true, "hides": true,
+        })
+    );
+    press_on_printers(&mut browser, "Hide the label of Reception");
+    browser.wait(
+        "the label put away",
+        r#"widget("usher.printers").querySelector("canvas.usher-label") === null"#,
+    );
+    // One that has printed nothing says so.
+    press_on_printers(&mut browser, "Show the last label of Hall");
+    browser.wait(
+        "no label",
+        &format!(
+            r#"{under}?.textContent === "It has printed no label since the usher was started.""#,
+            under = under("p2"),
+        ),
+    );
+    press_on_printers(&mut browser, "Hide the label of Hall");
+
+    // Who prints where. The unit's counter is given two printers, in
+    // their order, from the printers under their places; each change is
+    // sent at once and said under it.
+    assert_eq!(
+        browser.look(
+            r#"
+            const choice = widget("usher.printers").querySelector('.usher-point[data-point="unit"] select');
+            return [
+              choice.getAttribute("aria-label"),
+              [...choice.querySelectorAll("optgroup")].map((place) =>
+                [place.label, [...place.children].map((entry) => entry.textContent)]),
+            ];
+            "#
+        ),
+        json!([
+            "A printer to add for This unit's counter",
+            [
+                ["Building A", ["Reception", "Ward 3"]],
+                ["Building B", ["Hall"]],
+            ],
+        ])
+    );
+    add_for_point(&mut browser, "unit", "p1");
+    said_of_points(
+        &mut browser,
+        "This unit's counter now prints on Reception.",
+    );
+    add_for_point(&mut browser, "unit", "p2");
+    said_of_points(&mut browser, "This unit's counter now prints on Hall.");
+    let prints_on = |point: &str| {
+        printing(&steward, &anna, "printers", json!({}))["prints_on"][point]
+            .clone()
+    };
+    assert_eq!(prints_on("unit"), json!(["p1", "p2"]));
+    // The first is where a label goes: one is moved earlier, and later
+    // again; the first cannot go earlier and the last cannot go later.
+    press_on_printers(
+        &mut browser,
+        "Move Hall earlier for This unit's counter",
+    );
+    said_of_points(
+        &mut browser,
+        "Hall is moved earlier for This unit's counter.",
+    );
+    assert_eq!(prints_on("unit"), json!(["p2", "p1"]));
+    assert_eq!(
+        browser.look(
+            r#"
+            return [...widget("usher.printers").querySelectorAll('.usher-point[data-point="unit"] ol li')]
+              .map((one) => [...one.querySelectorAll("button")].map((button) => button.disabled));
+            "#
+        ),
+        json!([[true, false, false], [false, true, false]])
+    );
+    press_on_printers(&mut browser, "Move Hall later for This unit's counter");
+    said_of_points(
+        &mut browser,
+        "Hall is moved later for This unit's counter.",
+    );
+    assert_eq!(prints_on("unit"), json!(["p1", "p2"]));
+    // A printer is added and taken off again.
+    add_for_point(&mut browser, "unit", "p3");
+    said_of_points(&mut browser, "This unit's counter now prints on Ward 3.");
+    press_on_printers(&mut browser, "Take Ward 3 off This unit's counter");
+    said_of_points(
+        &mut browser,
+        "This unit's counter no longer prints on Ward 3.",
+    );
+    // The satellite is given one.
+    add_for_point(&mut browser, &lobby_point, "p2");
+    said_of_points(&mut browser, "Lobby now prints on Hall.");
+    assert_eq!(prints_on("unit"), json!(["p1", "p2"]));
+    assert_eq!(prints_on(&lobby_point), json!(["p2"]));
+    assert_eq!(
+        browser.look(POINTS_LISTED),
+        json!([
+            [
+                "This unit's counter",
+                "Everyone who hands out a voucher signed in as a person.",
+                ["Reception", "Hall"],
+            ],
+            ["Lobby", "By the door", ["Hall"]],
+        ])
+    );
+    // For the eye: who prints where, under the printers.
+    if let Some(to) = picture_of(Some("printers-who")) {
+        browser.act("document.activeElement?.blur();");
+        browser.picture(&to);
+    }
+
+    // The counter offers the print where it prints: with two printers
+    // it offers the choice of them.
+    go_to(&mut browser, "Counter");
+    browser.act(r#"widget("usher.counter").querySelector("button.usher-type").click();"#);
+    let print = r#"widget("usher.counter").querySelector(".usher-ticket ~ .row .usher-print")"#;
+    let offered_at = format!(
+        r#"(() => {{
+          const part = {print};
+          if (!part) return null;
+          const choice = part.querySelector("select");
+          return [
+            onScreen(part) ? part.querySelector("button").textContent : null,
+            onScreen(choice) ? [...choice.options].map((entry) => entry.textContent) : null,
+          ];
+        }})()"#
+    );
+    browser.wait(
+        "the print, with the choice",
+        &format!(
+            r#"JSON.stringify({offered_at}) === '["Print",["Reception","Hall"]]'"#
+        ),
+    );
+
+    // A printer that is switched off is offered to nobody, and keeps
+    // its place for when it is switched on again: the counter, on
+    // another page, prints at the one that is left, and the satellite
+    // is told none.
+    go_to(&mut browser, "Printers");
+    browser.act(
+        r#"widget("usher.printers").querySelector(`[aria-label="Hall, switched on"]`).click();"#,
+    );
+    said_of_printers(
+        &mut browser,
+        "Hall is switched off: nobody is offered it.",
+    );
+    assert_eq!(
+        browser.look(
+            r#"
+            return [...widget("usher.printers").querySelectorAll(".usher-point ol li")]
+              .map((one) => [one.querySelector(".usher-prints-name").firstChild.textContent,
+                one.querySelector(".usher-pill")?.textContent ?? null]);
+            "#
+        ),
+        json!([["Reception", null], ["Hall", "Off"], ["Hall", "Off"]])
+    );
+    assert_eq!(
+        printing(&steward, &anna, "offered", json!({}))["printers"],
+        json!([{ "id": "p1", "name": "Reception", "place": "Building A" }])
+    );
+    assert_eq!(prints_on("unit"), json!(["p1", "p2"]), "its place is kept");
+    let screen = steward.as_satellite(&lobby_secret);
+    let (status, told) = steward.usher("GET", "satellite", None, &screen);
+    assert_eq!(status, 200, "{told}");
+    assert_eq!(told["printers"], json!([]), "{told}");
+    go_to(&mut browser, "Counter");
+    browser.wait(
+        "the print at the one printer that is left",
+        &format!(
+            r#"JSON.stringify({offered_at}) === '["Print at Reception",null]'"#
+        ),
+    );
+    browser.act(
+        r#"[...widget("usher.counter").querySelectorAll("button")].find((b) => b.textContent === "Done").click();"#,
+    );
+
+    // By the keyboard alone: the Tab key goes through what can be done
+    // with a printer, what it stands on is ringed, and the space bar
+    // works the switch. Whoever worked it is still at it when the list
+    // has been drawn again.
+    go_to(&mut browser, "Printers");
+    browser.act(
+        r#"widget("usher.printers").querySelector(`[aria-label="Hall, switched on"]`).focus();"#,
+    );
+    let at = r#"
+        const at = document.activeElement;
+        const ring = getComputedStyle(at);
+        return [at.getAttribute("aria-label") ?? at.textContent, ring.outlineStyle, ring.outlineWidth];
+    "#;
+    for label in [
+        "Ask how Hall is",
+        "Print a specimen at Hall",
+        "Show the last label of Hall",
+        "Edit Hall",
+        "Remove Hall",
+    ] {
+        browser.press("Tab", false);
+        assert_eq!(browser.look(at), json!([label, "solid", "3px"]));
+    }
+    for _ in 0..5 {
+        browser.press("Tab", true);
+    }
+    assert_eq!(
+        browser.look(at),
+        json!(["Hall, switched on", "solid", "3px"])
+    );
+    browser.press("Space", false);
+    said_of_printers(&mut browser, "Hall is switched on.");
+    browser.wait(
+        "the printer listed as switched on",
+        r#"widget("usher.printers").querySelector(`[aria-label="Hall, switched on"]`).checked === true && !widget("usher.printers").querySelector(".usher-point .usher-pill")"#,
+    );
+    assert_eq!(
+        browser.look(at),
+        json!(["Hall, switched on", "solid", "3px"])
+    );
+    assert_eq!(
+        printing(&steward, &anna, "offered", json!({}))["printers"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    // A printer is moved in the order a point of issue prints in. At
+    // the top it can go no further: whoever moved it is then at the
+    // button that moves it the other way.
+    browser.act(
+        r#"widget("usher.printers").querySelector(`[aria-label="Move Hall earlier for This unit's counter"]`).focus();"#,
+    );
+    browser.press("Enter", false);
+    said_of_points(
+        &mut browser,
+        "Hall is moved earlier for This unit's counter.",
+    );
+    assert_eq!(
+        browser.look(at),
+        json!(["Move Hall later for This unit's counter", "solid", "3px"])
+    );
+    browser.press("Enter", false);
+    said_of_points(
+        &mut browser,
+        "Hall is moved later for This unit's counter.",
+    );
+    assert_eq!(
+        browser.look(at),
+        json!(["Move Hall earlier for This unit's counter", "solid", "3px"])
+    );
+    assert_eq!(prints_on("unit"), json!(["p1", "p2"]));
+    // A printer is removed after it was asked once more, in its own
+    // row: whoever asked stands at the answer that keeps it, and, once
+    // it is kept, at what removes it again.
+    browser.act(
+        r#"widget("usher.printers").querySelector(`[aria-label="Remove Hall"]`).focus();"#,
+    );
+    browser.press("Enter", false);
+    assert_eq!(
+        browser.look(
+            r#"
+            const at = document.activeElement;
+            return [at.textContent, at.closest("td").innerText.replace(/\s+/g, " ").trim()];
+            "#
+        ),
+        json!(["No", "Remove Hall? Yes No"])
+    );
+    browser.press("Enter", false);
+    assert_eq!(browser.look(at), json!(["Remove Hall", "solid", "3px"]));
+    assert_eq!(
+        printing(&steward, &anna, "printers", json!({}))["printers"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3,
+        "asked once, nothing is removed"
+    );
+    browser.press("Enter", false);
+    browser.press("Tab", true);
+    assert_eq!(browser.look(at)[0], "Yes");
+    browser.press("Enter", false);
+    said_of_printers(
+        &mut browser,
+        "Hall is removed. Nobody prints on it any more.",
+    );
+    assert_eq!(browser.look(at), json!(["Add a printer", "solid", "3px"]));
+    assert_eq!(prints_on("unit"), json!(["p1"]));
+    assert_eq!(prints_on(&lobby_point), Value::Null);
+    // With one place left there is nothing to head: each says its place
+    // under its name.
+    assert_eq!(
+        browser.look(PRINTERS_LISTED),
+        json!([[null, ["Reception", "Ward 3"]]])
+    );
+    assert_eq!(
+        browser.look(
+            r#"return [...widget("usher.printers").querySelectorAll("tbody td:first-child .usher-at")].map((place) => place.textContent);"#
+        ),
+        json!(["Building A", "Building A"])
+    );
+
+    // A printer is edited in the same form, which shows it as it is.
+    // Whoever edited it is back at what it was opened with.
+    press_on_printers(&mut browser, "Edit Reception");
+    browser.wait(
+        "the form",
+        r#"onScreen(widget("usher.printers").querySelector('form [name="name"]'))"#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"
+            const form = widget("usher.printers").querySelector("form");
+            return [
+              form.querySelector("h4").textContent,
+              form.querySelector('[name="name"]').value,
+              form.querySelector('[name="place"]').value,
+              form.querySelector('input[name="hangs"]:checked').value,
+            ];
+            "#
+        ),
+        json!(["Edit Reception", "Reception", "Building A", "simulated"])
+    );
+    // Which edge of a label leaves a printer first differs from printer
+    // to printer: one whose labels come out upside down is said so, in
+    // words for whoever holds the label, and its row says it.
+    assert_eq!(
+        browser.look(
+            r#"
+            const turned = widget("usher.printers").querySelector('form [name="turned"]');
+            return [
+              turned.type,
+              turned.checked,
+              turned.labels[0].textContent,
+              turned.closest(".usher-field").querySelector(".usher-hint").textContent,
+            ];
+            "#
+        ),
+        json!([
+            "checkbox",
+            false,
+            "Print the label the other way round",
+            "For a printer whose labels come out upside down as you read them. Try it with a test print.",
+        ])
+    );
+    browser.act(
+        r#"
+        const form = widget("usher.printers").querySelector("form");
+        type(form.querySelector('[name="place"]'), "Building A, ground floor");
+        form.querySelector('[name="turned"]').click();
+        form.requestSubmit();
+        "#,
+    );
+    said_of_printers(&mut browser, "Reception is saved.");
+    browser.wait(
+        "the printer under its new place",
+        r#"widget("usher.printers").querySelectorAll("tr.usher-place").length === 2"#,
+    );
+    assert_eq!(
+        browser.look(PRINTERS_LISTED),
+        json!([
+            ["Building A", ["Ward 3"]],
+            ["Building A, ground floor", ["Reception"]],
+        ])
+    );
+    assert_eq!(browser.look(at)[0], "Edit Reception");
+    assert_eq!(
+        browser.look(
+            r#"
+            return [...widget("usher.printers").querySelectorAll("tbody tr:not(.usher-place):not(.usher-under)")]
+              .map((row) => [...row.cells[2].childNodes].map((part) => part.textContent));
+            "#
+        ),
+        json!([
+            [named["words"]],
+            [
+                "Takes a label and shows it here",
+                "Labels are printed the other way round",
+            ],
+        ])
+    );
+    let kept = printing(&steward, &anna, "printers", json!({}));
+    assert_eq!(
+        kept["printers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|printer| (
+                printer["name"].as_str().unwrap(),
+                printer["turned"] == true
+            ))
+            .collect::<Vec<_>>(),
+        [("Reception", true), ("Ward 3", false)],
+        "{kept}"
+    );
+
+    // A printer that has still to be told what it is says so when it
+    // is asked how it is, and its form then opens at the field that
+    // says it. This one stands on the network, where something
+    // listens, and nothing says what language it speaks.
+    let listens = TcpListener::bind("127.0.0.1:0").unwrap();
+    printing(
+        &steward,
+        &anna,
+        "add",
+        json!({
+            "name": "Ward 4", "place": "Building A",
+            "at": { "tcp": { "address": listens.local_addr().unwrap().to_string() } },
+        }),
+    );
+    press_on_printers(&mut browser, "Ask how Ward 4 is");
+    said_of_printers(&mut browser, "Ward 4: Not asked");
+    assert_eq!(
+        browser.look(&format!(
+            r#"return [...{under}.children].map((part) => part.textContent);"#,
+            under = under("p4"),
+        )),
+        json!([
+            "Not asked",
+            "Nothing says what language the printer speaks. An administrator says it on the page Printers."
+        ])
+    );
+    press_on_printers(&mut browser, "Edit Ward 4");
+    browser.wait(
+        "the form, at the language",
+        r#"onScreen(widget("usher.printers").querySelector('form [name="speaks"]')) && document.activeElement.name === "speaks""#,
+    );
+    press_on_printers(&mut browser, "Cancel");
+    drop(listens);
+
+    // On a narrow screen nothing runs off the side: the list is moved
+    // sideways in its box, what can be done with a printer stays at the
+    // box's edge, and who prints where stands under it in full.
+    browser.size(400, 800);
+    assert_eq!(
+        browser.look(
+            r#"
+            const page = widget("usher.printers");
+            const box = page.querySelector(".usher-scroll");
+            const within = box.getBoundingClientRect();
+            const inView = (part) => {
+              const at = part.getBoundingClientRect();
+              return at.width > 0 && at.left >= -1 && at.right <= document.documentElement.clientWidth + 1;
+            };
+            return {
+              sideways: document.documentElement.scrollWidth > innerWidth,
+              moved: box.scrollLeft,
+              rows: [...box.querySelectorAll("tbody td:last-child button")].every((button) => {
+                const at = button.getBoundingClientRect();
+                return at.width > 0 && at.left >= within.left - 1 && at.right <= within.right + 1;
+              }),
+              points: [...page.querySelectorAll(".usher-points button, .usher-points select")].every(inView),
+            };
+            "#
+        ),
+        json!({ "sideways": false, "moved": 0, "rows": true, "points": true })
+    );
+    browser.size(1280, 900);
+
+    // A satellite that is changed on its own page is named anew here,
+    // with nobody asking.
+    go_to(&mut browser, "Satellites");
+    browser.wait(
+        "the satellite's row",
+        r#"document.querySelector('.satellites-list li button[aria-label="Change Lobby"]') !== null"#,
+    );
+    browser.act(
+        r#"document.querySelector('.satellites-list li button[aria-label="Change Lobby"]').click();"#,
+    );
+    browser.wait(
+        "the form to change it",
+        r#"document.getElementById("change-satellite-form") !== null"#,
+    );
+    fill(&mut browser, json!({ "change-satellite-name": "Foyer" }));
+    browser.act(
+        r#"document.getElementById("change-satellite-form").requestSubmit();"#,
+    );
+    browser.wait(
+        "the satellite changed",
+        r#"document.querySelector(".satellites-said")?.textContent === "Foyer is changed.""#,
+    );
+    browser.wait(
+        "the satellite under its new name, among who prints where",
+        r#"[...widget("usher.printers").querySelectorAll(".usher-point-name")].map((name) => name.textContent).join() === "This unit's counter,Foyer""#,
+    );
+    assert_eq!(steward.stop(), Some(0));
+}
+
+/// Have the browser hold something under a name, as a page of the
+/// steward's kept it there: it is given it on a page of the steward's
+/// that starts nothing.
+fn keeps(browser: &mut Browser, steward: &Steward, name: &str, kept: &str) {
+    browser.go(&format!("{}/door.css", steward.address()));
+    browser.act(&format!(
+        r#"localStorage.setItem({name}, {kept});"#,
+        name = json!(name),
+        kept = json!(kept),
+    ));
+}
+
+/// What a voucher on the counter is printed with: what its button says
+/// and whether it can be pressed, the printers to choose among where
+/// there are several, with the one chosen, and what is said of the
+/// label; nothing where no print is offered.
+const PRINT_ON_THE_COUNTER: &str = r#"
+    const counter = widget("usher.counter");
+    const part = counter.querySelector(".usher-handed .usher-print");
+    if (!onScreen(part)) return null;
+    const choice = part.querySelector("select");
+    const said = counter.querySelector(".usher-handed > .usher-said");
+    return {
+      button: [part.querySelector("button").textContent, part.querySelector("button").getAttribute("aria-disabled")],
+      choice: onScreen(choice)
+        ? [
+            choice.value,
+            choice.disabled,
+            [...choice.querySelectorAll("optgroup")].map((place) =>
+              [place.label, [...place.children].map((entry) => entry.textContent)]),
+          ]
+        : null,
+      said: [said.textContent, said.classList.contains("usher-trouble")],
+    };
+"#;
+
+#[test]
+fn the_front_desk_prints_a_voucher_at_the_printer_it_chose() {
+    let Some(mut browser) = Browser::open() else {
+        return;
+    };
+    browser.size(1280, 900);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let simulated = runtime.block_on(Simulated::start());
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+    let anna = steward.set_up("Anna", PASSWORD);
+    hands_out(&steward, &simulated, &anna);
+
+    // Two printers, each in its place, and the unit's counter prints on
+    // both. Ben works the front desk, and is signed in at this browser.
+    let reception =
+        simulated_printer(&steward, &anna, "Reception", "Building A");
+    let hall = simulated_printer(&steward, &anna, "Hall", "Building B");
+    let prints_on = |printers: Value| {
+        printing(
+            &steward,
+            &anna,
+            "assign",
+            json!({ "point": "unit", "printers": printers }),
+        );
+    };
+    prints_on(json!([reception, hall]));
+    let pin = steward.add_front_desk(&anna, "Ben");
+    let ben = steward.signed_in("Ben", &pin);
+    keeps(
+        &mut browser,
+        &steward,
+        "evoBearer",
+        ben.bearer.as_deref().expect("a session"),
+    );
+    browser.go(&format!("{}/", steward.address()));
+    browser.wait(
+        "the counter",
+        r#"widget("usher.counter")?.querySelector("button.usher-type") != null"#,
+    );
+    // With no voucher on the counter there is nothing to print.
+    assert_eq!(
+        browser.look(
+            r#"return widget("usher.counter").querySelector(".usher-print");"#
+        ),
+        Value::Null
+    );
+
+    // A voucher is handed out, and can be printed where it stands: with
+    // more than one printer, the printers stand beside the button under
+    // their places, and the first is chosen.
+    let hand = r#"widget("usher.counter").querySelector("button.usher-type").click();"#;
+    browser.act(hand);
+    browser.wait(
+        "the voucher, with its print",
+        r#"onScreen(widget("usher.counter").querySelector(".usher-handed .usher-print"))"#,
+    );
+    let places =
+        json!([["Building A", ["Reception"]], ["Building B", ["Hall"]],]);
+    assert_eq!(
+        browser.look(PRINT_ON_THE_COUNTER),
+        json!({
+            "button": ["Print", "false"],
+            "choice": ["p1", false, places],
+            "said": ["", false],
+        })
+    );
+    assert_eq!(
+        browser.look(
+            r#"
+            const counter = widget("usher.counter");
+            return [
+              [...counter.querySelectorAll(".usher-handed .row > *")]
+                .map((part) => part.tagName === "BUTTON" ? part.textContent : part.className),
+              counter.querySelector(".usher-handed .usher-print select").getAttribute("aria-label"),
+            ];
+            "#
+        ),
+        json!([
+            ["Show to the guest", "usher-print", "Done"],
+            "The printer to print at",
+        ])
+    );
+    // For the eye: the voucher on the counter, with its print and the
+    // choice of printers.
+    if let Some(to) = picture_of(Some("counter-print")) {
+        browser.picture(&to);
+    }
+
+    // The desk chooses its own printer, which this browser remembers,
+    // and prints: the page says where the label came out. One press is
+    // one label: the button is not pressed again while the printer is
+    // waited for, and whoever pressed it stays at it.
+    browser.act(
+        r#"
+        const choice = widget("usher.counter").querySelector(".usher-handed .usher-print select");
+        choice.value = "p2";
+        choice.dispatchEvent(new Event("change", { bubbles: true }));
+        // What is asked of the printing is counted, and held until it
+        // is let go.
+        window.prints = 0;
+        window.held = true;
+        const real = window.fetch;
+        window.fetch = async (address, asked) => {
+          let print = false;
+          try {
+            print = JSON.parse(asked?.body ?? "{}").request_type === "print";
+          } catch {
+            print = false;
+          }
+          if (print) {
+            window.prints += 1;
+            if (window.held) await new Promise((letGo) => { window.letGo = letGo; });
+          }
+          return real(address, asked);
+        };
+        const button = widget("usher.counter").querySelector(".usher-handed .usher-print button");
+        button.focus();
+        button.click();
+        button.click();
+        "#,
+    );
+    assert_eq!(
+        browser.look(r#"return localStorage.getItem("usherPrinter");"#),
+        "p2"
+    );
+    browser.wait("the print asked for", "window.prints > 0");
+    assert_eq!(
+        browser.look(PRINT_ON_THE_COUNTER),
+        json!({
+            "button": ["Printing...", "true"],
+            "choice": ["p2", true, places],
+            "said": ["Printing at Hall.", false],
+        })
+    );
+    browser.act("window.held = false; window.letGo();");
+    browser.wait(
+        "where the label came out",
+        r#"widget("usher.counter").querySelector(".usher-handed > .usher-said").textContent === "Printed at Hall.""#,
+    );
+    assert_eq!(
+        browser.look(PRINT_ON_THE_COUNTER),
+        json!({
+            "button": ["Print", "false"],
+            "choice": ["p2", false, places],
+            "said": ["Printed at Hall.", false],
+        })
+    );
+    assert_eq!(
+        browser.look(
+            r#"return [window.prints, document.activeElement.textContent];"#
+        ),
+        json!([1, "Print"]),
+        "one press, one label, and whoever pressed is still at the button"
+    );
+    let label_of = |printer: &str| {
+        printing(&steward, &anna, "printed", json!({ "id": printer }))["label"]
+            .clone()
+    };
+    assert_eq!(label_of(&reception), Value::Null);
+    assert!(label_of(&hall)["pbm_b64"].is_string());
+
+    // Before the guest it is printed as well, at the printer chosen.
+    browser.act(
+        r#"[...widget("usher.counter").querySelectorAll("button")].find((b) => b.textContent === "Show to the guest").click();"#,
+    );
+    browser.wait(
+        "the voucher before the guest",
+        r#"widget("usher.counter").querySelector("dialog.usher-guest[open] .usher-print") !== null"#,
+    );
+    assert_eq!(
+        browser.look(
+            r#"
+            const sheet = widget("usher.counter").querySelector("dialog.usher-guest[open]");
+            const part = sheet.querySelector(".usher-print");
+            return [
+              part.querySelector("button").textContent,
+              part.querySelector("select").value,
+              [...sheet.querySelectorAll(".row > *")]
+                .map((one) => one.tagName === "BUTTON" ? one.textContent : one.className),
+            ];
+            "#
+        ),
+        json!(["Print", "p2", ["usher-print", "Done"]])
+    );
+    browser.act(
+        r#"widget("usher.counter").querySelector("dialog.usher-guest[open] .usher-print button").click();"#,
+    );
+    browser.wait(
+        "the second label",
+        r#"window.prints === 2 && widget("usher.counter").querySelector("dialog.usher-guest[open] .usher-said").textContent === "Printed at Hall." && widget("usher.counter").querySelector("dialog.usher-guest[open] .usher-print button").getAttribute("aria-disabled") === "false""#,
+    );
+    browser.act(
+        r#"[...widget("usher.counter").querySelectorAll("dialog.usher-guest[open] button")].find((b) => b.textContent === "Done").click();"#,
+    );
+
+    // The page loaded again, the desk's printer is still the one
+    // chosen.
+    browser.reload();
+    browser.wait(
+        "the counter",
+        r#"widget("usher.counter")?.querySelector("button.usher-type") != null"#,
+    );
+    browser.act(hand);
+    browser.wait(
+        "the voucher, with its print",
+        r#"onScreen(widget("usher.counter").querySelector(".usher-handed .usher-print"))"#,
+    );
+    assert_eq!(
+        browser.look(PRINT_ON_THE_COUNTER),
+        json!({
+            "button": ["Print", "false"],
+            "choice": ["p2", false, places],
+            "said": ["", false],
+        })
+    );
+    browser.act(
+        r#"widget("usher.counter").querySelector(".usher-handed .usher-print button").click();"#,
+    );
+    browser.wait(
+        "where the label came out",
+        r#"widget("usher.counter").querySelector(".usher-handed > .usher-said").textContent === "Printed at Hall.""#,
+    );
+
+    // The printing says when the printers are not what they were, and
+    // his page hears it on its line: with one printer left, the button
+    // says where it prints, and there is nothing to choose. It stands
+    // so at once, with nobody touching the page, long before the page
+    // would ask again by itself.
+    browser.wait(
+        "his line is joined",
+        r#"document.documentElement.dataset.line === "joined""#,
+    );
+    let changed = std::time::Instant::now();
+    prints_on(json!([reception]));
+    browser.wait(
+        "the print at the one printer",
+        r#"widget("usher.counter").querySelector(".usher-handed .usher-print button")?.textContent === "Print at Reception""#,
+    );
+    let took = changed.elapsed();
+    assert!(
+        took < std::time::Duration::from_secs(15),
+        "the page took the printers up by asking again, after {took:?}, and not at once"
+    );
+    assert_eq!(
+        browser.look(PRINT_ON_THE_COUNTER),
+        json!({
+            "button": ["Print at Reception", "false"],
+            "choice": null,
+            "said": ["Printed at Hall.", false],
+        })
+    );
+
+    // A printer that is away is said so, by its name, as trouble.
+    let (status, added) = steward.ask_status(
+        &anna,
+        "printing.labels",
+        "add",
+        json!({
+            "name": "Ward 3", "place": "Building A",
+            "at": { "tcp": { "address": nobody_listens() } },
+            "speaks": "brother-ql",
+        }),
+    );
+    assert_eq!(status, 200, "{added}");
+    prints_on(json!([added["printer"]["id"]]));
+    browser.wait(
+        "the print at the printer that is away",
+        r#"widget("usher.counter").querySelector(".usher-handed .usher-print button")?.textContent === "Print at Ward 3""#,
+    );
+    browser.act(
+        r#"widget("usher.counter").querySelector(".usher-handed .usher-print button").click();"#,
+    );
+    browser.wait(
+        "why it was not printed",
+        r#"widget("usher.counter").querySelector(".usher-handed > .usher-said").classList.contains("usher-trouble")"#,
+    );
+    assert_eq!(
+        browser.look(PRINT_ON_THE_COUNTER),
+        json!({
+            "button": ["Print at Ward 3", "false"],
+            "choice": null,
+            "said": [
+                "Ward 3 did not print. The printer could not be reached. It is switched off, or the way to it is down.",
+                true,
+            ],
+        })
+    );
+
+    // With no printer, nothing of printing shows.
+    prints_on(json!([]));
+    browser.wait(
+        "no print",
+        r#"!onScreen(widget("usher.counter").querySelector(".usher-handed .usher-print")) && !onScreen(widget("usher.counter").querySelector(".usher-handed > .usher-said"))"#,
+    );
+    assert_eq!(browser.look(PRINT_ON_THE_COUNTER), Value::Null);
+    assert_eq!(
+        browser.look(
+            r#"return [...widget("usher.counter").querySelectorAll(".usher-handed .row > *")].filter(onScreen).map((part) => part.textContent);"#
+        ),
+        json!(["Show to the guest", "Done"])
+    );
+    assert_eq!(steward.stop(), Some(0));
+}
+
+/// What a satellite's screen shows of the print of the voucher on it:
+/// what can be pressed under the voucher, where a person stands, and
+/// what is said of the label and to a member of staff.
+const PRINT_ON_THE_SCREEN: &str = r#"
+    const said = (id) => {
+      const line = document.getElementById(id);
+      return onScreen(line) ? line.textContent : null;
+    };
+    const print = document.getElementById("satellite-print");
+    return {
+      does: [...document.querySelectorAll(".satellite-does button")].map((button) => button.textContent),
+      waits: print?.getAttribute("aria-disabled") ?? null,
+      at: document.activeElement.id,
+      said: said("satellite-printed"),
+      more: said("satellite-printed-more"),
+    };
+"#;
+
+#[test]
+fn a_satellite_prints_the_voucher_it_handed_out_once_where_it_has_a_printer() {
+    let Some(mut browser) = Browser::open() else {
+        return;
+    };
+    browser.size(1280, 900);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let simulated = runtime.block_on(Simulated::start());
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+    let anna = steward.set_up("Anna", PASSWORD);
+    hands_out(&steward, &simulated, &anna);
+
+    // Two screens are satellites. The one in the lobby prints on the
+    // printer in the hall; the one in the yard was given none.
+    let hall = simulated_printer(&steward, &anna, "Hall", "Building A, lobby");
+    let (lobby_secret, lobby) = steward
+        .adopt_as(&anna, json!({ "name": "Lobby", "place": "By the door" }));
+    let lobby_point =
+        format!("satellite:{}", lobby["id"].as_str().expect("an id"));
+    let (yard_secret, _) = steward.adopt(&anna, "Yard");
+    let prints_on = |printers: Value| {
+        printing(
+            &steward,
+            &anna,
+            "assign",
+            json!({ "point": lobby_point, "printers": printers }),
+        );
+    };
+    prints_on(json!([hall]));
+    // The vouchers that were handed out, by their identifiers.
+    let handed = || -> Vec<String> {
+        let (status, said) =
+            steward.ask_status(&anna, "issue.counter", "handed", json!({}));
+        assert_eq!(status, 200, "{said}");
+        said["handed"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|out| out["id"].as_str().unwrap().to_string())
+            .collect()
+    };
+
+    // The screen in the lobby hands out a voucher, and offers to print
+    // it: the button stands with the voucher, before the one that puts
+    // the voucher away, at which a person stands as before.
+    let screen = format!("{}/satellite/", steward.address());
+    keeps(
+        &mut browser,
+        &steward,
+        "usherSatelliteSecret",
+        &lobby_secret,
+    );
+    browser.go(&screen);
+    let press = r#"document.getElementById("satellite-press") !== null"#;
+    let voucher = r#"document.getElementById("satellite-voucher") !== null"#;
+    browser.wait("the one button", press);
+    browser.act(r#"document.getElementById("satellite-press").click();"#);
+    browser.wait("the voucher", voucher);
+    assert_eq!(
+        browser.look(PRINT_ON_THE_SCREEN),
+        json!({
+            "does": ["Print", "Done"], "waits": null,
+            "at": "satellite-done", "said": null, "more": null,
+        })
+    );
+    // For the eye: the voucher on a screen that prints.
+    if let Some(to) = picture_of(Some("satellite-print")) {
+        browser.picture(&to);
+    }
+    let first = handed();
+    assert_eq!(first.len(), 1, "{first:?}");
+
+    // Pressed, it prints, and the screen says where the label came out:
+    // the printer's name and its place. The voucher is on paper: the
+    // button that printed it is gone.
+    browser.act(r#"document.getElementById("satellite-print").click();"#);
+    browser.wait(
+        "where the label came out",
+        r#"document.getElementById("satellite-printed")?.textContent !== "" && document.getElementById("satellite-print") === null"#,
+    );
+    assert_eq!(
+        browser.look(PRINT_ON_THE_SCREEN),
+        json!({
+            "does": ["Done"], "waits": null, "at": "satellite-done",
+            "said": "Your voucher was printed at Hall, Building A, lobby.",
+            "more": null,
+        })
+    );
+    assert_eq!(
+        browser.look(
+            r#"return document.getElementById("satellite-printed").getAttribute("role");"#
+        ),
+        "status"
+    );
+    // For the eye: the screen saying where the voucher was printed.
+    if let Some(to) = picture_of(Some("satellite-printed")) {
+        browser.picture(&to);
+    }
+    let label = printing(&steward, &anna, "printed", json!({ "id": hall }));
+    assert!(label["label"]["pbm_b64"].is_string(), "{label}");
+    browser.act(r#"document.getElementById("satellite-done").click();"#);
+    browser.wait("the button again", press);
+
+    // The unit holds a satellite to once as well. A voucher of this
+    // screen that was put on paper elsewhere meanwhile, with a session
+    // of the satellite's that ended the screen's own, is not printed
+    // again: the screen comes in anew, asks once more, is told that the
+    // voucher is on paper, and says so as it says a print.
+    browser.act(r#"document.getElementById("satellite-press").click();"#);
+    browser.wait("the second voucher", voucher);
+    let second = handed()
+        .into_iter()
+        .find(|id| !first.contains(id))
+        .expect("the second voucher");
+    let elsewhere = steward.as_satellite(&lobby_secret);
+    let (status, printed) = steward.ask_status(
+        &elsewhere,
+        "printing.labels",
+        "print_here",
+        json!({ "id": second }),
+    );
+    assert_eq!(status, 200, "{printed}");
+    browser.act(r#"document.getElementById("satellite-print").click();"#);
+    browser.wait(
+        "that it is printed already",
+        r#"document.getElementById("satellite-printed")?.textContent !== "" && document.getElementById("satellite-print") === null"#,
+    );
+    assert_eq!(
+        browser.look(PRINT_ON_THE_SCREEN),
+        json!({
+            "does": ["Done"], "waits": null, "at": "satellite-done",
+            "said": "This voucher is printed already. A member of staff can print it again.",
+            "more": null,
+        })
+    );
+    browser.act(r#"document.getElementById("satellite-done").click();"#);
+    browser.wait("the button again", press);
+
+    // A voucher goes off the screen by itself after a minute, and a
+    // print that is on its way is not cut short by that: the minute is
+    // made short here, the printer is made to take longer than it, and
+    // the voucher stands until the screen has said where it was
+    // printed. Only then does the screen's minute begin again.
+    browser.act(
+        r#"
+        const real = window.setTimeout;
+        window.setTimeout = (run, after, ...given) =>
+          real(run, after === 60000 ? 3000 : after, ...given);
+        const ask = window.fetch;
+        window.fetch = async (address, asked) => {
+          let print = false;
+          try {
+            print = JSON.parse(asked?.body ?? "{}").request_type === "print_here";
+          } catch {
+            print = false;
+          }
+          if (print) await new Promise((letGo) => { window.letGo = letGo; });
+          return ask(address, asked);
+        };
+        document.getElementById("satellite-press").click();
+        // The voucher's own button is pressed the moment it stands
+        // there.
+        const until = Date.now() + 30000;
+        while (document.getElementById("satellite-print") === null) {
+          if (Date.now() > until) throw new Error("no voucher came");
+          await new Promise((later) => real(later, 20));
+        }
+        document.getElementById("satellite-print").click();
+        "#,
+    );
+    browser.wait(
+        "the printer waited for",
+        "typeof window.letGo === 'function'",
+    );
+    std::thread::sleep(std::time::Duration::from_secs(4));
+    assert_eq!(
+        browser.look(PRINT_ON_THE_SCREEN),
+        json!({
+            "does": ["Printing ...", "Done"], "waits": "true",
+            "at": "satellite-done", "said": null, "more": null,
+        }),
+        "the voucher stands while its label is on the way, past the screen's minute"
+    );
+    browser.act("window.letGo();");
+    browser.wait(
+        "where the label came out",
+        r#"document.getElementById("satellite-printed")?.textContent === "Your voucher was printed at Hall, Building A, lobby.""#,
+    );
+    browser.wait(
+        "the button, by itself",
+        r#"document.getElementById("satellite-press") !== null && document.getElementById("satellite-voucher") === null"#,
+    );
+
+    // A printer that is away: the screen tells the guest whom to ask,
+    // and a member of staff which printer it was and why. The voucher
+    // is on no paper, so it can be printed still; with a second printer
+    // behind the first, the label comes out there.
+    let (status, added) = steward.ask_status(
+        &anna,
+        "printing.labels",
+        "add",
+        json!({
+            "name": "Ward 3", "place": "Building A",
+            "at": { "tcp": { "address": nobody_listens() } },
+            "speaks": "brother-ql",
+        }),
+    );
+    assert_eq!(status, 200, "{added}");
+    let away = added["printer"]["id"].clone();
+    prints_on(json!([away]));
+    browser.go(&screen);
+    browser.wait("the one button", press);
+    browser.act(r#"document.getElementById("satellite-press").click();"#);
+    browser.wait("the voucher", voucher);
+    browser.act(r#"document.getElementById("satellite-print").click();"#);
+    browser.wait(
+        "why it was not printed",
+        r#"(document.getElementById("satellite-printed")?.textContent ?? "") !== """#,
+    );
+    assert_eq!(
+        browser.look(PRINT_ON_THE_SCREEN),
+        json!({
+            "does": ["Print", "Done"], "waits": null,
+            "at": "satellite-done",
+            "said": "The printer does not answer. Please ask a member of staff.",
+            "more": "Ward 3 did not print. The printer could not be reached. It is switched off, or the way to it is down.",
+        })
+    );
+    prints_on(json!([away, hall]));
+    browser.act(r#"document.getElementById("satellite-print").click();"#);
+    browser.wait(
+        "where the label came out",
+        r#"document.getElementById("satellite-print") === null"#,
+    );
+    assert_eq!(
+        browser.look(PRINT_ON_THE_SCREEN),
+        json!({
+            "does": ["Done"], "waits": null, "at": "satellite-done",
+            "said": "Your voucher was printed at Hall, Building A, lobby.",
+            "more": null,
+        })
+    );
+
+    // A satellite that was given no printer offers no print: the
+    // voucher's screen is as it was before there were printers.
+    keeps(&mut browser, &steward, "usherSatelliteSecret", &yard_secret);
+    browser.go(&screen);
+    browser.wait("the one button", press);
+    browser.act(r#"document.getElementById("satellite-press").click();"#);
+    browser.wait("the voucher", voucher);
+    assert_eq!(
+        browser.look(PRINT_ON_THE_SCREEN),
+        json!({
+            "does": ["Done"], "waits": null, "at": "satellite-done",
+            "said": null, "more": null,
+        })
+    );
+    assert_eq!(
+        browser.look(r#"return document.getElementById("satellite-print");"#),
+        Value::Null
+    );
+    assert_eq!(steward.stop(), Some(0));
+}
+
+#[test]
+fn a_voucher_that_was_handed_out_is_printed_again_from_the_list() {
+    let Some(mut browser) = Browser::open() else {
+        return;
+    };
+    browser.size(1280, 900);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let simulated = runtime.block_on(Simulated::start());
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+    let anna = signed_in_already(&mut browser, &steward);
+    hands_out(&steward, &simulated, &anna);
+
+    // A voucher is handed out at the counter, and one is made on the
+    // controller that nobody was handed here.
+    browser.go(&format!("{}/", steward.address()));
+    browser.wait(
+        "the counter",
+        r#"widget("usher.counter")?.querySelector("button.usher-type") != null"#,
+    );
+    browser.act(r#"widget("usher.counter").querySelector("button.usher-type").click();"#);
+    let code = browser
+        .wait(
+            "the voucher",
+            r#"widget("usher.counter").querySelector(".usher-ticket .usher-voucher")?.textContent"#,
+        )
+        .as_str()
+        .unwrap()
+        .to_string();
+    steward.ask(
+        "access.controller",
+        "mint",
+        json!({
+            "site": simulated.site(), "note": "Walk-in", "minutes": 120,
+            "count": 1, "guests": 1,
+        }),
+    );
+    go_to(&mut browser, "Vouchers");
+    browser.act(
+        r#"[...widget("usher.vouchers").querySelectorAll("button")].find((b) => b.textContent === "Ask again").click();"#,
+    );
+    let can = format!(
+        r#"[...widget("usher.vouchers").querySelectorAll("tbody tr")].map((row) => [row.cells[0].textContent === {code}, [...row.querySelectorAll("button")].map((b) => b.textContent)])"#,
+        code = json!(code),
+    );
+    // With no printer, nothing of printing shows in the list.
+    browser.wait(
+        "the two vouchers",
+        r#"widget("usher.vouchers").innerText.includes("2 valid, 0 expired, on the controller.")"#,
+    );
+    let listed = |handed: &[&str]| {
+        let mut rows = vec![
+            json!([true, handed]),
+            json!([false, ["Set aside", "Revoke"]]),
+        ];
+        rows.sort_by_key(|row| row[0] == true);
+        rows
+    };
+    let sorted = |browser: &mut Browser| {
+        let mut rows = browser
+            .look(&format!("return {can};"))
+            .as_array()
+            .unwrap()
+            .clone();
+        rows.sort_by_key(|row| row[0] == true);
+        rows
+    };
+    assert_eq!(sorted(&mut browser), listed(&["Revoke"]));
+
+    // The unit's counter is given printers: a voucher that was handed
+    // out here can be put on paper again from its row, and no other.
+    // The first printer is away, and the label comes out at the second:
+    // the page's line says both.
+    let (status, added) = steward.ask_status(
+        &anna,
+        "printing.labels",
+        "add",
+        json!({
+            "name": "Ward 3", "place": "Building A",
+            "at": { "tcp": { "address": nobody_listens() } },
+            "speaks": "brother-ql",
+        }),
+    );
+    assert_eq!(status, 200, "{added}");
+    let reception =
+        simulated_printer(&steward, &anna, "Reception", "Building A");
+    let prints_on = |printers: Value| {
+        printing(
+            &steward,
+            &anna,
+            "assign",
+            json!({ "point": "unit", "printers": printers }),
+        );
+    };
+    prints_on(json!([added["printer"]["id"], reception]));
+    browser.wait(
+        "the print, among what can be done with the voucher",
+        &format!(
+            r#"{can}.some(([handed, can]) => handed && can.join() === "Print,Revoke")"#
+        ),
+    );
+    assert_eq!(sorted(&mut browser), listed(&["Print", "Revoke"]));
+    press_listed(&mut browser, &format!("Print {code}"));
+    let said =
+        r#"widget("usher.vouchers").querySelector(":scope > .usher-said")"#;
+    browser.wait(
+        "where the label came out",
+        &format!(r#"{said}.textContent.endsWith("Printed at Reception.")"#),
+    );
+    assert_eq!(
+        browser.look(&format!(
+            r#"return [{said}.textContent, {said}.classList.contains("usher-trouble")];"#
+        )),
+        json!([
+            "Ward 3 did not print. The printer could not be reached. It is switched off, or the way to it is down. Printed at Reception.",
+            false,
+        ])
+    );
+    assert!(
+        printing(&steward, &anna, "printed", json!({ "id": reception }))
+            ["label"]["pbm_b64"]
+            .is_string()
+    );
+
+    // What is done with a voucher stays in view on a narrow screen,
+    // the print with the rest: at the edge of the list's box.
+    browser.size(520, 900);
+    assert_eq!(
+        browser.look(
+            r#"
+            const box = widget("usher.vouchers").querySelector(".usher-scroll");
+            const within = box.getBoundingClientRect();
+            const buttons = [...box.querySelectorAll("tbody tr button")]
+              .map((button) => button.getBoundingClientRect());
+            return [
+              box.scrollWidth > box.clientWidth,
+              box.scrollLeft,
+              buttons.length,
+              buttons.every((at) =>
+                at.width > 0 && at.left >= within.left - 1 && at.right <= within.right + 1
+                && at.right <= document.documentElement.clientWidth + 1),
+            ];
+            "#
+        ),
+        json!([true, 0, 4, true]),
+        "the list is wider than its box, has not been moved, and every \
+         button is in view"
+    );
+    browser.size(1280, 900);
+
+    // With no printer again, the print is gone from the list.
+    prints_on(json!([]));
+    browser.wait(
+        "no print",
+        &format!(
+            r#"{can}.every(([, can]) => !can.includes("Print")) && {can}.length === 2"#
+        ),
+    );
+    assert_eq!(sorted(&mut browser), listed(&["Revoke"]));
+    assert_eq!(steward.stop(), Some(0));
 }

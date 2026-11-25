@@ -43,6 +43,8 @@ fn the_steward_serves_the_door_the_shell_and_the_widget_pack() {
         format!("/{WIDGETS}/cropper.js"),
         format!("/{WIDGETS}/plate.js"),
         format!("/{WIDGETS}/networks.js"),
+        format!("/{WIDGETS}/printers.js"),
+        format!("/{WIDGETS}/printing.js"),
         format!("/{WIDGETS}/reserve.js"),
         format!("/{WIDGETS}/types.js"),
         format!("/{WIDGETS}/vouchers.js"),
@@ -139,6 +141,7 @@ fn the_steward_serves_the_door_the_shell_and_the_widget_pack() {
             ("network", "Network"),
             ("controller", "Controller"),
             ("site", "Site"),
+            ("printers", "Printers"),
         ],
         "what is done most stands first"
     );
@@ -221,6 +224,11 @@ fn each_plugin_stands_on_the_ui_shelf_of_its_catalogue_shelf() {
                 "org.evoframework.usher.counter",
                 "usher.types"
             ),
+            (
+                "printing.labels",
+                "org.evoframework.usher.printing",
+                "usher.printers"
+            ),
             ("site.settings", "org.evoframework.usher.site", "usher.site"),
             (
                 "stock.reserve",
@@ -244,6 +252,7 @@ fn each_plugin_stands_on_the_ui_shelf_of_its_catalogue_shelf() {
             "usher.controller",
             "usher.counter",
             "usher.networks",
+            "usher.printers",
             "usher.reserve",
             "usher.site",
             "usher.types",
@@ -401,7 +410,7 @@ fn a_steward_without_its_face_still_hands_out_vouchers() {
         json!({}),
         &Caller::here().with(&steward.operator()),
     );
-    assert_eq!(said["entries"].as_array().unwrap().len(), 7, "{said}");
+    assert_eq!(said["entries"].as_array().unwrap().len(), 8, "{said}");
 
     let vouchers = json!([{"id": "a", "code": "00001-00001"}]);
     assert_eq!(

@@ -1,52 +1,65 @@
-//! The station's printer commands: which printers it knows, how a
-//! printer is, and a specimen label to try one with.
+//! The station's printer commands: which printers it knows, which are
+//! on this machine, how a printer is, and a specimen label to try one
+//! with.
 //!
 //! - `printer models` lists every model with its family, the evidence
 //!   that the station prints on it, and the document it was written
 //!   from.
+//! - `printer found` lists the printers on this machine's USB ports,
+//!   each with what it says it is. Nothing is sent to them.
 //! - `printer status` asks a printer how it is and says what it answers,
 //!   down to the bytes.
 //! - `printer test` prints the specimen voucher label on whatever the
 //!   printer has loaded.
 //!
 //! A printer is reached over its USB printer device (`--usb`) or a TCP
-//! port (`--tcp`). Over USB a printer names itself and its media, and a
-//! label counts as printed when the printer says so. Over TCP a printer
-//! that answers is treated the same; one that does not has to be named
-//! (`--model`, `--media`) and is sent the label on trust.
+//! port (`--tcp`). What it speaks is never guessed by sending it
+//! something: a printer on a USB port says what it is, and any other is
+//! said to speak a language (`--speaks`) or to be a model (`--model`).
+//! Over USB a printer names itself and its media, and a label counts as
+//! printed when the printer says so. Over TCP a printer that answers is
+//! treated the same; one that does not has to be named (`--model`,
+//! `--media`) and is sent the label on trust.
+//!
+//! That is a Brother QL. A printer that takes ZPL names itself where a
+//! reference lists what it names itself, and does not say what it has
+//! loaded: the size of its label is always said (`--media`, as `57x32`,
+//! or `57` for continuous media). It is not sent a label while it
+//! reports trouble, and nothing says what became of a label it was
+//! sent.
+//!
+//! A printer that takes ESC/POS does not say how wide its paper is, and
+//! many say nothing at all, on either line. It is named (`--model`)
+//! unless it gives the name of a model, its paper is named (`--media`,
+//! as `80` or `58`) where its model takes more than one roll, and where
+//! it does not answer it is sent the label on trust. It is not sent a
+//! label while it reports trouble.
 
 use std::io::Write;
 use std::process::ExitCode;
-use std::time::Duration;
 
 use evo_usher_about::{refusal, REFUSED};
-use evo_usher_printer::brother::session::{self, Report, ANSWER, PRINTING};
-use evo_usher_printer::brother::status::{Loaded, Status, Trouble};
-use evo_usher_printer::brother::{self, Kind, Media, MEDIA};
+use evo_usher_printer::job::{self, Note, Told, Unsettled};
 use evo_usher_printer::line::Address;
-use evo_usher_printer::model::{self, Evidence, Model, MODELS};
-use evo_usher_printer::{Delivery, Fault, Page};
+use evo_usher_printer::model::{self, Evidence, Language, MODELS};
+use evo_usher_printer::{usb, Delivery, Fault, Page};
 use evo_usher_render::{label, Sheet, Voucher};
 
 /// The commands, as the usage names them.
 pub const COMMANDS: &[&str] = &[
     "printer models",
-    "printer status (--usb DEVICE | --tcp HOST[:PORT]) [--model NAME]",
-    "printer test (--usb DEVICE | --tcp HOST[:PORT]) [--model NAME] \
-     [--media NAME]",
+    "printer found",
+    "printer status (--usb DEVICE | --tcp HOST[:PORT]) [--speaks LANGUAGE] \
+     [--model NAME]",
+    "printer test (--usb DEVICE | --tcp HOST[:PORT]) [--speaks LANGUAGE] \
+     [--model NAME] [--media NAME]",
 ];
-
-/// The dots to the inch of the family's print heads.
-const DPI: u32 = 300;
-
-/// How long a printer that answered over a line that carries no promise
-/// of a report is given to report the label printed.
-const HOPING: Duration = Duration::from_secs(10);
 
 /// What an invocation asks for.
 #[derive(Debug, PartialEq, Eq)]
 enum Asked {
     Models,
+    Found,
     Status(Options),
     Test(Options),
 }
@@ -55,6 +68,7 @@ enum Asked {
 #[derive(Debug, PartialEq, Eq)]
 struct Options {
     address: Address,
+    speaks: Option<Language>,
     model: Option<String>,
     media: Option<String>,
 }
@@ -68,6 +82,8 @@ fn parse(arguments: &[String]) -> Result<Asked, String> {
     match command.as_str() {
         "models" if rest.is_empty() => Ok(Asked::Models),
         "models" => Err("printer models takes no argument".to_string()),
+        "found" if rest.is_empty() => Ok(Asked::Found),
+        "found" => Err("printer found takes no argument".to_string()),
         "status" => {
             let options = options(rest)?;
             if options.media.is_some() {
@@ -80,15 +96,26 @@ fn parse(arguments: &[String]) -> Result<Asked, String> {
     }
 }
 
-/// The options in `arguments`: one line, and at most one model and one
-/// media.
+/// The languages, as they are typed.
+fn languages() -> String {
+    Language::ALL
+        .iter()
+        .map(|language| language.name())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The options in `arguments`: one line, and at most one language, one
+/// model and one media.
 fn options(arguments: &[String]) -> Result<Options, String> {
-    let (mut usb, mut tcp, mut model, mut media) = (None, None, None, None);
+    let (mut usb, mut tcp, mut speaks, mut model, mut media) =
+        (None, None, None, None, None);
     let mut rest = arguments.iter();
     while let Some(option) = rest.next() {
         let slot = match option.as_str() {
             "--usb" => &mut usb,
             "--tcp" => &mut tcp,
+            "--speaks" => &mut speaks,
             "--model" => &mut model,
             "--media" => &mut media,
             other => return Err(format!("'{other}' is not understood")),
@@ -113,8 +140,18 @@ fn options(arguments: &[String]) -> Result<Options, String> {
                 .to_string())
         }
     };
+    let speaks = match speaks {
+        None => None,
+        Some(name) => Some(Language::named(&name).ok_or_else(|| {
+            format!(
+                "'{name}' is no language the station speaks; it speaks {}",
+                languages()
+            )
+        })?),
+    };
     Ok(Options {
         address,
+        speaks,
         model,
         media,
     })
@@ -131,6 +168,8 @@ pub fn run(program: &str, arguments: &[String]) -> ExitCode {
         Ok(Asked::Models) => {
             write!(out, "{}", models()).map_err(|error| error.to_string())
         }
+        Ok(Asked::Found) => write!(out, "{}", found(&usb::found()))
+            .map_err(|error| error.to_string()),
         Ok(Asked::Status(options)) => status(&options, &mut out),
         Ok(Asked::Test(options)) => test(&options, &mut out),
     };
@@ -193,197 +232,155 @@ fn models() -> String {
     table
 }
 
+/// The printers on this machine's USB ports, one to a line: the device,
+/// what the printer says it is, and what it speaks where that settles
+/// it.
+fn found(printers: &[usb::Found]) -> String {
+    if printers.is_empty() {
+        return "no printer is on a USB port of this machine\n".to_string();
+    }
+    let mut list = String::new();
+    for printer in printers {
+        let speaks = match printer.language() {
+            Some(language) => format!("speaks {}", language.name()),
+            None if printer.commands.is_empty() => {
+                "does not say what it speaks".to_string()
+            }
+            None => format!(
+                "says it takes {}, which settles no language the station \
+                 speaks",
+                printer.commands
+            ),
+        };
+        let serial = if printer.serial.is_empty() {
+            String::new()
+        } else {
+            format!(", serial number {}", printer.serial)
+        };
+        list.push_str(&format!(
+            "{}: {}{serial}; {speaks}\n",
+            printer.device.display(),
+            printer.words(),
+        ));
+    }
+    list
+}
+
 fn written(result: std::io::Result<()>) -> Result<(), String> {
     result.map_err(|error| format!("standard output failed: {error}"))
 }
 
-/// How a printer names itself, in the words of its status.
-fn names_itself(status: &Status) -> String {
-    format!(
-        "series code {:02x}, model code {:02x}",
-        status.series, status.code
-    )
+/// What the printer is said to be: by the options, and for a printer on
+/// a USB port that is said to be nothing, by what it told the machine.
+fn told(options: &Options) -> Told {
+    let mut speaks = options.speaks;
+    if speaks.is_none() && options.model.is_none() {
+        if let Address::Usb(device) = &options.address {
+            speaks = usb::found()
+                .iter()
+                .find(|found| &found.device == device)
+                .and_then(usb::Found::language);
+        }
+    }
+    Told {
+        speaks,
+        model: options.model.clone(),
+        media: options.media.clone(),
+    }
 }
 
-/// The model the printer is treated as: the one asked for, or the one
-/// the printer names itself as. With it, a note where the two differ.
-fn model_for(
-    asked: Option<&str>,
-    status: Option<&Status>,
-) -> Result<(&'static Model, Option<String>), String> {
-    let itself = status.map(|status| {
-        (
-            model::brother_identified(status.series, status.code),
-            names_itself(status),
-        )
-    });
-    if let Some(name) = asked {
-        let model = model::named(name).ok_or(format!(
-            "'{name}' is no model the station knows; printer models lists \
+/// Why a printer is not settled, in the station's words: with the option
+/// that settles it.
+fn unsettled(why: &Unsettled) -> String {
+    match why {
+        Unsettled::Unspoken => format!(
+            "nothing says what the printer speaks; say it with --speaks \
+             ({}), or name its model with --model",
+            languages()
+        ),
+        Unsettled::NoSuchModel { asked } => format!(
+            "'{asked}' is no model the station knows; printer models lists \
              them"
-        ))?;
-        let note = match &itself {
-            Some((found, code)) if found.is_empty() => Some(format!(
-                "the printer names itself with {code}, which is in no \
-                 reference; it is treated as a {} because --model says so",
-                model.name
-            )),
-            Some((found, _)) if !found.contains(&model) => Some(format!(
-                "the printer names itself a {}; it is treated as a {} \
-                 because --model says so",
-                any_of(found),
-                model.name
-            )),
-            _ => None,
-        };
-        return Ok((model, note));
-    }
-    match itself {
-        None => Err("the printer does not answer on this line; say what \
-                     it is with --model and what is loaded with --media"
-            .to_string()),
-        Some((found, code)) => match found.as_slice() {
-            [model] => Ok((model, None)),
-            [] => Err(format!(
-                "the printer names itself with {code}, which is in no \
-                 reference; say which model it is to be treated as with \
-                 --model"
-            )),
-            several => Err(format!(
-                "the printer is a {}, which name themselves alike; say \
-                 which with --model",
-                any_of(several)
-            )),
-        },
+        ),
+        Unsettled::Silent => "the printer does not answer on this line; say \
+                              what it is with --model and what is loaded \
+                              with --media"
+            .to_string(),
+        Unsettled::Unnamed => "the printer does not say what it is; say \
+                               which model it is with --model"
+            .to_string(),
+        Unsettled::Unlisted { names_itself } => format!(
+            "the printer names itself with {names_itself}, which is in no \
+             reference; say which model it is to be treated as with \
+             --model"
+        ),
+        Unsettled::Alike { models } => format!(
+            "the printer is a {}, which name themselves alike; say which \
+             with --model",
+            models.join(" or a ")
+        ),
+        Unsettled::NoSuchMedia { asked, known } => format!(
+            "'{asked}' is no media the station knows; it knows {}",
+            known.join(", ")
+        ),
+        Unsettled::Disagrees { asked, stated } => {
+            format!("--media asks for {asked} and the printer states {stated}")
+        }
+        Unsettled::MediaUntold => "the printer does not say what is loaded; \
+                                   say it with --media"
+            .to_string(),
+        other => other.to_string(),
     }
 }
 
-/// The names of `models`, as alternatives.
-fn any_of(models: &[&Model]) -> String {
-    models
-        .iter()
-        .map(|model| model.name)
-        .collect::<Vec<_>>()
-        .join(" or a ")
+/// A fault in the station's words.
+fn faulted(fault: &Fault) -> String {
+    match fault {
+        Fault::Unsettled(why) => unsettled(why),
+        other => other.to_string(),
+    }
 }
 
-/// What a status says is loaded, in words; for a `model` where it is
-/// known, as that model takes it.
-fn loaded_words(status: &Status, model: Option<&Model>) -> String {
-    let kind = match status.loaded {
-        Loaded::Nothing => return "none".to_string(),
-        Loaded::Other(kind) => {
-            return format!(
-                "of a type no reference names ({kind:02x}), {} x {} mm",
-                status.width, status.length
-            )
-        }
-        Loaded::Media(kind) => kind,
-    };
-    let known = match model {
-        Some(model) => brother::media_stated(
-            kind,
-            status.width,
-            status.length,
-            model.name,
-            model::brother_traits(model),
+/// A note in the station's words.
+fn noted(note: &Note) -> String {
+    match note {
+        Note::Unlisted {
+            names_itself,
+            treated_as,
+        } => format!(
+            "the printer names itself with {names_itself}, which is in no \
+             reference; it is treated as a {treated_as} because --model \
+             says so"
         ),
-        None => MEDIA.iter().find(|media| {
-            media.kind == kind
-                && media.states.contains(&(status.width, status.length))
-        }),
-    };
-    match (known, kind) {
-        (Some(media), _) => {
-            let two_colours = model
-                .is_some_and(|model| model::brother_traits(model).two_colour);
-            if media.name == "62" && two_colours {
-                format!(
-                    "{} (black, or red and black: the printer does not \
-                     say which; a red and black roll is --media 62-red)",
-                    media.words
-                )
-            } else {
-                media.words.to_string()
-            }
-        }
-        (None, Kind::Continuous) => format!(
-            "{} mm continuous tape, which is not in the table for this \
-             printer",
-            status.width
-        ),
-        (None, Kind::DieCut) => format!(
-            "{} x {} mm labels, which are not in the table for this \
-             printer",
-            status.width, status.length
+        Note::Another {
+            names_itself,
+            treated_as,
+        } => format!(
+            "the printer names itself a {}; it is treated as a \
+             {treated_as} because --model says so",
+            names_itself.join(" or a ")
         ),
     }
 }
 
-/// The media the label is printed on, and the width and length the job
-/// names it by: the media asked for, or the one the printer states.
-fn media_for(
-    asked: Option<&str>,
-    status: Option<&Status>,
-    model: &'static Model,
-) -> Result<(&'static Media, (u8, u8)), String> {
-    let traits = model::brother_traits(model);
-    let stated = match status {
-        None => None,
-        Some(status) => match status.loaded {
-            Loaded::Media(kind) => Some((kind, (status.width, status.length))),
-            _ => {
-                return Err(format!(
-                    "the printer has no media it can print on: media {}",
-                    loaded_words(status, Some(model))
-                ))
-            }
-        },
-    };
-    if let Some(name) = asked {
-        let media = brother::media_named(name).ok_or_else(|| {
-            let known: Vec<&str> =
-                MEDIA.iter().map(|media| media.name).collect();
-            format!(
-                "'{name}' is no media the station knows; it knows {}",
-                known.join(", ")
-            )
-        })?;
-        if !media.goes_into(model.name, traits) {
-            return Err(format!(
-                "a {} does not take {}",
-                model.name, media.words
-            ));
-        }
-        return match stated {
-            Some((kind, pair))
-                if kind != media.kind || !media.states.contains(&pair) =>
-            {
-                Err(format!(
-                    "--media asks for {} and the printer states {}",
-                    media.words,
-                    loaded_words(status.expect("stated"), Some(model))
-                ))
-            }
-            Some((_, pair)) => Ok((media, pair)),
-            None => Ok((media, media.states[0])),
-        };
+/// Says which model the printer is treated as, and what is to be known
+/// of that.
+fn say_model(
+    out: &mut dyn Write,
+    model: &model::Model,
+    note: Option<&Note>,
+) -> Result<(), String> {
+    written(writeln!(
+        out,
+        "model: {} ({}, {})",
+        model.name,
+        model.family(),
+        model.evidence.words()
+    ))?;
+    if let Some(note) = note {
+        written(writeln!(out, "note: {}", noted(note)))?;
     }
-    match stated {
-        None => Err("the printer does not say what is loaded; say it with \
-                     --media"
-            .to_string()),
-        Some((kind, pair)) => {
-            brother::media_stated(kind, pair.0, pair.1, model.name, traits)
-                .map(|media| (media, pair))
-                .ok_or_else(|| {
-                    format!(
-                        "the printer states {}",
-                        loaded_words(status.expect("stated"), Some(model))
-                    )
-                })
-        }
-    }
+    Ok(())
 }
 
 /// `printer status`: asks the printer how it is and says what it
@@ -394,48 +391,32 @@ fn status(options: &Options, out: &mut dyn Write) -> Result<(), String> {
         .open()
         .map_err(|error| format!("{address} cannot be opened: {error}"))?;
     written(writeln!(out, "line: {address}"))?;
-    let status = session::ask(&mut *line, ANSWER).map_err(|fault| {
-        match (&fault, address.answers()) {
+    let said = job::ask(&mut *line, address.answers(), &told(options))
+        .map_err(|fault| match (&fault, address.answers()) {
             (Fault::Silent(_), false) => format!(
                 "{fault}; over TCP a printer may take labels and answer \
                  nothing, and printer test then needs --model and --media"
             ),
-            _ => fault.to_string(),
-        }
-    })?;
-
-    let model = match model_for(options.model.as_deref(), Some(&status)) {
-        Ok((model, note)) => {
-            written(writeln!(
-                out,
-                "model: {} ({}, {})",
-                model.name,
-                model.family(),
-                model.evidence.words()
-            ))?;
-            if let Some(note) = note {
-                written(writeln!(out, "note: {note}"))?;
-            }
-            Some(model)
-        }
+            _ => faulted(&fault),
+        })?;
+    match &said.model {
+        Ok((model, note)) => say_model(out, model, note.as_ref())?,
         Err(why) => {
-            written(writeln!(out, "model: not known: {why}"))?;
-            None
+            written(writeln!(out, "model: not known: {}", unsettled(why)))?
         }
-    };
-    written(writeln!(out, "media: {}", loaded_words(&status, model)))?;
-    let state = if status.troubles.is_empty() {
+    }
+    written(writeln!(out, "media: {}", said.media))?;
+    let state = if said.complaints.is_empty() {
         "ready".to_string()
     } else {
-        status
-            .troubles
+        said.complaints
             .iter()
-            .map(Trouble::to_string)
+            .map(|complaint| complaint.words.as_str())
             .collect::<Vec<_>>()
             .join("; ")
     };
     written(writeln!(out, "state: {state}"))?;
-    written(writeln!(out, "status: {}", status.hex()))
+    written(writeln!(out, "status: {}", said.raw))
 }
 
 /// `printer test`: prints the specimen voucher label.
@@ -446,47 +427,28 @@ fn test(options: &Options, out: &mut dyn Write) -> Result<(), String> {
         .map_err(|error| format!("{address} cannot be opened: {error}"))?;
     written(writeln!(out, "line: {address}"))?;
 
-    // A printer on a USB device must answer. One on a TCP port may not,
-    // and is then told what it is.
-    let status = match session::ask(&mut *line, ANSWER) {
-        Ok(status) => Some(status),
-        Err(Fault::Silent(_)) if !address.answers() => None,
-        Err(fault) => return Err(fault.to_string()),
+    let ready = match job::ready(&mut *line, address.answers(), &told(options))
+    {
+        Ok(ready) => ready,
+        Err(unready) => {
+            if let Some((model, note)) = &unready.model {
+                say_model(out, model, note.as_ref())?;
+            }
+            return Err(faulted(&unready.fault));
+        }
     };
-    let (model, note) = model_for(options.model.as_deref(), status.as_ref())?;
-    written(writeln!(
-        out,
-        "model: {} ({}, {})",
-        model.name,
-        model.family(),
-        model.evidence.words()
-    ))?;
-    if let Some(note) = note {
-        written(writeln!(out, "note: {note}"))?;
-    }
-    if let Some(fault) = status.as_ref().and_then(Status::fault) {
-        return Err(fault.to_string());
-    }
-    let (media, stated) =
-        media_for(options.media.as_deref(), status.as_ref(), model)?;
-    written(writeln!(out, "media: {}", media.words))?;
-    if media.round {
-        // The label is a rectangle; on a round label its corners, the
-        // symbol's among them, would be off the paper.
-        return Err(format!(
-            "{}: a voucher label is not laid out for round labels",
-            media.words
-        ));
-    }
+    say_model(out, ready.model, ready.note.as_ref())?;
+    let paper = &ready.paper;
+    written(writeln!(out, "media: {}", paper.words))?;
 
     let sheet = Sheet {
-        across: media.across,
-        along: media.along,
-        dpi: DPI,
+        across: paper.across,
+        along: paper.along,
+        dpi: paper.dpi,
     };
     let frame = label(&Voucher::specimen(), &sheet)
-        .map_err(|refusal| format!("{}: {refusal}", media.words))?;
-    let millimetres = |dots: u32| dots as f32 * 25.4 / DPI as f32;
+        .map_err(|refusal| format!("{}: {refusal}", paper.words))?;
+    let millimetres = |dots: u32| dots as f32 * 25.4 / paper.dpi as f32;
     written(writeln!(
         out,
         "label: specimen, {:.1} x {:.1} mm ({} x {} dots)",
@@ -502,42 +464,24 @@ fn test(options: &Options, out: &mut dyn Write) -> Result<(), String> {
     )
     .expect("a frame's rows are a page's rows");
 
-    let traits = model::brother_traits(model);
-    let delivery = match status {
-        Some(_) if address.answers() => session::print(
-            &mut *line,
-            traits,
-            media,
-            stated,
-            &page,
-            Report::Required,
-            PRINTING,
-        ),
-        Some(_) => session::print(
-            &mut *line,
-            traits,
-            media,
-            stated,
-            &page,
-            Report::Welcome,
-            HOPING,
-        ),
-        None => session::send(&mut *line, traits, media, stated, &page),
-    }
-    .map_err(|fault| {
-        let wrong = Trouble::WrongMedia.to_string();
+    let delivery = job::print(&mut *line, &ready, &page).map_err(|fault| {
+        // A printer of two colours cannot say which roll it has.
+        let red_unsaid = paper.name == "62"
+            && model::brother_traits(ready.model)
+                .is_some_and(|traits| traits.two_colour);
         match &fault {
-            Fault::Printer(troubles)
-                if media.name == "62"
-                    && traits.two_colour
-                    && troubles.contains(&wrong) =>
+            Fault::Printer(complaints)
+                if red_unsaid
+                    && complaints
+                        .iter()
+                        .any(|one| one.code == "wrong_media") =>
             {
                 format!(
-                    "{fault}; if the roll is red and black, it is --media \
-                     62-red"
+                    "{fault}; if the roll is red and black, it is \
+                         --media 62-red"
                 )
             }
-            _ => fault.to_string(),
+            _ => faulted(&fault),
         }
     })?;
     written(writeln!(
@@ -559,23 +503,15 @@ mod tests {
         arguments.iter().map(|word| word.to_string()).collect()
     }
 
-    /// A reply with the model code and the media given.
-    fn reply(code: u8, loaded: u8, width: u8, length: u8) -> Status {
-        let mut raw = [0u8; 32];
-        raw[..6].copy_from_slice(&[0x80, 0x20, 0x42, 0x34, code, 0x30]);
-        raw[10] = width;
-        raw[11] = loaded;
-        raw[17] = length;
-        Status::parse(&raw).unwrap()
-    }
-
     #[test]
     fn the_commands_are_parsed() {
         assert_eq!(parse(&words(&["models"])), Ok(Asked::Models));
+        assert_eq!(parse(&words(&["found"])), Ok(Asked::Found));
         assert_eq!(
             parse(&words(&["status", "--usb", "/dev/usb/lp0"])),
             Ok(Asked::Status(Options {
                 address: Address::Usb("/dev/usb/lp0".into()),
+                speaks: None,
                 model: None,
                 media: None,
             }))
@@ -589,11 +525,56 @@ mod tests {
                 "192.0.2.7",
                 "--model",
                 "QL-820NWBc",
+                "--speaks",
+                "brother-ql",
             ])),
             Ok(Asked::Test(Options {
                 address: Address::Tcp("192.0.2.7:9100".to_string()),
+                speaks: Some(Language::BrotherQl),
                 model: Some("QL-820NWBc".to_string()),
                 media: Some("62-red".to_string()),
+            }))
+        );
+        assert_eq!(
+            parse(&words(&[
+                "test",
+                "--usb",
+                "/dev/usb/lp1",
+                "--speaks",
+                "zpl",
+                "--model",
+                "Generic ZPL 203 dpi, 4 inch head (832 dots)",
+                "--media",
+                "57x32",
+            ])),
+            Ok(Asked::Test(Options {
+                address: Address::Usb("/dev/usb/lp1".into()),
+                speaks: Some(Language::Zpl),
+                model: Some(
+                    "Generic ZPL 203 dpi, 4 inch head (832 dots)".to_string()
+                ),
+                media: Some("57x32".to_string()),
+            }))
+        );
+        assert_eq!(
+            parse(&words(&[
+                "test",
+                "--tcp",
+                "192.0.2.7",
+                "--speaks",
+                "escpos",
+                "--model",
+                "Generic ESC/POS 58 mm, 384 dots (203 dpi)",
+                "--media",
+                "58",
+            ])),
+            Ok(Asked::Test(Options {
+                address: Address::Tcp("192.0.2.7:9100".to_string()),
+                speaks: Some(Language::EscPos),
+                model: Some(
+                    "Generic ESC/POS 58 mm, 384 dots (203 dpi)".to_string()
+                ),
+                media: Some("58".to_string()),
             }))
         );
     }
@@ -604,6 +585,7 @@ mod tests {
             (&[][..], "printer: nothing was asked"),
             (&["print"][..], "printer: 'print' is not understood"),
             (&["models", "all"][..], "printer models takes no argument"),
+            (&["found", "all"][..], "printer found takes no argument"),
             (
                 &["status"][..],
                 "name the line to the printer: --usb DEVICE or --tcp HOST",
@@ -632,6 +614,18 @@ mod tests {
                 "{arguments:?}"
             );
         }
+        let refused =
+            parse(&words(&["status", "--usb", "a", "--speaks", "morse"]))
+                .unwrap_err();
+        assert!(
+            refused.starts_with(
+                "'morse' is no language the station speaks; it speaks "
+            ),
+            "{refused}"
+        );
+        for language in Language::ALL {
+            assert!(refused.contains(language.name()), "{refused}");
+        }
     }
 
     #[test]
@@ -643,154 +637,171 @@ mod tests {
         for model in MODELS {
             let row = lines.next().unwrap();
             assert!(row.starts_with(model.name), "{row}");
-            assert!(row.contains("Brother QL raster"), "{row}");
+            assert!(row.contains(model.family()), "{row}");
             assert!(row.contains(model.evidence.words()), "{row}");
             assert!(row.ends_with(model.written_from), "{row}");
         }
         assert_eq!(lines.next(), Some(""));
         let rest: Vec<&str> = lines.collect();
         assert_eq!(rest.len(), 3);
+        // Every family is in it, each under its own name, and the
+        // columns line up whatever a model is named.
+        for language in Language::ALL {
+            let family = format!("  {}  ", language.words());
+            assert!(table.contains(&family), "{}", language.name());
+        }
+        let column = titles.find("FAMILY").unwrap();
+        for (model, row) in MODELS.iter().zip(table.lines().skip(1)) {
+            assert!(row[column..].starts_with(model.family()), "{row}");
+        }
         assert!(rest[0].starts_with("proven: "));
         assert!(rest[1].starts_with("to reference: "));
         assert!(rest[2].starts_with("to specification: "));
     }
 
     #[test]
-    fn a_printer_is_the_model_it_names_itself_unless_told_otherwise() {
-        let nwb = reply(0x41, 0x0a, 62, 0);
-        let (model, note) = model_for(None, Some(&nwb)).unwrap();
-        assert_eq!((model.name, note), ("QL-820NWB", None));
-
-        let (model, note) = model_for(Some("ql-820nwb"), Some(&nwb)).unwrap();
-        assert_eq!((model.name, note), ("QL-820NWB", None));
-
-        let (model, note) = model_for(Some("QL-800"), Some(&nwb)).unwrap();
-        assert_eq!(model.name, "QL-800");
+    fn what_is_not_settled_is_said_with_the_option_that_settles_it() {
+        for (why, said) in [
+            (
+                Unsettled::Silent,
+                "the printer does not answer on this line; say what it is \
+                 with --model and what is loaded with --media",
+            ),
+            (
+                Unsettled::NoSuchModel {
+                    asked: "QL-9".to_string(),
+                },
+                "'QL-9' is no model the station knows; printer models lists \
+                 them",
+            ),
+            (
+                Unsettled::Unnamed,
+                "the printer does not say what it is; say which model it is \
+                 with --model",
+            ),
+            (
+                Unsettled::Unlisted {
+                    names_itself: "series code 34, model code 99".to_string(),
+                },
+                "the printer names itself with series code 34, model code \
+                 99, which is in no reference; say which model it is to be \
+                 treated as with --model",
+            ),
+            (
+                Unsettled::Alike {
+                    models: vec!["QL-500", "QL-550"],
+                },
+                "the printer is a QL-500 or a QL-550, which name themselves \
+                 alike; say which with --model",
+            ),
+            (
+                Unsettled::Disagrees {
+                    asked: "29 mm continuous tape".to_string(),
+                    stated: "62 mm continuous tape".to_string(),
+                },
+                "--media asks for 29 mm continuous tape and the printer \
+                 states 62 mm continuous tape",
+            ),
+            (
+                Unsettled::MediaUntold,
+                "the printer does not say what is loaded; say it with \
+                 --media",
+            ),
+            (
+                Unsettled::NotTaken {
+                    model: "QL-800",
+                    media: "102 mm continuous tape".to_string(),
+                },
+                "a QL-800 does not take 102 mm continuous tape",
+            ),
+            (
+                Unsettled::NotTaken {
+                    model: "Generic ZPL 203 dpi, 2 inch head (448 dots)",
+                    media: "102 x 152 mm labels".to_string(),
+                },
+                "a Generic ZPL 203 dpi, 2 inch head (448 dots) does not take 102 x \
+                 152 mm labels",
+            ),
+            (
+                Unsettled::NotTaken {
+                    model: "Generic ESC/POS 80 mm, 576 dots (203 dpi)",
+                    media: "58 mm roll paper".to_string(),
+                },
+                "a Generic ESC/POS 80 mm, 576 dots (203 dpi) does not take \
+                 58 mm roll paper",
+            ),
+            (
+                Unsettled::NoSuchMedia {
+                    asked: "62".to_string(),
+                    known: vec!["80", "58"],
+                },
+                "'62' is no media the station knows; it knows 80, 58",
+            ),
+            (
+                Unsettled::NoSuchMedia {
+                    asked: "a4".to_string(),
+                    known: evo_usher_printer::zpl::FORMS.to_vec(),
+                },
+                "'a4' is no media the station knows; it knows a width and a \
+                 length in whole millimetres (57x32), a width alone for \
+                 continuous media (57)",
+            ),
+        ] {
+            assert_eq!(unsettled(&why), said);
+        }
+        let unspoken = unsettled(&Unsettled::Unspoken);
+        assert!(
+            unspoken.contains("--speaks") && unspoken.contains("--model"),
+            "{unspoken}"
+        );
         assert_eq!(
-            note.unwrap(),
+            noted(&Note::Another {
+                names_itself: vec!["QL-820NWB"],
+                treated_as: "QL-800",
+            }),
             "the printer names itself a QL-820NWB; it is treated as a \
              QL-800 because --model says so"
         );
-
-        let (model, note) = model_for(Some("QL-720NW"), None).unwrap();
-        assert_eq!((model.name, note), ("QL-720NW", None));
     }
 
     #[test]
-    fn a_model_code_in_no_reference_is_reported_and_not_guessed() {
-        let unknown = reply(0x4a, 0x0a, 62, 0);
+    fn the_printers_found_are_listed_with_what_they_say_they_are() {
+        assert_eq!(found(&[]), "no printer is on a USB port of this machine\n");
+        let one = |model: &str, commands: &str, serial: &str| usb::Found {
+            device: "/dev/usb/lp0".into(),
+            maker: "Brother".to_string(),
+            model: model.to_string(),
+            commands: commands.to_string(),
+            serial: serial.to_string(),
+        };
         assert_eq!(
-            model_for(None, Some(&unknown)).unwrap_err(),
-            "the printer names itself with series code 34, model code 4a, \
-             which is in no reference; say which model it is to be treated \
-             as with --model"
-        );
-        let (model, note) =
-            model_for(Some("QL-820NWBc"), Some(&unknown)).unwrap();
-        assert_eq!(model.name, "QL-820NWBc");
-        assert!(note.unwrap().contains("model code 4a"));
-    }
-
-    #[test]
-    fn models_that_name_themselves_alike_are_not_told_apart_by_guessing() {
-        let mut raw = reply(0x4f, 0x0a, 62, 0).raw;
-        raw[3] = 0x30;
-        let old = Status::parse(&raw).unwrap();
-        assert_eq!(
-            model_for(None, Some(&old)).unwrap_err(),
-            "the printer is a QL-500 or a QL-550, which name themselves \
-             alike; say which with --model"
-        );
-        let (model, note) = model_for(Some("QL-550"), Some(&old)).unwrap();
-        assert_eq!((model.name, note), ("QL-550", None));
-    }
-
-    #[test]
-    fn a_model_nobody_names_is_asked_for() {
-        assert!(model_for(None, None)
-            .unwrap_err()
-            .contains("say what it is with --model"));
-        assert!(model_for(Some("QL-9000"), None)
-            .unwrap_err()
-            .starts_with("'QL-9000' is no model the station knows"));
-    }
-
-    #[test]
-    fn the_media_is_what_the_printer_states_unless_told_otherwise() {
-        let nwb = model::named("QL-820NWB").unwrap();
-        let tape = reply(0x41, 0x0a, 62, 0);
-        let (media, stated) = media_for(None, Some(&tape), nwb).unwrap();
-        assert_eq!((media.name, stated), ("62", (62, 0)));
-
-        let (media, stated) =
-            media_for(Some("62-red"), Some(&tape), nwb).unwrap();
-        assert_eq!((media.name, stated), ("62-red", (62, 0)));
-
-        let (media, stated) = media_for(Some("29x90"), None, nwb).unwrap();
-        assert_eq!((media.name, stated), ("29x90", (29, 90)));
-
-        let wide = model::named("QL-1060N").unwrap();
-        let labels = reply(0x34, 0x0b, 102, 153);
-        let (media, stated) = media_for(None, Some(&labels), wide).unwrap();
-        assert_eq!((media.name, stated), ("102x152", (102, 153)));
-    }
-
-    #[test]
-    fn media_that_cannot_be_printed_on_is_refused_in_words() {
-        let nwb = model::named("QL-820NWB").unwrap();
-        let tape = reply(0x41, 0x0a, 62, 0);
-        assert_eq!(
-            media_for(Some("29"), Some(&tape), nwb).unwrap_err(),
-            "--media asks for 29 mm continuous tape and the printer states \
-             62 mm continuous tape (black, or red and black: the printer \
-             does not say which; a red and black roll is --media 62-red)"
+            found(&[one("QL-820NWB", "PT-CBP", "000A1B")]),
+            "/dev/usb/lp0: Brother QL-820NWB, serial number 000A1B; speaks \
+             brother-ql\n"
         );
         assert_eq!(
-            media_for(Some("102"), None, nwb).unwrap_err(),
-            "a QL-820NWB does not take 102 mm continuous tape"
-        );
-        assert!(media_for(Some("63"), None, nwb)
-            .unwrap_err()
-            .starts_with("'63' is no media the station knows; it knows 12, "));
-        assert_eq!(
-            media_for(None, None, nwb).unwrap_err(),
-            "the printer does not say what is loaded; say it with --media"
-        );
-        let empty = reply(0x41, 0x00, 0, 0);
-        assert_eq!(
-            media_for(None, Some(&empty), nwb).unwrap_err(),
-            "the printer has no media it can print on: media none"
-        );
-        let odd = reply(0x41, 0x0b, 62, 60);
-        assert_eq!(
-            media_for(None, Some(&odd), nwb).unwrap_err(),
-            "the printer states 62 x 60 mm labels, which are not in the \
-             table for this printer"
-        );
-    }
-
-    #[test]
-    fn what_is_loaded_is_said_in_words() {
-        let nwb = model::named("QL-820NWB");
-        let old = model::named("QL-570");
-        let tape = reply(0x41, 0x0a, 62, 0);
-        assert!(loaded_words(&tape, nwb)
-            .starts_with("62 mm continuous tape (black, or red and black"));
-        assert_eq!(loaded_words(&tape, old), "62 mm continuous tape");
-        assert_eq!(loaded_words(&tape, None), "62 mm continuous tape");
-        assert_eq!(
-            loaded_words(&reply(0x41, 0x4b, 29, 90), nwb),
-            "29 x 90 mm labels"
-        );
-        assert_eq!(loaded_words(&reply(0x41, 0, 0, 0), nwb), "none");
-        assert_eq!(
-            loaded_words(&reply(0x41, 0x0a, 102, 0), nwb),
-            "102 mm continuous tape, which is not in the table for this \
-             printer"
+            found(&[one("HL-1", "PCL", "")]),
+            "/dev/usb/lp0: Brother HL-1; says it takes PCL, which settles \
+             no language the station speaks\n"
         );
         assert_eq!(
-            loaded_words(&reply(0x41, 0x33, 62, 0), nwb),
-            "of a type no reference names (33), 62 x 0 mm"
+            found(&[one("HL-1", "", "")]),
+            "/dev/usb/lp0: Brother HL-1; does not say what it speaks\n"
+        );
+        assert_eq!(
+            found(&[one("TD-4420TN", "ZPL", "")]),
+            "/dev/usb/lp0: Brother TD-4420TN; speaks zpl\n"
+        );
+        let ticket = usb::Found {
+            device: "/dev/usb/lp1".into(),
+            maker: "Sample Maker".to_string(),
+            model: "Ticket 80".to_string(),
+            commands: "ESC/POS".to_string(),
+            serial: String::new(),
+        };
+        assert_eq!(
+            found(&[ticket]),
+            "/dev/usb/lp1: Sample Maker Ticket 80; speaks escpos\n"
         );
     }
 }

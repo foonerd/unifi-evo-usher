@@ -271,6 +271,20 @@ name.
 payload_in = "json"
 payload_out = "json"
 
+[[requests]]
+request_type = "recent"
+description = """
+One hand-out of the last half hour, whole. Payload `{ id: string }`, the
+controller's identifier of the voucher. Returns `{ recent: hand-out }`,
+as `hand` answered it, with `by`, `unit` or `satellite` for who handed
+it out; `{ recent: null }` where that voucher was not handed out here
+in that time. It is asked by whatever puts a voucher on paper after it
+was shown. What it tells is kept in memory and nowhere else: a restart
+forgets it.
+"""
+payload_in = "json"
+payload_out = "json"
+
 [[acceptance]]
 name = "types-are-kept-in-their-order"
 detail = """

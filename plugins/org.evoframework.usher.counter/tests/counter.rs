@@ -1267,3 +1267,75 @@ async fn a_voucher_of_a_named_type_is_handed_out_with_nothing_chosen() {
     .await
     .unwrap();
 }
+
+/// What puts a voucher on paper after it was shown asks for the
+/// hand-out again, whole: it is remembered for a while, with who handed
+/// it out, in memory and nowhere else.
+#[tokio::test]
+async fn a_hand_out_of_the_last_while_is_told_again_whole_and_kept_nowhere() {
+    let dir = tempfile::tempdir().unwrap();
+    let stand = Arc::new(Stand::working());
+    let counter = Counter::open(dir.path(), Some(stand.clone())).unwrap();
+    ask(&counter, "put_type", house_guests()).await.unwrap();
+
+    let by_ben = ask(
+        &counter,
+        "hand",
+        json!({ "type": "House guests", "by": "Ben" }),
+    )
+    .await
+    .unwrap();
+    let id_of =
+        |handed: &Value| handed["voucher"]["id"].as_str().unwrap().to_string();
+
+    // Told again as it was answered, and with who handed it out.
+    let mut whole = by_ben.clone();
+    whole["by"] = json!("Ben");
+    assert_eq!(
+        ask(&counter, "recent", json!({ "id": id_of(&by_ben) }))
+            .await
+            .unwrap(),
+        json!({ "recent": whole })
+    );
+
+    // One handed out at a satellite says so.
+    let at_the_hall =
+        ask(&counter, "hand_default", json!({ "satellite": "Hall" }))
+            .await
+            .unwrap();
+    let told = ask(&counter, "recent", json!({ "id": id_of(&at_the_hall) }))
+        .await
+        .unwrap();
+    assert_eq!(told["recent"]["satellite"], json!("Hall"));
+    assert_eq!(told["recent"]["voucher"], at_the_hall["voucher"]);
+    assert!(told["recent"].get("by").is_none());
+
+    // A voucher that was not handed out here is told as none.
+    assert_eq!(
+        ask(&counter, "recent", json!({ "id": "no-such-voucher" }))
+            .await
+            .unwrap(),
+        json!({ "recent": null })
+    );
+    assert!(ask(&counter, "recent", json!({})).await.is_err());
+
+    // No file of the counter's holds a voucher's code.
+    let code = by_ben["voucher"]["code"].as_str().unwrap();
+    for entry in std::fs::read_dir(dir.path()).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_file() {
+            let kept = std::fs::read_to_string(&path).unwrap_or_default();
+            assert!(!kept.contains(code), "{}", path.display());
+        }
+    }
+
+    // A counter that is opened again remembers none of them.
+    drop(counter);
+    let again = Counter::open(dir.path(), Some(stand)).unwrap();
+    assert_eq!(
+        ask(&again, "recent", json!({ "id": id_of(&by_ben) }))
+            .await
+            .unwrap(),
+        json!({ "recent": null })
+    );
+}

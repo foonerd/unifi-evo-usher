@@ -55,6 +55,8 @@ const NAME = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
  * @property {{ plugin: string, shelf: string, widget: string, size: string, mode: string | null }} stocking
  * @property {{ request: (shelf: string, type: string, payload?: unknown) => Promise<any> }} steward
  * @property {Place} site
+ * @property {() => Promise<Array<{ id: string, name: string, place: string }>>} satellites
+ *   the satellites of the unit, as the usher tells an administrator them
  */
 
 /**
@@ -640,6 +642,22 @@ const place = {
   watch: site.watch,
 };
 
+/**
+ * The satellites of the unit, for a widget that names them: each by its
+ * identifier, its name and where it stands. The usher tells an
+ * administrator them, and refuses anyone else.
+ *
+ * @returns {Promise<Array<{ id: string, name: string, place: string }>>}
+ */
+async function satellitesTold() {
+  const listed = (await askUsher("satellites"))?.satellites;
+  return (Array.isArray(listed) ? listed : []).map((one) => ({
+    id: String(one.id),
+    name: String(one.name),
+    place: String(one.place ?? ""),
+  }));
+}
+
 /** Load the widget packs the shell is told of, each from its directory. */
 async function loadPacks() {
   let names = [];
@@ -792,6 +810,12 @@ const PEOPLE = { id: "people", label: "People" };
 const SATELLITES = { id: "satellites", label: "Satellites" };
 
 /**
+ * The page of the printers, as `pages.json` names it: the satellites
+ * stand before the printers they print on.
+ */
+const PRINTERS = "printers";
+
+/**
  * What a page is called on the screen: what the words call the page of
  * its id, or its own label where they have no name for it.
  *
@@ -869,9 +893,15 @@ function draw(snapshot) {
   // Who may come in is the shell's own business, and an administrator's:
   // its page stands last. A page named the same in `pages.json` is that
   // page.
-  // The satellites are the usher's own too, and stand before the people.
+  // The satellites are the usher's own too, and stand before the
+  // printers, or before the people where no printers are kept.
   if (role === ADMINISTRATOR && !pages.some((page) => page.id === SATELLITES.id)) {
-    pages.push({ id: SATELLITES.id, label: SATELLITES.label, shelves: [] });
+    const printers = pages.findIndex((page) => page.id === PRINTERS);
+    pages.splice(printers < 0 ? pages.length : printers, 0, {
+      id: SATELLITES.id,
+      label: SATELLITES.label,
+      shelves: [],
+    });
   }
   if (role === ADMINISTRATOR && !pages.some((page) => page.id === PEOPLE.id)) {
     pages.push({ id: PEOPLE.id, label: PEOPLE.label, shelves: [] });
@@ -947,6 +977,7 @@ function draw(snapshot) {
                 },
                 steward: asked,
                 site: place,
+                satellites: satellitesTold,
               });
             } catch (why) {
               console.warn(`shell: drawing ${stocking.widget}:`, why);
