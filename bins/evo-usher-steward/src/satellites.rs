@@ -898,6 +898,32 @@ impl Satellites {
         }
     }
 
+    /// A voucher type was renamed: every satellite that was given it is
+    /// given it under its new name. Says how many were.
+    pub fn rename_type(
+        &mut self,
+        from: &str,
+        to: &str,
+    ) -> Result<usize, Unkept> {
+        let mut next = self.kept.clone();
+        let mut renamed = 0;
+        for satellite in &mut next {
+            if satellite.types.iter().any(|kind| kind == from) {
+                satellite.types.retain(|kind| kind != to);
+                for kind in
+                    satellite.types.iter_mut().filter(|kind| *kind == from)
+                {
+                    *kind = to.to_string();
+                }
+                renamed += 1;
+            }
+        }
+        if renamed > 0 {
+            self.keep(next)?;
+        }
+        Ok(renamed)
+    }
+
     /// Write the satellites down whole, for the steward's account alone,
     /// and only then go by them: a change that is not kept is not made.
     fn keep(&mut self, next: Vec<Satellite>) -> Result<(), Unkept> {

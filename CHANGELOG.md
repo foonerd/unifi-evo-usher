@@ -2,6 +2,13 @@
 
 All notable changes to unifi-evo-usher are recorded here. The format follows Keep a Changelog; versions follow Semantic Versioning.
 
+## [0.3.29] - 2026-11-27
+
+- A satellite runs as a service, on an address of its own, where a site has no screen of its own for it: `packaging/docker/satellite.yaml`, the usher's own image run as `evo-usher-station satellite`, on ports 80 and 443 of a macvlan address. It is adopted once, by the code it shows in its log and on its page, and every browser that opens its address is then that satellite, with nothing given to the browser that lets anyone in. It passes on to the unit the satellite's screen and nothing else, and asks the unit over HTTPS, believing it by the unit's own authority. On HTTPS it shows the site's certificate from files, or one it makes itself. Two satellites are two projects of the file
+- The image carries `evo-usher-station` beside the steward
+- A voucher type is renamed. Edit takes another name; the type keeps its place, whether it is enabled and whether it is the default; what the unit holds set aside for it goes with it; and the satellites it was given to give it under its new name. Vouchers made before keep the old name as their note on the controller. A name another type has is refused in words. Before, the name could not be changed
+- Three texts of the face are new or reworded, in all eleven languages
+
 ## [0.3.28] - 2026-11-25
 
 - A voucher is put on paper. The usher draws a label with the network's name, the code, what the voucher gives, the site's name and the symbol a phone joins an open network from, and sends it to a printer in the printer's own language: no driver, no spooler and no browser's print dialog stands between the two

@@ -1,0 +1,27 @@
+[package]
+name = "evo-usher-satellite"
+description = "A satellite of unifi-evo-usher as a service: adopted once, it serves the satellite's screen to any browser that opens its address."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+bytes = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+rcgen = "0.13"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-manual-roots", "rustls-tls-webpki-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pemfile = "2"
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time", "macros", "fs"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

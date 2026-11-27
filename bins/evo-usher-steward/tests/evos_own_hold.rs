@@ -204,7 +204,7 @@ fn every_request_of_the_ushers_plugins_declares_a_capability() {
             "{plugin} declares a capability for a request it does not take"
         );
     }
-    assert_eq!(requests, 45, "the requests the usher's plugins take");
+    assert_eq!(requests, 46, "the requests the usher's plugins take");
 }
 
 /// What evo answered: the status, and the code it refused under, where

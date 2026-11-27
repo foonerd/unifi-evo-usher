@@ -15,7 +15,7 @@ It is a contract. Within `/usher/v1` and the requests named here, fields are add
 5. Where the satellite was assigned a printer, put the voucher it handed out on paper.
 6. Say now and then that the satellite is there, and be told what it is.
 
-Every answer shown here is as a unit of version 0.3.28 gives it.
+Every answer shown here is as a unit of version 0.3.29 gives it.
 
 The secret is all a satellite keeps. It is good for these requests and for nothing else on the unit, and stops being good the moment an administrator switches the satellite off or removes it.
 

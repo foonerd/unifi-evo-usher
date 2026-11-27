@@ -1692,3 +1692,94 @@ fn a_protected_satellite_gives_the_voucher_types_it_was_given() {
     assert_eq!(handed["type"]["name"], "Day guest", "{handed}");
     assert_eq!(steward.stop(), Some(0));
 }
+
+/// A voucher type that is renamed is given, under its new name, to the
+/// satellites it was given to: in its place among their types, and
+/// handed out at the screen under the new name.
+#[test]
+fn a_satellite_given_a_type_follows_it_when_it_is_renamed() {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let simulated = runtime.block_on(Simulated::start());
+    let dir = short_dir();
+    let steward = Steward::start(dir.path());
+    let anna = steward.set_up("Anna", PASSWORD);
+    ready(&steward, &simulated, &anna);
+    for kind in [
+        json!({ "name": "Week", "minutes": 10080, "guests": 2 }),
+        json!({ "name": "Month", "minutes": 43200, "guests": 1 }),
+    ] {
+        let (status, said) =
+            steward.ask_status(&anna, "issue.counter", "put_type", kind);
+        assert_eq!(status, 200, "{said}");
+    }
+    let (ward_secret, _) = steward.adopt_as(
+        &anna,
+        json!({
+            "name": "Ward 4", "mode": "protected", "pin": "480273",
+            "types": ["Week", "Month"],
+        }),
+    );
+    let ward = steward.as_satellite(&ward_secret);
+
+    let (status, said) = steward.ask_status(
+        &anna,
+        "issue.counter",
+        "put_type",
+        json!({ "name": "Week pass", "minutes": 10080, "guests": 2, "was": "Week" }),
+    );
+    assert_eq!(status, 200, "{said}");
+    assert_eq!(said["was"], "Week", "{said}");
+
+    let listed = |steward: &Steward| -> Value {
+        let (status, told) = steward.usher("GET", "satellites", None, &anna);
+        assert_eq!(status, 200, "{told}");
+        told["satellites"][0]["types"].clone()
+    };
+    assert_eq!(listed(&steward), json!(["Week pass", "Month"]));
+    let (status, told) = steward.usher("GET", "satellite", None, &ward);
+    assert_eq!(status, 200, "{told}");
+    let names: Vec<&str> = told["types"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|kind| kind["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["Week pass", "Month"], "{told}");
+    let (status, handed) = steward.ask_status(
+        &ward,
+        "issue.counter",
+        "hand_type",
+        json!({ "type": "Week pass", "pin": "480273" }),
+    );
+    assert_eq!(status, 200, "{handed}");
+    assert_eq!(handed["type"]["name"], "Week pass", "{handed}");
+
+    // A rename the counter refuses leaves the satellites as they were.
+    let (status, said) = steward.ask_status(
+        &anna,
+        "issue.counter",
+        "put_type",
+        json!({ "name": "Month", "minutes": 10080, "guests": 2, "was": "Week pass" }),
+    );
+    assert_eq!(
+        (status, subclass(&said)),
+        (400, "type_name_taken"),
+        "{said}"
+    );
+    assert_eq!(listed(&steward), json!(["Week pass", "Month"]));
+
+    // Kept through a restart.
+    assert_eq!(steward.stop(), Some(0));
+    let steward = Steward::start(dir.path());
+    let anna = steward.signed_in("Anna", PASSWORD);
+    let (status, told) = steward.usher("GET", "satellites", None, &anna);
+    assert_eq!(status, 200, "{told}");
+    assert_eq!(
+        told["satellites"][0]["types"],
+        json!(["Week pass", "Month"])
+    );
+    assert_eq!(steward.stop(), Some(0));
+}

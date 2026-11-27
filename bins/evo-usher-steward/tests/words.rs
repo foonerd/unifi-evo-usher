@@ -21,7 +21,7 @@ const COUNTS: [&str; 6] = ["zero", "one", "two", "few", "many", "other"];
 /// its own: what a caller sent was not what a request takes, which the
 /// face never sends, and what went wrong inside the usher, which is said
 /// in the usher's own words for whoever looks into it.
-const NOT_FOR_A_SCREEN: [&str; 19] = [
+const NOT_FOR_A_SCREEN: [&str; 21] = [
     "not_as_asked",
     "role_not_one",
     "pin_not_chosen",
@@ -49,6 +49,10 @@ const NOT_FOR_A_SCREEN: [&str; 19] = [
     // What a page of another site had a browser ask: the usher's own
     // pages are never told it.
     "from_another_site",
+    // What a satellite as a service refuses that its own page never
+    // asks: more than the page sends, and what is none of its paths.
+    "too_large",
+    "not_here",
 ];
 
 /// What stands in a script as written and is no text for a person: a
@@ -562,7 +566,12 @@ fn codes_refused_under() -> BTreeSet<String> {
         }
     }
     // The classes of evo's a refusal travels under are no codes.
-    for class in ["permission_denied", "contract_violation", "not_found"] {
+    for class in [
+        "permission_denied",
+        "contract_violation",
+        "not_found",
+        "invalid_argument",
+    ] {
         codes.remove(class);
     }
     codes

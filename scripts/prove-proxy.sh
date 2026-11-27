@@ -7,8 +7,8 @@
 #
 #   scripts/prove-proxy.sh [<case>...]
 #
-# <case> is alone, extended, demo, move, update, nginx, apache, caddy or
-# traefik; with none named, all nine. The usher's image is
+# <case> is alone, extended, demo, move, update, satellite, nginx,
+# apache, caddy or traefik; with none named, all ten. The usher's image is
 # unifi-evo-usher:<version> on this machine, as scripts/image.sh --here
 # keeps it, or $USHER_IMAGE:$USHER_VERSION.
 #
@@ -113,11 +113,12 @@ SET_LANGUAGE="en"
 # what the proof was started with.
 unset USHER_DEMO
 
-proxies=${*:-alone extended demo move update nginx apache caddy traefik}
+proxies=${*:-alone extended demo move update satellite nginx apache caddy traefik}
 # The Compose files of a case, the first the one the unit is in.
 files_of() {
   case "$1" in
     alone | demo | move | update) echo packaging/docker/compose.yaml ;;
+    satellite) echo packaging/docker/compose.yaml packaging/docker/satellite.yaml ;;
     extended) echo packaging/docker/compose.yaml packaging/docker/extended.yaml ;;
     *) echo "packaging/proxy/$1/compose.yaml" ;;
   esac
@@ -161,6 +162,7 @@ for proxy in $proxies; do
   [ "$proxy" != demo ] || continue
   [ "$proxy" != move ] || continue
   [ "$proxy" != update ] || continue
+  [ "$proxy" != satellite ] || continue
   [ "$(unit_of "$proxy")" = "$(unit_of alone)" ] || { echo "prove-proxy: the unit in $(files_of "$proxy") is not the unit of packaging/docker/compose.yaml" >&2; exit 1; }
   # A proxy is started only once the unit says it is up.
   [ "$proxy" = alone ] || [ "$(waits_for "$proxy")" = service_healthy ] || { echo "prove-proxy: the proxy in $(files_of "$proxy") does not wait for the unit to say it is up" >&2; exit 1; }
@@ -173,6 +175,8 @@ tidy() {
   for project in $started; do
     docker compose -p "$project" down --volumes --remove-orphans > /dev/null 2>&1 || true
   done
+  # The network of the satellite's case, which no project owns.
+  docker network rm usher-proof-lan > /dev/null 2>&1 || true
   rm -rf "$work"
 }
 trap tidy EXIT
@@ -1318,11 +1322,120 @@ prove_update() {
   project=""
 }
 
+# A satellite as a service, as packaging/docker/satellite.yaml has it,
+# beside a unit: both on a network of their own, as on a macvlan of a
+# site, each at its address. The satellite is adopted by the code it
+# shows, is that satellite for whoever opens its address on HTTP and on
+# HTTPS, hands out a voucher, and passes nothing else of the unit on.
+prove_satellite() {
+  proxy=satellite
+  project="usher-proof-satellite"
+  local beside="usher-proof-satellite-beside" lan="usher-proof-lan"
+  started="$started $project $beside"
+  local port dir bearer status code tries name=localhost authority
+  dir="$work/satellite"
+  mkdir -p "$dir"
+  authority="$dir/unit-ca.crt"
+  port=$(free_port)
+  export USHER_ADDRESS=127.0.0.1 USHER_PORT="$port" USHER_NAME="$project" USHER_DEMO=1
+  compose() { docker compose -p "$project" -f packaging/docker/compose.yaml "$@"; }
+  ask() {
+    local path="$1"
+    shift
+    curl -sS --max-time 30 -o "$dir/answer" -w '%{http_code}' \
+      --cacert "$authority" --resolve "$name:$port:127.0.0.1" \
+      "$@" "https://$name:$port$path" 2> "$dir/curl.err" || true
+  }
+  post() {
+    local path="$1" body="$2"
+    shift 2
+    ask "$path" -X POST -H 'Content-Type: application/json' -d "$body" "$@"
+  }
+  # The satellite, asked as a browser asks it: over HTTP, or over HTTPS
+  # with its own certificate, which no browser was told of.
+  at() {
+    local how="$1" path="$2"
+    shift 2
+    curl -sS --max-time 60 -k -o "$dir/seen" -w '%{http_code}' "$@" "$how://172.31.250.11$path" 2> "$dir/curl.err" || true
+  }
+  request() {
+    jq -cn --arg shelf "$1" --arg type "$2" --arg payload "$(printf '%s' "$3" | base64 -w0)" \
+      '{shelf: $shelf, request_type: $type, payload_b64: $payload}'
+  }
+  person() { jq -cn --arg name "$1" --arg password "$2" '{name: $name, password: $password}'; }
+
+  compose up -d --wait --wait-timeout 60 usher > "$dir/up.log" 2>&1 || { cat "$dir/up.log" >&2; fail "the unit does not come up"; }
+  tries=0
+  until compose cp usher:/var/lib/evo/state/https/ca.crt "$authority" > /dev/null 2>&1 \
+    && chmod 644 "$authority" && [ "$(ask /usher/v1/state)" = 200 ]; do
+    tries=$((tries + 1))
+    [ "$tries" -lt 120 ] || fail "the unit does not answer: $(cat "$dir/curl.err")"
+    sleep 0.5
+  done
+  status=$(post /usher/v1/set_up "$(person "$PERSON" "$PASSWORD")")
+  [ "$status" = 200 ] || fail "the unit is not set up: $status $(cat "$dir/answer")"
+  bearer=$(jq -r '.token' "$dir/answer")
+
+  # The network of the site, and the unit on it at its address.
+  docker network rm "$lan" > /dev/null 2>&1 || true
+  docker network create --subnet 172.31.250.0/24 "$lan" > /dev/null || fail "the network is not made"
+  docker network connect --ip 172.31.250.10 "$lan" "$project" || fail "the unit does not join the network"
+  SATELLITE_NAME="$beside" SATELLITE_ADDRESS=172.31.250.11 SATELLITE_NETWORK="$lan" \
+    USHER_UNIT=https://172.31.250.10:8443 STATION_NAMES=satellite.example \
+    docker compose -p "$beside" --project-directory "$dir" -f packaging/docker/satellite.yaml \
+    up -d --wait --wait-timeout 60 > "$dir/satellite-up.log" 2>&1 \
+    || { cat "$dir/satellite-up.log" >&2; docker logs "$beside" >&2 2>&1 || true; fail "the satellite does not come up, or does not say that it is healthy"; }
+  [ "$(docker inspect -f '{{.Config.User}} {{.HostConfig.ReadonlyRootfs}}' "$beside")" = "10001:10001 true" ] \
+    || fail "the satellite runs as $(docker inspect -f '{{.Config.User}} {{.HostConfig.ReadonlyRootfs}}' "$beside")"
+  tries=0
+  until docker logs "$beside" 2>&1 | grep -E -o 'with the code [0-9]{6}' > "$dir/code"; do
+    tries=$((tries + 1))
+    [ "$tries" -lt 60 ] || { docker logs "$beside" >&2 2>&1; fail "the satellite does not show a code to be adopted by"; }
+    sleep 0.5
+  done
+  code=$(tail -n 1 "$dir/code" | grep -E -o '[0-9]{6}')
+
+  for how in http https; do
+    status=$(at "$how" /satellite/)
+    [ "$status" = 200 ] && grep -q satellite.js "$dir/seen" || fail "the satellite's page over $how: $status"
+  done
+  status=$(at http /usher/v1/satellite_sign_in -X POST -H 'Content-Type: application/json' -d '{"secret":"station"}')
+  [ "$status" = 200 ] && jq -e --arg code "$code" '.adopted == false and .code == $code' "$dir/seen" > /dev/null \
+    || fail "the satellite does not show its code: $status $(cat "$dir/seen")"
+  status=$(post /usher/v1/adopt_satellite "$(jq -cn --arg code "$code" '{code: $code, name: "Hall"}')" -H "Authorization: Bearer $bearer")
+  [ "$status" = 200 ] || fail "the satellite is not adopted by its code: $status $(cat "$dir/answer")"
+  for how in http https; do
+    status=$(at "$how" /usher/v1/satellite_sign_in -X POST -H 'Content-Type: application/json' -d '{"secret":"station"}')
+    [ "$status" = 200 ] && jq -e '.adopted == true and .token == "station" and .name == "Hall"' "$dir/seen" > /dev/null \
+      || fail "the satellite over $how is not the one adopted: $status $(cat "$dir/seen")"
+    status=$(at "$how" /api/v1/request -X POST -H 'Content-Type: application/json' -H 'Authorization: Bearer station' -d "$(request issue.counter hand_default '{}')")
+    [ "$status" = 200 ] && jq -r '.payload_b64' "$dir/seen" | base64 -d | jq -e '.voucher.code | test("^[0-9]{10}$")' > /dev/null \
+      || fail "the satellite over $how hands out no voucher: $status $(cat "$dir/seen")"
+  done
+  for path in /usher/v1/me /usher/v1/satellites /index.html; do
+    status=$(at http "$path")
+    [ "$status" = 404 ] || fail "the satellite passes $path on: $status"
+  done
+  echo "  ok    a satellite as a service, at an address of its own beside the unit, is adopted by the code in its log and hands out a voucher to whoever opens it, on HTTP and on HTTPS, and passes nothing else of the unit on"
+
+  docker compose -p "$beside" --project-directory "$dir" -f packaging/docker/satellite.yaml down --volumes > /dev/null 2>&1 || true
+  docker network disconnect "$lan" "$project" > /dev/null 2>&1 || true
+  compose down --volumes --remove-orphans > /dev/null 2>&1 || true
+  tries=0
+  until docker network rm "$lan" > /dev/null 2>&1 || [ "$tries" -ge 20 ]; do
+    tries=$((tries + 1))
+    sleep 0.5
+  done
+  unset USHER_DEMO
+  project=""
+}
+
 for proxy in $proxies; do
   case "$proxy" in
     demo) prove_demo ;;
     move) prove_move ;;
     update) prove_update ;;
+    satellite) prove_satellite ;;
     *) prove "$proxy" ;;
   esac
 done

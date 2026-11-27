@@ -1331,6 +1331,19 @@ impl Usher {
         offer
     }
 
+    /// A voucher type was renamed: the satellites that were given it
+    /// are given it under its new name.
+    pub fn type_renamed(&self, from: &str, to: &str) {
+        if let Err(why) = self.satellites().rename_type(from, to) {
+            tracing::error!(
+                from,
+                to,
+                "a voucher type was renamed, and the satellites given it \
+                 could not be written down with its new name: {why:?}"
+            );
+        }
+    }
+
     /// The voucher types were changed: what was read of them for the
     /// satellites is read again by the next one that asks.
     pub async fn offer_changed(&self) {

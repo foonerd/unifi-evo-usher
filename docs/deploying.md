@@ -389,6 +389,35 @@ A Synology has a proxy and a certificate store of its own, so the unit runs alon
 
 Synology's documentation does not say whether DSM's proxy checks the certificate of an HTTPS destination. If it does not, the unit is not held to its authority there; with the unit on the loopback address of the same machine, nothing stands between the two.
 
+### A satellite on an address of its own
+
+Where a site has no screen of its own for a satellite, the satellite runs as a service, and any browser that opens its address is that satellite: `packaging/docker/satellite.yaml`. It is the usher's own image, run as `evo-usher-station satellite`, on an address of its own on the site's network (a macvlan), on ports 80 and 443. Two satellites, as one for guests and one for a front desk, are two projects of the file, each with its name and its address.
+
+1. **The network**, once, where the machine has none: a macvlan on the machine's interface to the site's network, with a range of addresses outside the site's DHCP (**run by hand**, over SSH on a Synology, whose Container Manager makes bridge networks only):
+
+   ```sh
+   sudo docker network create -d macvlan --subnet=192.0.2.0/24 --gateway=192.0.2.1 \
+     --ip-range=192.0.2.208/28 -o parent=bond0 lan
+   ```
+
+   `parent` is the interface that carries the site's address: `ip -br addr` names it.
+2. **The unit's authority**, into the project's folder, from the unit (**run by hand**):
+
+   ```sh
+   sudo docker cp usher:/var/lib/evo/state/https/ca.crt ./unit-ca.crt
+   ```
+
+3. **The project**, with `packaging/docker/satellite.yaml` and a file `.env` beside it: `USHER_VERSION`, the unit's; `SATELLITE_NAME`; `SATELLITE_ADDRESS`, a free address of the range; `SATELLITE_NETWORK`, the macvlan's name; `USHER_UNIT`, the unit's address, as `https://192.0.2.210:8443`; `STATION_NAMES`, the names its own certificate carries. Where Container Manager takes no `.env`, the values are written into the file in the place of `${...}`.
+4. **Adopting it.** The satellite shows a six-digit code in its log and on its page, at `http://<its address>/`. An administrator types it on the page Satellites and says there what the satellite gives, as for any satellite. From then on every browser that opens the address is that satellite; none is adopted by itself, and none is given anything that lets anyone in.
+
+What it passes on to the unit is the satellite's screen and no more: its page and the files the page loads, what anyone is told of the unit, and the requests a satellite makes. Everything else is not found there, the unit's own pages among it.
+
+On HTTPS it shows a certificate it makes itself for `STATION_NAMES`, which a browser warns of until it is told to believe it; the site's own certificate takes its place where the lines `STATION_CERTIFICATE` and `STATION_KEY`, and the two files, are taken into the file. On HTTP nothing is encrypted between the browser and the satellite: it is for a network the site trusts. What the satellite asks of the unit is asked over HTTPS, the unit believed by its own authority.
+
+A machine cannot reach a container on its own macvlan: the satellite and the unit, both on the macvlan, reach each other, and the machine's own pages do not reach either.
+
+**Proven** on every push, as `scripts/prove-proxy.sh satellite`: the image run as the satellite beside a unit, each at its address on a network of their own, adopted by the code in its log, handing out a voucher over HTTP and over HTTPS, and passing the unit's own pages on to nobody. Not run on a DSM.
+
 ## Going live
 
 For the day a site starts to depend on a unit: the check that says the unit is ready, the copy that is kept of it, a newer version and the way back, and what is watched afterwards.

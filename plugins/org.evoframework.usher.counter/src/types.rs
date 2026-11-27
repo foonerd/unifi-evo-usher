@@ -427,6 +427,44 @@ impl Types {
         )?)
     }
 
+    /// Keep the type named `from` as `kind`, under the name `kind` has:
+    /// in the same place, enabled or not as it was, and the default
+    /// where it was. A name another type has is refused.
+    pub fn rename(
+        &mut self,
+        from: &str,
+        kind: VoucherType,
+    ) -> Result<(), Unkept> {
+        if self.find(from).is_none() {
+            return Err(Unkept::Rule(no_such(from)));
+        }
+        if kind.name != from && self.find(&kind.name).is_some() {
+            return Err(Unkept::Rule(
+                why(
+                    "type_name_taken",
+                    format!("another voucher type is called '{}'", kind.name),
+                )
+                .with("name", kind.name.clone()),
+            ));
+        }
+        let mut next = self.kept.clone();
+        let to = kind.name.clone();
+        if let Some(kept) = next.types.iter_mut().find(|kept| kept.name == from)
+        {
+            *kept = kind;
+        }
+        for off in next.disabled.iter_mut().filter(|off| off.as_str() == from) {
+            *off = to.clone();
+        }
+        if next.default.as_deref() == Some(from) {
+            next.default = Some(to);
+        }
+        self.keep(next.settled(
+            "default_has_no_choice",
+            ", and the default has nothing to choose",
+        )?)
+    }
+
     /// Drop the type of that name. Says whether there was one.
     pub fn drop_named(&mut self, name: &str) -> Result<bool, Unkept> {
         let mut next = self.kept.clone();

@@ -108,6 +108,25 @@ impl Reserve {
         Ok(released)
     }
 
+    /// Hold what is held for the type `from` for the type `to` instead,
+    /// after what `to` holds already. Says how many were moved.
+    pub fn rename(&mut self, from: &str, to: &str) -> io::Result<usize> {
+        if from == to {
+            return Ok(0);
+        }
+        let Some(moved) = self.kept.held.remove(from) else {
+            return Ok(0);
+        };
+        let count = moved.len();
+        self.kept
+            .held
+            .entry(to.to_string())
+            .or_default()
+            .extend(moved);
+        self.keep()?;
+        Ok(count)
+    }
+
     /// The vouchers held, by type, oldest first.
     pub fn held(&self) -> &BTreeMap<String, Vec<Voucher>> {
         &self.kept.held
@@ -141,6 +160,27 @@ impl Reserve {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn what_is_held_for_a_type_goes_with_its_new_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut reserve = Reserve::open(dir.path()).unwrap();
+        reserve
+            .put("Day", vec![voucher("a"), voucher("b")])
+            .unwrap();
+        reserve.put("Day guest", vec![voucher("c")]).unwrap();
+        assert_eq!(reserve.rename("Day", "Day guest").unwrap(), 2);
+        assert_eq!(reserve.rename("No such", "Other").unwrap(), 0);
+        assert_eq!(reserve.rename("Day guest", "Day guest").unwrap(), 0);
+        drop(reserve);
+        let reserve = Reserve::open(dir.path()).unwrap();
+        let ids: Vec<&str> = reserve.held()["Day guest"]
+            .iter()
+            .map(|voucher| voucher.id.as_str())
+            .collect();
+        assert_eq!(ids, ["c", "a", "b"]);
+        assert!(!reserve.held().contains_key("Day"));
+    }
 
     fn voucher(id: &str) -> Voucher {
         Voucher {

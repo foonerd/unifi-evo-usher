@@ -118,6 +118,14 @@ spaces around it: one of a name that is kept takes that one's place, and
 any other is kept after the others, enabled. Returns `{ type: type }` as
 it is kept.
 
+A type is renamed by sending it under its new name with `was: string`,
+the name it has: it keeps its place, whether it is enabled and whether
+it is the default; what the reserve holds for it goes with it; the
+satellites given it are given it under its new name. Vouchers made
+before keep the old name as their note on the controller. A new name
+another type has is refused as `type_name_taken`. Returns `{ type: type,
+was: string }`.
+
 A name that is empty or longer than 64 characters, a voucher that lasts
 no minute, a limit of 0, days to choose that are no whole days or fewer
 than 2, and devices to choose that are fewer than 2 are refused, as is

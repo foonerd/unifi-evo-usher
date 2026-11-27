@@ -480,15 +480,46 @@ impl Counter {
                 }))
             }
             "put_type" => {
-                let kind = asked::<VoucherType>(payload)?
+                // A type that was kept under another name says which:
+                // `was`. It is renamed where it stands.
+                let mut put: Value = asked(payload)?;
+                let was = match put
+                    .as_object_mut()
+                    .and_then(|put| put.remove("was"))
+                {
+                    None | Some(Value::Null) => None,
+                    Some(Value::String(was)) => Some(was.trim().to_string()),
+                    Some(_) => {
+                        return Err(Refusal::AsAsked(why(
+                            "not_as_asked",
+                            "not what this request takes: `was` is a \
+                             type's name",
+                        )))
+                    }
+                };
+                let kind = serde_json::from_value::<VoucherType>(put)
+                    .map_err(|e| {
+                        Refusal::AsAsked(why(
+                            "not_as_asked",
+                            format!("not what this request takes: {e}"),
+                        ))
+                    })?
                     .held()
                     .map_err(Refusal::AsAsked)?;
-                let mut types = self.types.lock().expect("the types' lock");
-                if !types.takes(&kind.name) {
-                    return Err(Refusal::AsAsked(too_many()));
+                match was {
+                    Some(was) if was != kind.name => {
+                        self.rename(&was, kind).await
+                    }
+                    _ => {
+                        let mut types =
+                            self.types.lock().expect("the types' lock");
+                        if !types.takes(&kind.name) {
+                            return Err(Refusal::AsAsked(too_many()));
+                        }
+                        types.put(kind.clone()).map_err(unkept)?;
+                        Ok(json!({ "type": kind }))
+                    }
                 }
-                types.put(kind.clone()).map_err(unkept)?;
-                Ok(json!({ "type": kind }))
             }
             "drop_type" => {
                 let naming: Naming = asked(payload)?;
@@ -738,6 +769,56 @@ impl Counter {
             }),
             issuer,
         ))
+    }
+
+    /// Rename the type `was` to the name `kind` has, with the terms of
+    /// `kind`. What the reserve holds for it is moved to the new name
+    /// first, and moved back where the type is not kept.
+    async fn rename(
+        &self,
+        was: &str,
+        kind: VoucherType,
+    ) -> Result<Value, Refusal> {
+        if self
+            .types
+            .lock()
+            .expect("the types' lock")
+            .find(was)
+            .is_none()
+        {
+            return Err(Refusal::AsAsked(no_such(was)));
+        }
+        let to = kind.name.clone();
+        let moved = match &self.shelves {
+            Some(shelves) => {
+                shelves
+                    .ask(RESERVE, "rename", json!({ "from": was, "to": to }))
+                    .await?;
+                true
+            }
+            None => false,
+        };
+        let renamed = self
+            .types
+            .lock()
+            .expect("the types' lock")
+            .rename(was, kind.clone())
+            .map_err(unkept);
+        if let Err(refused) = renamed {
+            if moved {
+                if let Some(shelves) = &self.shelves {
+                    let _ = shelves
+                        .ask(
+                            RESERVE,
+                            "rename",
+                            json!({ "from": to, "to": was }),
+                        )
+                        .await;
+                }
+            }
+            return Err(refused);
+        }
+        Ok(json!({ "type": kind, "was": was }))
     }
 
     /// Assign a voucher the controller has for handing out. It is held

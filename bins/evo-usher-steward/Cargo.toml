@@ -57,6 +57,8 @@ tracing = "0.1"
 async-trait = "0.1"
 evo-usher-controller-unifi = { path = "../../plugins/org.evoframework.usher.controller.unifi", features = ["simulated"] }
 evo-usher-site = { path = "../../plugins/org.evoframework.usher.site", features = ["samples"] }
+# A satellite as a service, run against a steward as a container runs it.
+evo-usher-satellite = { path = "../../crates/satellite" }
 # A test types a password at the program on a terminal of its own.
 nix = { version = "0.30", default-features = false, features = ["term"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls-manual-roots"] }

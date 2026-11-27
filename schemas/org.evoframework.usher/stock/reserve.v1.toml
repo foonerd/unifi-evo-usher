@@ -67,6 +67,16 @@ was not handed out, and may be put again.
 payload_in = "json"
 payload_out = "json"
 
+[[requests]]
+request_type = "rename"
+description = """
+Hold what is held for one type under another name, after what the new
+name holds already: what a type that is renamed takes with it. Payload
+`{ from: string, to: string }`. Returns `{ moved: integer }`.
+"""
+payload_in = "json"
+payload_out = "json"
+
 [[acceptance]]
 name = "a-voucher-is-handed-out-once"
 detail = """

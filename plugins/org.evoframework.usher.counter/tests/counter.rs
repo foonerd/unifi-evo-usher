@@ -96,6 +96,7 @@ impl Shelves for Stand {
                     }
                     Ok(json!({ "added": added }))
                 }
+                (RESERVE, "rename") => Ok(json!({ "moved": 0 })),
                 other => panic!("the counter asked {other:?}"),
             }
         })
@@ -1338,4 +1339,84 @@ async fn a_hand_out_of_the_last_while_is_told_again_whole_and_kept_nowhere() {
             .unwrap(),
         json!({ "recent": null })
     );
+}
+
+/// A type that was put under another name is renamed where it stands:
+/// its place, whether it is enabled and whether it is the default stay;
+/// what the reserve holds for it goes with it; a name another type has
+/// is refused, and nothing changes.
+#[tokio::test]
+async fn a_type_is_renamed_in_its_place() {
+    let dir = tempfile::tempdir().unwrap();
+    let stand = Arc::new(Stand::working());
+    let counter = Counter::open(dir.path(), Some(stand.clone())).unwrap();
+    ask(&counter, "put_type", house_guests()).await.unwrap();
+    ask(
+        &counter,
+        "put_type",
+        json!({ "name": "Walk-in", "minutes": 120, "guests": 1 }),
+    )
+    .await
+    .unwrap();
+    ask(
+        &counter,
+        "enable_type",
+        json!({ "name": "Walk-in", "enabled": false }),
+    )
+    .await
+    .unwrap();
+
+    let mut renamed = house_guests();
+    renamed["name"] = json!("Day guest");
+    renamed["was"] = json!("House guests");
+    let said = ask(&counter, "put_type", renamed).await.unwrap();
+    assert_eq!(said["type"]["name"], "Day guest");
+    assert_eq!(said["was"], "House guests");
+    assert_eq!(
+        stand.payload_of("rename"),
+        json!({ "from": "House guests", "to": "Day guest" })
+    );
+    let told = ask(&counter, "types", json!({})).await.unwrap();
+    let names: Vec<&str> = told["types"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|kind| kind["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["Day guest", "Walk-in"]);
+    assert_eq!(told["default"], "Day guest");
+
+    // The disabled one keeps being disabled under its new name, and its
+    // terms are the ones sent.
+    let walk_in = json!({
+        "name": "Walk-in desk", "minutes": 180, "guests": 1, "was": "Walk-in",
+    });
+    ask(&counter, "put_type", walk_in).await.unwrap();
+    let told = ask(&counter, "types", json!({})).await.unwrap();
+    assert_eq!(told["disabled"], json!(["Walk-in desk"]));
+    assert_eq!(told["types"][1]["minutes"], 180);
+
+    // Refused: a name another type has, and a type that is not kept.
+    let mut taken = house_guests();
+    taken["name"] = json!("Walk-in desk");
+    taken["was"] = json!("Day guest");
+    let refused = ask(&counter, "put_type", taken).await.unwrap_err();
+    assert!(
+        format!("{refused:?}").contains("type_name_taken"),
+        "{refused:?}"
+    );
+    let mut gone = house_guests();
+    gone["name"] = json!("Other");
+    gone["was"] = json!("No such");
+    assert!(ask(&counter, "put_type", gone).await.is_err());
+    let told = ask(&counter, "types", json!({})).await.unwrap();
+    assert_eq!(told["types"].as_array().unwrap().len(), 2);
+    assert_eq!(told["default"], "Day guest");
+
+    // Kept through a restart.
+    drop(counter);
+    let again = Counter::open(dir.path(), Some(stand)).unwrap();
+    let told = ask(&again, "types", json!({})).await.unwrap();
+    assert_eq!(told["types"][0]["name"], "Day guest");
+    assert_eq!(told["default"], "Day guest");
 }

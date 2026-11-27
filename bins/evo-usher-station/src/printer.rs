@@ -157,12 +157,13 @@ fn options(arguments: &[String]) -> Result<Options, String> {
     })
 }
 
-/// Runs the printer command in `arguments`, the words after `printer`.
-pub fn run(program: &str, arguments: &[String]) -> ExitCode {
+/// Runs the printer command in `arguments`, the words after `printer`;
+/// a refusal names every command of `commands`.
+pub fn run(program: &str, commands: &[&str], arguments: &[String]) -> ExitCode {
     let mut out = std::io::stdout().lock();
     let done = match parse(arguments) {
         Err(reason) => {
-            eprintln!("{}", refusal(program, COMMANDS, &reason));
+            eprintln!("{}", refusal(program, commands, &reason));
             return ExitCode::from(REFUSED);
         }
         Ok(Asked::Models) => {

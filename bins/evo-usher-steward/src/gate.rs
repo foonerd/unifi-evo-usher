@@ -116,6 +116,9 @@ pub const OF_A_SATELLITE: [(&str, &str); 3] = [
     ("printing.labels", "print_here"),
 ];
 
+/// The shelf and the request a voucher type is put with, and renamed.
+const RENAMING: (&str, &str) = ("issue.counter", "put_type");
+
 /// The shelf and the request that tell which printers a point of issue
 /// prints on.
 const PRINTERS_OFFERED: (&str, &str) = ("printing.labels", "offered");
@@ -390,12 +393,14 @@ async fn admitted(gate: Gate, mut request: Request, next: Next) -> Response {
     // request, where it is done.
     let mut changes_the_site = false;
     let mut changes_the_types = false;
+    let mut renamed: Option<(String, String)> = None;
     if asks_a_shelf {
         let (read, of, typed) = match of_a_shelf(request, &who).await {
             Ok(read) => read,
             Err(refused) => return *refused,
         };
         request = read;
+        renamed = typed.renamed.clone();
         if let (Asking::Satellite { id, .. }, Some(of)) = (&who, &of) {
             let asks = (of.0.as_str(), of.1.as_str());
             if asks == HANDING_DEFAULT || asks == HANDING_TYPE {
@@ -477,6 +482,11 @@ async fn admitted(gate: Gate, mut request: Request, next: Next) -> Response {
         gate.usher.site_changed().await;
     }
     if changes_the_types && answer.status() == StatusCode::OK {
+        // The satellites given a type that was renamed are given it under
+        // its new name.
+        if let Some((from, to)) = &renamed {
+            gate.usher.type_renamed(from, to);
+        }
         gate.usher.offer_changed().await;
     }
 
@@ -834,6 +844,20 @@ async fn of_a_shelf(
             Value::String(STANDARD.encode(Value::Object(handing).to_string())),
         );
     }
+    // Where a voucher type is renamed, which name it had and which it
+    // is given, for the satellites given it to follow.
+    if asking == RENAMING {
+        typed.renamed = asked
+            .get("payload_b64")
+            .and_then(Value::as_str)
+            .and_then(|payload| STANDARD.decode(payload).ok())
+            .and_then(|payload| serde_json::from_slice::<Value>(&payload).ok())
+            .and_then(|put| {
+                let was = put.get("was")?.as_str()?.trim().to_string();
+                let name = put.get("name")?.as_str()?.trim().to_string();
+                (!was.is_empty() && was != name).then_some((was, name))
+            });
+    }
     // Where a voucher is put on paper is the session's to say, as who
     // hands one out is. A satellite prints the voucher it handed out
     // itself, on the printers it was assigned: its request is written
@@ -907,6 +931,9 @@ struct Typed {
     pin: Option<String>,
     /// The voucher type, where the request asks for a named one.
     named: Option<String>,
+    /// The name a voucher type had and the one it is given, where a
+    /// request renames one.
+    renamed: Option<(String, String)>,
 }
 
 /// A bearer as a request presents it.
@@ -1876,6 +1903,7 @@ mod tests {
             Typed {
                 pin: Some("480273".to_string()),
                 named: Some("Week".to_string()),
+                renamed: None,
             }
         );
         assert_eq!(

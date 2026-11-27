@@ -246,9 +246,8 @@ export function types(element, context) {
         ? typed({ name: "", minutes: 1440, guests: 1 })
         : typed(type),
     );
-    // A type is known by its name, here and on the controller, where its
-    // vouchers carry it: the name of a type that is there stays.
-    name.readOnly = editing !== null;
+    // A type that is there is renamed where it stands: the hint says
+    // what a new name keeps, and what keeps the old one.
     naming.textContent = editing === null ? say("types.name_hint") : say("types.name_stays");
     form.hidden = false;
     add.hidden = true;
@@ -313,12 +312,20 @@ export function types(element, context) {
       return;
     }
     const adding = editing === null;
+    // A type that is given another name is sent with the name it had.
+    const was = adding || editing === type.name ? null : editing;
     try {
-      const saved = await ask("put_type", type);
+      const saved = await ask("put_type", was === null ? type : { ...type, was });
       const called = saved?.type?.name ?? type.name;
-      known = [...known, called];
+      known = [...known.filter((one) => one !== was), called];
       close();
-      tell(adding ? say("types.added", { name: called }) : say("types.saved", { name: called }));
+      tell(
+        adding
+          ? say("types.added", { name: called })
+          : was !== null
+            ? say("types.renamed", { was, name: called })
+            : say("types.saved", { name: called }),
+      );
     } catch (why) {
       tell(words(why), true);
     }

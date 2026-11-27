@@ -1,0 +1,79 @@
+# A satellite of the usher as a service, on an address of its own: the
+# satellite's screen, served to any browser that opens the address, on
+# HTTP (port 80) and HTTPS (port 443). It is adopted once, by the code it
+# shows in its log and on its page, on the usher's page Satellites, and
+# is then that satellite for every browser: a screen needs no adopting,
+# and keeps nothing that lets anyone in.
+#
+# It is the usher's own image, run as `evo-usher-station satellite`. It
+# asks the unit over HTTPS, and believes it by the unit's own authority,
+# taken from the unit once:
+#
+#   docker cp usher:/var/lib/evo/state/https/ca.crt ./unit-ca.crt
+#
+# into the folder of this project, beside a file `.env` with the values
+# below. Two satellites, as a guest's and a front desk's, are two
+# projects of this file, each with its name and its address.
+#
+#   USHER_VERSION       the version to run, the unit's own
+#   SATELLITE_NAME      the container's name (default satellite)
+#   SATELLITE_ADDRESS   its address on the network below
+#   SATELLITE_NETWORK   the network it stands on, a macvlan made once
+#                       on the machine (default lan)
+#   USHER_UNIT          the unit's address, as https://192.0.2.10:8443
+#   STATION_NAMES       the names its own certificate carries, as
+#                       guest.example.lan (default localhost)
+#
+# The site's own certificate takes the place of the one the satellite
+# makes itself: the lines of STATION_CERTIFICATE and STATION_KEY, and of
+# the two files, are taken in.
+services:
+  satellite:
+    image: ${USHER_IMAGE:-ghcr.io/foonerd/unifi-evo-usher}:${USHER_VERSION:?name the version of the usher, as USHER_VERSION}
+    container_name: ${SATELLITE_NAME:-satellite}
+    hostname: ${SATELLITE_NAME:-satellite}
+    entrypoint: ["/opt/evo/bin/evo-usher-station", "satellite"]
+    restart: unless-stopped
+    environment:
+      STATION_UNIT: ${USHER_UNIT:?name the unit, as USHER_UNIT=https://192.0.2.10:8443}
+      STATION_UNIT_AUTHORITY: /etc/usher/unit-ca.crt
+      STATION_NAMES: ${STATION_NAMES:-localhost}
+      # STATION_CERTIFICATE: /etc/usher/site.crt
+      # STATION_KEY: /etc/usher/site.key
+    # Ports 80 and 443 for the account the image runs as, in the
+    # container's own network and nowhere else.
+    sysctls:
+      - net.ipv4.ip_unprivileged_port_start=0
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      # What it keeps: its secret, and the certificate it makes itself.
+      - kept:/var/lib/evo
+      - ./unit-ca.crt:/etc/usher/unit-ca.crt:ro
+      # - ./site.crt:/etc/usher/site.crt:ro
+      # - ./site.key:/etc/usher/site.key:ro
+    healthcheck:
+      test: ["CMD", "/opt/evo/bin/evo-usher-station", "satellite", "--healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    networks:
+      lan:
+        ipv4_address: ${SATELLITE_ADDRESS:?give the satellite its address, as SATELLITE_ADDRESS}
+
+networks:
+  lan:
+    name: ${SATELLITE_NETWORK:-lan}
+    external: true
+
+volumes:
+  kept:

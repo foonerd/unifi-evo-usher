@@ -1492,8 +1492,8 @@ fn an_administrator_defines_the_voucher_types_the_front_desk_is_offered() {
         r#"widget("usher.counter").querySelector("button.usher-type strong")?.textContent === "Day guest""#,
     );
 
-    // A type is edited: the form opens with what the type is, its name
-    // stays, and what is saved is what the counter offers.
+    // A type is edited: the form opens with what the type is, and what
+    // is saved is what the counter offers.
     browser.act(&press("Edit Day guest"));
     assert_eq!(
         browser.look(
@@ -1514,7 +1514,7 @@ fn an_administrator_defines_the_voucher_types_the_front_desk_is_offered() {
         json!({
             "open": true,
             "heading": "Edit Day guest",
-            "name": ["Day guest", true],
+            "name": ["Day guest", false],
             "lasts": ["1", "days"],
             "devices": "1",
             "chosen": [false, false],
@@ -1533,6 +1533,51 @@ fn an_administrator_defines_the_voucher_types_the_front_desk_is_offered() {
             "name": "Day guest", "minutes": 2880, "guests": 1,
             "megabytes": null, "down_kbps": null, "up_kbps": null,
         })
+    );
+
+    // A type is renamed where it stands: its place, its terms, whether it
+    // is enabled and the default stay with it; a name another type has is
+    // refused in words, and nothing changes. It is given its name back.
+    let first_row = r#"return [...widget("usher.types").querySelectorAll("tbody tr")].map((row) => row.cells[0].textContent);"#;
+    let before = browser.look(first_row);
+    let default_before =
+        steward.ask("issue.counter", "types", json!({}))["default"].clone();
+    browser.act(&press("Edit Day guest"));
+    browser.act(&type_form(json!({ "name": "Day pass" }), true));
+    browser.wait(
+        "the type under its new name, in its place",
+        r#"widget("usher.types").querySelectorAll("tbody tr")[0].cells[0].textContent === "Day pass""#,
+    );
+    assert_eq!(
+        browser.look(said),
+        json!(["Day guest is now called Day pass.", false])
+    );
+    let told = steward.ask("issue.counter", "types", json!({}));
+    assert_eq!(told["types"][0]["name"], "Day pass", "{told}");
+    assert_eq!(told["types"][0]["minutes"], 2880, "{told}");
+    if default_before == "Day guest" {
+        assert_eq!(told["default"], "Day pass", "{told}");
+    }
+    let others = told["types"].as_array().unwrap().len();
+    assert!(others > 1, "{told}");
+    let second = told["types"][1]["name"].as_str().unwrap().to_string();
+    browser.act(&press("Edit Day pass"));
+    browser.act(&type_form(json!({ "name": second }), true));
+    browser.wait(
+        "the refusal of a name another type has",
+        &format!(
+            "widget(\"usher.types\").querySelector(\".usher-said\").textContent.includes(\"There is a voucher type {second} already\")"
+        ),
+    );
+    browser.act(&type_form(json!({ "name": "Day guest" }), true));
+    browser.wait(
+        "the type under its name again",
+        r#"widget("usher.types").querySelectorAll("tbody tr")[0].cells[0].textContent === "Day guest""#,
+    );
+    assert_eq!(browser.look(first_row), before);
+    assert_eq!(
+        steward.ask("issue.counter", "types", json!({}))["default"],
+        default_before
     );
 
     // The page speaks of adding, saving, deleting, enabling and the

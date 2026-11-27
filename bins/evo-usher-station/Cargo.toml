@@ -11,6 +11,8 @@ repository.workspace = true
 evo-usher-about = { path = "../../crates/about" }
 evo-usher-printer = { path = "../../crates/printer" }
 evo-usher-render = { path = "../../crates/render" }
+evo-usher-satellite = { path = "../../crates/satellite" }
+tokio = { version = "1", features = ["rt-multi-thread"] }
 
 [lints]
 workspace = true

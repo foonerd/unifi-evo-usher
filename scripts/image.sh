@@ -45,6 +45,7 @@ commit=""
 evo_core=""
 for arch in $arches; do
   [[ -x "out/$arch/bin/$SERVICE" ]] || { echo "image: out/$arch/bin/$SERVICE is missing; build '$arch' first (scripts/build.sh $arch)" >&2; exit 1; }
+  [[ -x "out/$arch/bin/evo-usher-station" ]] || { echo "image: out/$arch/bin/evo-usher-station is missing; build '$arch' first (scripts/build.sh $arch)" >&2; exit 1; }
   built=$(sed -n 's/^ *"commit": "\(.*\)",$/\1/p' "out/$arch/build.json")
   [ -n "$built" ] || { echo "image: out/$arch/build.json names no commit" >&2; exit 1; }
   [ -z "$commit" ] || [ "$commit" = "$built" ] || { echo "image: out/$arch is built from $built, another from $commit" >&2; exit 1; }
@@ -56,6 +57,11 @@ for arch in $arches; do
   [ -z "$evo_core" ] || [ "$evo_core" = "$stands_on" ] || { echo "image: out/$arch stands on evo-core $stands_on, another on $evo_core" >&2; exit 1; }
   evo_core=$stands_on
   unit_tree "out/$arch/bin/$SERVICE" "$context/$arch/rootfs"
+  # The station beside the steward: the same image runs a satellite as a
+  # service, `evo-usher-station satellite`, with the licence of the
+  # typeface the station carries.
+  install -D -m 755 "out/$arch/bin/evo-usher-station" "$context/$arch/rootfs/opt/evo/bin/evo-usher-station"
+  install -D -m 644 crates/render/assets/fonts/OFL.txt "$context/$arch/rootfs/usr/share/doc/evo-usher-station/OFL.txt"
   # Where evo looks for its socket; a machine has the same link.
   mkdir -p "$context/$arch/rootfs/var"
   ln -s /run "$context/$arch/rootfs/var/run"

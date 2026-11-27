@@ -1,7 +1,7 @@
 //! The reserve of vouchers ready to hand out, as a plugin of the evo
 //! steward: a singleton respondent on the `stock.reserve` shelf.
 //!
-//! It answers five requests, each with a JSON payload:
+//! It answers six requests, each with a JSON payload:
 //!
 //! - `put`: `{"type": "...", "vouchers": [{"id": "...", "code": "..."}]}`
 //!   adds vouchers of a type and answers `{"added": n}`.
@@ -12,6 +12,8 @@
 //!   "..."}]}}`, the vouchers themselves, oldest first.
 //! - `release`: `{"id": "..."}` gives a held voucher up without handing
 //!   it out and answers `{"released": bool}`.
+//! - `rename`: `{"from": "...", "to": "..."}` holds what is held for a
+//!   type under its new name, and answers `{"moved": n}`.
 //!
 //! A refusal is given under a code, as its subclass, beside its words:
 //! `not_as_asked`, `not_kept` or `unknown_request`.
@@ -78,6 +80,12 @@ struct Release {
     id: String,
 }
 
+#[derive(Deserialize)]
+struct Rename {
+    from: String,
+    to: String,
+}
+
 fn refused(why: impl std::fmt::Display) -> PluginError {
     PluginError::Permanent(why.to_string())
 }
@@ -109,6 +117,7 @@ impl Plugin for StockPlugin {
                         "count".to_string(),
                         "held".to_string(),
                         "release".to_string(),
+                        "rename".to_string(),
                     ],
                     course_correct_verbs: vec![],
                     accepts_custody: false,
@@ -195,6 +204,14 @@ impl Respondent for StockPlugin {
                     let released =
                         reserve.release(&release.id).map_err(not_kept)?;
                     json!({ "released": released })
+                }
+                "rename" => {
+                    let rename: Rename = serde_json::from_slice(&req.payload)
+                        .map_err(not_as_asked)?;
+                    let moved = reserve
+                        .rename(&rename.from, &rename.to)
+                        .map_err(not_kept)?;
+                    json!({ "moved": moved })
                 }
                 other => {
                     return Err(why(

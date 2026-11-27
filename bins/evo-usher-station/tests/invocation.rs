@@ -268,6 +268,7 @@ fn anything_else_is_refused_on_standard_error_with_the_whole_usage() {
         &["printer", "print"][..],
         &["printer", "status"][..],
         &["printer", "test", "--usb"][..],
+        &["satellite", "--now"][..],
     ] {
         let output = run(arguments);
         assert_eq!(
@@ -283,6 +284,7 @@ fn anything_else_is_refused_on_standard_error_with_the_whole_usage() {
             format!("       {PROGRAM} printer models"),
             format!("       {PROGRAM} printer status (--usb DEVICE | "),
             format!("       {PROGRAM} printer test (--usb DEVICE | "),
+            format!("       {PROGRAM} satellite [--healthy]"),
         ] {
             assert!(said.contains(&line), "{arguments:?} said: {said}");
         }
